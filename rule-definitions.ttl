@@ -1,0 +1,26 @@
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX rewriter: <http://mu.semte.ch/graph-rewriter/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/>
+PREFIX rules: <http://data.europa.eu/eurostat/graphs/rules/>
+
+
+rules:ECOICOPs a rewriter:GraphRule;
+               rewriter:predicate skos:broader;
+               rewriter:graph eurostat:ECOICOP .
+
+eurostat:ECOICOP a rewriter:Graph.
+
+rules:SD a rewriter:GraphRule;
+         rewriter:predicate mu:uuid;
+         rewriter:GraphType rules:ScannerData.
+
+rules:ScannerData a rewriter:GraphType.
+
+eurostat:AlbertHeijn a rewriter:Graph;
+                     rewriter:type rules:ScannerData;
+                     rewriter:realm "AlbertHeijn".
+
+eurostat:Lidl a rewriter:Graph;
+                     rewriter:type rules:ScannerData;
+                     rewriter:realm "Lidl"
