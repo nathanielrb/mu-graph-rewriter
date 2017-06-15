@@ -47,50 +47,33 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; RDF Model
 
-(define (get-type subject)
-  (hit-property-cache
-   subject 'Type
-   (car-when
-    (and (not (sparql-variable? subject))
-         (query-with-vars 
-          (type)
-          (s-select 
-           '?type
-           (s-triples `((,subject a ?type)))
-           from-graph: #f)
-          type)))))
-
 (define (get-rule subject predicate)
   (let ((full-predicate (expand-namespace predicate (query-namespaces))))
     (car-when
      (hit-property-cache
       full-predicate (string->symbol (*realm*))
-      (let ((subject-type (get-type subject)))
+      ;;(let ((subject-type (get-type subject)))
+      (let ((subject-type-query (and (not (sparql-variable? subject))
+                                     `((,subject a ?subjectType)))))
         (query-with-vars 
          (graph)
          (s-select 
           '?graph
-          (s-triples `((?graph a rewriter:Graph)
-                       (OPTIONAL (?graph rewriter:realm ,(*realm*)))
-                       
-                       ;; think carefully about this...     
-                       (UNION ((?rule rewriter:predicate ,full-predicate))
-                              ,@(splice-when (and subject-type `(((?rule rewriter:subjectType ,subject-type))))))
+          (s-triples `(
+                       ,@(splice-when subject-type-query)
+                       (GRAPH ,(*default-graph*)
+                              ((?graph a rewriter:Graph)
+                               (OPTIONAL (?graph rewriter:realm ,(*realm*)))
+                               
+                               (UNION ((?rule rewriter:predicate ,full-predicate))
+                                      ,@(splice-when (and subject-type-query
+                                                          `(((?rule rewriter:subjectType ?subjectType))))))
                    
-                   (UNION ((?graph rewriter:type ?type)
-                           (?rule rewriter:graphType ?type))
-                          ((?rule rewriter:graph ?graph))))))
+                               (UNION ((?graph rewriter:type ?type)
+                                       (?rule rewriter:graphType ?type))
+                                      ((?rule rewriter:graph ?graph)))))))
+          from-graph: #f)
          graph))))))
-
-(define u (parse-query ;; (car (lex QueryUnit err "
-"PREFIX dc: <http://schema.org/dc/> 
-PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-
-DELETE WHERE {
-   ?a mu:uuid ?b . ?c mu:uuid ?e . <http://data.europa.eu/eurostat/graphs/rules/ECOICOPs> mu:title ?h
-  } 
-
-"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Rewriting
@@ -187,5 +170,13 @@ DELETE WHERE {
 
 (*sparql-endpoint* "http://172.31.63.185:8890/sparql")
 
-                  
+(define u (parse-query ;; (car (lex QueryUnit err "
+"PREFIX dc: <http://schema.org/dc/> 
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+
+DELETE WHERE {
+   ?a mu:uuid ?b . ?c mu:uuid ?e . <http://data.europa.eu/eurostat/graphs/rules/ECOICOPs> mu:title ?h
+  } 
+
+"))
 
