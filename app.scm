@@ -1,22 +1,31 @@
-(use s-sparql s-sparql-parser)
+(use s-sparql s-sparql-parser matchable)
+
+(require-extension sort-combinators)
 
 (define-namespace mu "http://mu.semte.ch/vocabularies/core/") 
 
-(define *rules* '(((_ mu:uuid) ?graph1)))
-
 (define query-namespaces (make-parameter (*namespaces*)))
+
+(define (PrefixDecl? decl) (equal? (car decl) 'PREFIX))
+
+(define (BaseDecl? decl) (equal? (car decl) 'BASE))
+
+(define (remove-trailing-char sym #!optional (len 1))
+  (let ((s (symbol->string sym)))
+    (string->symbol
+     (substring s 0 (- (string-length s) len)))))
 
 (define (query-prefixes QueryUnit)
   (map (lambda (decl)
          (list (remove-trailing-char (cadr decl))
                (write-uri (caddr decl))))
-       (filter PrefixDecl? (query-prologue QueryUnit))))
+       (filter PrefixDecl? (unit-prologue QueryUnit))))
 
 (define (query-bases QueryUnit)
   (map (lambda (decl)
          (list (cadr decl)
                (write-uri (caddr decl))))
-       (map cdr (filter BaseDecl? (query-prologue QueryUnit)))))
+       (map cdr (filter BaseDecl? (unit-prologue QueryUnit)))))
 
 (define (rule-equal? subject predicate rule)
   (match-let
@@ -41,6 +50,10 @@
         `(GRAPH ,graph ,triple)
         triple)))
 
+(define (graph-of group)
+  (and (equal? (car group) 'GRAPH)
+       (cadr group)))
+
 (define (join-graphs groups)
   (join
    (map (lambda (sorted-group)
@@ -54,22 +67,39 @@
                  (string<= (->string (or (graph-of a) ""))
                            (->string (or (graph-of b) "")))))))))
 
-(define (rewrite group)
+(define (rewrite-quads group)
   (case (car group)
-    ((WHERE) 
-     (cons (car group) (join-graphs (map rewrite (cdr group)))))
+    ((WHERE INSERT DELETE 
+            |DELETE WHERE| |DELETE DATA| |INSERT WHERE|)
+     (cons (car group) (join-graphs (join (map rewrite-quads (cdr group))))))
     ((|@()| |@[]| MINUS OPTIONAL UNION)
-     (cons (car group) (join-graphs (map rewrite (cdr group)))))
+     (cons (car group) (join-graphs (join (map rewrite-quads (cdr group))))))
     ((GRAPH) (list (append (take group 2)
-                           (join (map rewrite (cddr group))))))
+                           (join (map rewrite-quads (cddr group))))))
     (else (if (pair? (car group)) ;; list of triples
-              (join-graphs (join (map rewrite group)))
+              (join-graphs (join (map rewrite-quads group)))
               (map add-graph (expand-triple group)))))) ;; triplesamesubject
 
-(define (rewrite-query query)
-  (parameterize ((query-namespaces (query-prefixes t)))
+;; transform WITH expressions into explicit Graph scope
+;; (for Update only?)
+(define (rewrite-query QueryUnit)
+  (parameterize ((query-namespaces (query-prefixes QueryUnit)))
     (map (lambda (unit)
            (case (car unit)
-             ((@Query) (cons '@Query (rewrite (query-where query))))
+             ((@Query @Update) (cons (car unit)
+                                     (map (lambda (part)
+                                            (case (car part)
+                                              ((WHERE INSERT DELETE 
+                                                      |DELETE WHERE| |DELETE DATA| |INSERT WHERE|)
+                                               (rewrite-quads part))
+                                              (else part)))
+                                          (cdr unit))))
              (else unit)))
-         (alist-ref '@QueryUnit query))))
+         (alist-ref '@Unit QueryUnit))))
+
+;;; testing
+
+(define *rules* '(((_ mu:uuid) ?graph1)
+                  ((_ _) ?defaultGraph)))
+                  
+
