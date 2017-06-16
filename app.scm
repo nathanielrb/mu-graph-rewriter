@@ -7,168 +7,164 @@
 
 (*default-graph* '<http://mu.semte.ch/graph-rewriter/>)
 
+(define *rules-graph* (make-parameter '<http://mu.semte.ch/graph-rewriter/>))
+
 (define query-namespaces (make-parameter (*namespaces*)))
 
 (define *realm* (make-parameter #f))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Lisp Model (deprecated)
-
-(define *rules* (make-parameter '()))
-
-(define *graph-types* (make-parameter '()))
-
-(define (rule-equal? subject predicate rule)
-  (match-let
-      ((((rule-subject rule-predicate) graph-rule) rule))
-    (and
-     (or (equal? rule-subject '_) 
-         (equal? (expand-namespace rule-subject)
-                 (expand-namespace subject (query-namespaces))))
-     (or (equal? rule-predicate '_) 
-         (equal? (expand-namespace rule-predicate)
-                 (expand-namespace predicate (query-namespaces))))
-     (match graph-rule
-       ((`graph graph) graph)
-       ((`graphType graph-type) 
-        (alist-ref (*realm*) (alist-ref graph-type (*graph-types*))))))))
-
-(define (lookup-rule subject predicate #!optional (rules (*rules*)))
-  (and (not (null? rules))
-       (or (rule-equal? subject predicate (car rules))
-           (lookup-rule subject predicate (cdr rules)))))
-
-(*rules* '(((_ mu:uuid) (graph <graph1>))
-           ((_ mu:title) (graphType <ScannerData>))))
-
-(*graph-types* '((<ScannerData> . ((AlbertHeijn . <AlbertHeijn>)
-                                   (Lidl . <Lidl>)))))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; RDF Model
-
-(define (get-rule subject predicate)
-  (let ((full-predicate (expand-namespace predicate (query-namespaces))))
-    (car-when
-     (hit-property-cache
-      full-predicate (string->symbol (*realm*))
-      ;;(let ((subject-type (get-type subject)))
-      (let ((subject-type-query (and (not (sparql-variable? subject))
-                                     `((,subject a ?subjectType)))))
-        (query-with-vars 
-         (graph)
-         (s-select 
-          '?graph
-          (s-triples `(
-                       ,@(splice-when subject-type-query)
-                       (GRAPH ,(*default-graph*)
-                              ((?graph a rewriter:Graph)
-                               (OPTIONAL (?graph rewriter:realm ,(*realm*)))
-                               
-                               (UNION ((?rule rewriter:predicate ,full-predicate))
-                                      ,@(splice-when (and subject-type-query
-                                                          `(((?rule rewriter:subjectType ?subjectType))))))
-                   
-                               (UNION ((?graph rewriter:type ?type)
-                                       (?rule rewriter:graphType ?type))
-                                      ((?rule rewriter:graph ?graph)))))))
-          from-graph: #f)
-         graph))))))
+(define *use-realms?* (make-parameter #f))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Rewriting
 
-(define (PrefixDecl? decl) (equal? (car decl) 'PREFIX))
+(define graph-counter (make-parameter 0))
 
-(define (BaseDecl? decl) (equal? (car decl) 'BASE))
-
-(define (remove-trailing-char sym #!optional (len 1))
-  (let ((s (symbol->string sym)))
-    (string->symbol
-     (substring s 0 (- (string-length s) len)))))
-
-(define (query-prefixes QueryUnit)
-  (map (lambda (decl)
-         (list (remove-trailing-char (cadr decl))
-               (write-uri (caddr decl))))
-       (filter PrefixDecl? (unit-prologue QueryUnit))))
-
-(define (query-bases QueryUnit)
-  (map (lambda (decl)
-         (list (cadr decl)
-               (write-uri (caddr decl))))
-       (map cdr (filter BaseDecl? (unit-prologue QueryUnit)))))
-
- ;; default-graph from WITH **
-(define (add-graph triple)
+(define (graph-statement graph triple)
   (match triple
-    ((subject predicate _)
-      (let ((graph  (and (not (sparql-variable? predicate))
-                         (get-rule subject predicate))))
-        (if graph ;; (or graph default-graph)
-            `(GRAPH ,graph ,triple)
-            triple)))))
+    ((s p o)
+     (let ((rule (new-sparql-variable "rule"))
+           (stype (new-sparql-variable "stype"))
+           (gtype (new-sparql-variable "gtype")))
+       `(((,rule a rewriter:GraphRule)
+          (,graph a rewriter:Graph)
+          ,(if (*use-realms?*)
+               `(UNION ((,rule rewriter:graph ,graph))
+                       ((,rule rewriter:graphType ,gtype)
+                        (,graph rewriter:type ,gtype)
+                        (,graph rewriter:realm ,(*realm*))))
+               `(,rule rewriter:graph ,graph))
+                
+          (UNION ((,rule rewriter:predicate ,p))
+                 ((,rule rewriter:subjectType ,stype)
+                  (,s a ,stype)))))))))
 
-(define (graph-of group)
-  (and (equal? (car group) 'GRAPH)
-       (cadr group)))
+(define (join-cons conses)
+  (fold (lambda (pair accum)
+          (cons (cons (car pair) (car accum))
+                (cons (cdr pair) (cdr accum))))
+        '(() . ())
+        conses))
 
-(define (join-graphs groups)
-  (case (car groups)
-    ((UNION) (list groups))
-    (else (join
-           (map (lambda (sorted-group)
-                  (if (graph-of (car sorted-group))
-                      `((GRAPH ,(graph-of (car sorted-group))
-                               ,@(join (map cddr sorted-group))))
-                      sorted-group))
-                ((group-by graph-of) 
-                 (sort groups
-                       (lambda (a b)
-                         (string<= (->string (or (graph-of a) ""))
-                                   (->string (or (graph-of b) "")))))))))))
+(define (join-cons conses)
+  (fold (lambda (pair accum)
+          (cons (append (car accum)  (car pair))
+                (append (cdr accum) (cdr pair))))
+        '(() . ())
+        conses))
+
+(define (rewrite-triple triple)
+  (let ((graph (new-sparql-variable "graph")))
+    (cons
+     (graph-statement graph triple)
+     `((GRAPH ,graph ,triple)))))
+
+(define (rewrite-triple-path triple-path)
+  (join-cons
+   (map rewrite-triple
+        (expand-triple triple-path))))
 
 (define (rewrite-quads group)
+  (or (rewrite-special group)
+      (join-cons
+       (map rewrite-triple-path
+            (expand-triple group)))))
+
+(define (rewrite-special group)
   (case (car group)
     ((WHERE INSERT DELETE 
-            |DELETE WHERE| |DELETE DATA| |INSERT WHERE|)
-     (cons (car group) (join-graphs (join (map rewrite-quads (cdr group))))))
-    ((|@()| |@[]| MINUS OPTIONAL)
-     (cons (car group) (join-graphs (join (map rewrite-quads (cdr group))))))
-    ((UNION)
-     (cons (car group) (map rewrite-quads (cdr group))))
-    ((GRAPH) (list (append (take group 2)
-                           (join (map rewrite-quads (cddr group))))))
-    (else (if (pair? (car group)) ;; list of triples
-              (join-graphs (join (map rewrite-quads group)))
-              (map add-graph (expand-triple group)))))) ;; triplesamesubject
+             |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
+             |@()| |@[]| MINUS OPTIONAL)
+     (match-let (((graph-statements . quads)
+                  (join-cons (map rewrite-quads (cdr group)))))
+       (cons graph-statements `((,(car group) ,@quads)))))
 
-;; transform WITH expressions into explicit Graph scope
-;; (for Update only?)
+    ((UNION)
+     (match-let (((graph-statements . quads)
+                  (join-cons (map rewrite-quads (cdr group)))))
+       (cons graph-statements `((,(car group) ,@quads)))))
+
+    ;; remove graph statements -- but what about defaults?
+    ((GRAPH)   
+     (match-let (((graph-statements . quads)
+                  (join-cons (map rewrite-quads (cddr group)))))
+       (cons graph-statements quads)))
+
+    ;; list of triples
+    (else (and (pair? (car group))
+               (match-let (((graph-statements . quads)
+                      (join-cons (map rewrite-quads group))))
+                 (cons graph-statements (list quads)))))))
+
+;; but if using realms, restrict graphs on realm...
+(define (all-graphs)
+  (query-with-vars 
+         (graph)
+         (s-select 
+          '?graph
+          (s-triples `((?graph a rewriter:Graph))))
+         graph))
+
+(define (replace-dataset)
+  `((@Dataset
+     (FROM ,(*rules-graph*))
+     ,@(map (lambda (graph) 
+              `(FROM ,graph))
+            (all-graphs)))))
+
 (define (rewrite QueryUnit #!optional realm)
-  (parameterize ((query-namespaces (query-prefixes QueryUnit))
-                 (*realm* realm))
     (map (lambda (unit)
            (case (car unit)
-             ((@Query @Update)
+             ((@Query) ;; should be redundant except for dataset differences
               (cons (car unit)
                     (map (lambda (part)
                            (case (car part)
-                             ((WHERE INSERT DELETE 
-                                     |DELETE WHERE| |DELETE DATA| |INSERT WHERE|)
-                              (rewrite-quads part))
-                             (else part)))
+                             ((@Dataset) (replace-dataset))
+                              
+                             ((WHERE)
+                              (match-let (((graph-statements . ((`WHERE . quads)))
+                                           (rewrite-special part)))
+                                `(WHERE ,@quads 
+                                        (GRAPH ,(*rules-graph*) ,@graph-statements))))
+                              (else part)))
                          (cdr unit))))
-             (else unit)))
-         (alist-ref '@Unit QueryUnit))))
+             ((@Update) ;; also @Query **
+              (cons (car unit)
+                    (match-let (((graph-statements . quads-and-others)
+                           (join-cons
+                            (map (lambda (part)
+                                   (case (car part)
+                                     ((WHERE INSERT DELETE 
+                                             |DELETE WHERE| |DELETE DATA| |INSERT WHERE|)
+                                      (rewrite-special part))
+                                     (else (cons '() (list part)))))
+                                 (cdr unit)))))
+                      (map (lambda (pair)
+                             (case (car pair)
+                               ((@Dataset) `(WITH ,(*rules-graph*)))
+                               ((WHERE) `(WHERE ,(cdr pair) 
+                                                (GRAPH ,(*rules-graph*) ,@graph-statements)))
+                               (else pair)))
+                           quads-and-others))))
 
+             (else unit)))
+         (alist-ref '@Unit QueryUnit)))
 
 ;;; testing
 
 (define-namespace skos "http://www.w3.org/2004/02/skos/core#")
 (define-namespace eurostat "http://data.europa.eu/eurostat/")
 
-(*sparql-endpoint* "http://172.31.63.185:8890/sparql")
+;(*sparql-endpoint* "http://172.31.63.185:8890/sparql")
+
+(define v (parse-query "PREFIX pre: <http://www.home.com/> 
+                  PREFIX rdf: <http://www.gooogle.com/> 
+
+WITH <http://www.google.com/>
+DELETE { ?a mu:uuid ?b . ?l ?m ?o }
+WHERE {
+  ?s ?p ?o . ?x ?y ?z
+}"))
 
 (define u (parse-query ;; (car (lex QueryUnit err "
 "PREFIX dc: <http://schema.org/dc/> 
@@ -178,5 +174,28 @@ DELETE WHERE {
    ?a mu:uuid ?b . ?c mu:uuid ?e . <http://data.europa.eu/eurostat/graphs/rules/ECOICOPs> mu:title ?h
   } 
 
+"))
+
+(define s (parse-query "PREFIX pre: <http://www.home.com/> 
+                  PREFIX rdf: <http://www.gooogle.com/> 
+SELECT ?a ?a
+FROM <http://www.google.com/>
+FROM NAMED <http://www.google.com/>  
+  WHERE {
+     GRAPH ?g { ?s ?p ?o }
+
+  } 
+"))
+
+(define t (parse-query "PREFIX pre: <http://www.home.com/> 
+                  PREFIX rdf: <http://www.gooogle.com/> 
+SELECT ?a ?a
+FROM <http://www.google.com/>
+FROM NAMED <http://www.google.com/>  
+  WHERE {
+     OPTIONAL { ?s ?p ?o }
+
+    {?a ?b ?c} UNION { ?d ?e ?f }
+  } 
 "))
 

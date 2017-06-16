@@ -13,7 +13,7 @@ eurostat:ECOICOP a rewriter:Graph.
 
 rules:SD a rewriter:GraphRule;
          rewriter:predicate mu:uuid;
-         rewriter:GraphType rules:ScannerData.
+         rewriter:graphType rules:ScannerData.
 
 rules:ScannerData a rewriter:GraphType.
 
