@@ -49,7 +49,7 @@
 
 (define (type-def triple)
   (match triple
-    ((s `a o) (list s o))
+    ((s `a o) (cons s o))
     (else #f)))
 
 (define (type-defs triples)
@@ -68,6 +68,10 @@
       '()
       (let ((graph (new-sparql-variable "graph"))
 	    (triple (car triples)))
+
+	;; **HERE**
+	;; link graph-statement and bindings
+	
 	(cons (append
 	       (graph-statement graph triple)
 	       `((GRAPH ,graph ,triple)))
