@@ -18,26 +18,79 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Rewriting
 
-(define (graph-statement graph triple)
-  (match triple
-    ((s p o)
-     ;; test if type/pred are literals or variables
-     (let ((rule (new-sparql-variable "rule"))
-           (stype (new-sparql-variable "stype"))
-           (gtype (new-sparql-variable "gtype")))
-       `(GRAPH ,(*rules-graph*) 
-	       (,rule a rewriter:GraphRule)
-	       (,graph a rewriter:Graph)
-	       ,(if (*use-realms?*)
-		    `(UNION ((,rule rewriter:graph ,graph))
-			    ((,rule rewriter:graphType ,gtype)
-			     (,graph rewriter:type ,gtype)
-			     (,graph rewriter:realm ,(*realm*))))
-		    `(,rule rewriter:graph ,graph))
-                
-	       (UNION ((,rule rewriter:predicate ,p))
-		      ((,rule rewriter:subjectType ,stype)
-		       (,s a ,stype))))))))
+(define query-namespaces (make-parameter (*namespaces*)))
+
+(define (PrefixDecl? decl) (equal? (car decl) 'PREFIX))
+
+(define (BaseDecl? decl) (equal? (car decl) 'BASE))
+
+(define (remove-trailing-char sym #!optional (len 1))
+  (let ((s (symbol->string sym)))
+    (string->symbol
+     (substring s 0 (- (string-length s) len)))))
+
+(define (query-prefixes QueryUnit)
+  (map (lambda (decl)
+         (list (remove-trailing-char (cadr decl))
+               (write-uri (caddr decl))))
+       (filter PrefixDecl? (unit-prologue QueryUnit))))
+
+(define (query-bases QueryUnit)
+  (map (lambda (decl)
+         (list (cadr decl)
+               (write-uri (caddr decl))))
+       (map cdr (filter BaseDecl? (unit-prologue QueryUnit)))))
+
+(define (graph-statement graph stype p)
+  (let ((rule (new-sparql-variable "rule"))
+	(gtype (new-sparql-variable "gtype")))
+    `(GRAPH ,(*rules-graph*) 
+	    (,rule a rewriter:GraphRule)
+	    (,graph a rewriter:Graph)
+	    ,(if (*use-realms?*)
+		 `(UNION ((,rule rewriter:graph ,graph))
+			 ((,rule rewriter:graphType ,gtype)
+			  (,graph rewriter:type ,gtype)
+			  (,graph rewriter:realm ,(*realm*))))
+		 `(,rule rewriter:graph ,graph))
+	    
+	    (UNION ((,rule rewriter:predicate ,p))
+		   ((,rule rewriter:subjectType ,stype))))))
+
+(define (get-type subject)
+  (query-unique-with-vars
+   (type)
+   (s-select '?type (s-triples `((,subject a ?type)))
+	     from-graph: #f)
+   type))
+
+;; check!!
+
+(define (get-graph stype p)
+  (car-when
+   (hit-property-cache
+    p (string->symbol (or (*realm*) "_ALL"))
+
+      (query-with-vars 
+       (graph)
+       (s-select 
+	'?graph
+	(s-triples
+	 `((GRAPH ,(*default-graph*)
+		  ((?graph a rewriter:Graph)
+		   
+		   ,@(if (*use-realms?*)
+			 `((?graph rewriter:realm ,(*realm*)))
+			 '()) ;; ??
+		   
+		   (UNION ((?rule rewriter:predicate ,p))
+			  (((?rule rewriter:subjectType ,stype)))))
+		  
+		  (UNION ((?graph rewriter:type ?type)
+			  (?rule rewriter:graphType ?type))
+			 ((?rule rewriter:graph ?graph))))))
+	from-graph: #f)
+       graph))))
 
 (define (special? quad)
   (case (car quad)
@@ -59,23 +112,27 @@
 (define (unify-bindings new-bindings old-bindings)
   (append new-bindings old-bindings)) 
 
-;; should test for:
-;; -- is a type def
-;; -- known type (in bindings
-;; -- literal predicate and/or subject
+;; expand namespaces !
 (define (rewrite-triples triples type-bindings)
   (if (null? triples)
       '()
-      (let ((graph (new-sparql-variable "graph"))
-	    (triple (car triples)))
+      (match (car triples)
+	((s p o) (let ((stype (or (alist-ref s type-bindings)
+				  (and (iri? s) (get-type
+						 (expand-namespace
+						  s (query-namespaces))))
+				  (new-sparql-variable "stype"))))
 
-	;; **HERE**
-	;; link graph-statement and bindings
-	
-	(cons (append
-	       (graph-statement graph triple)
-	       `((GRAPH ,graph ,triple)))
-	      (rewrite-triples (cdr triples) type-bindings)))))
+		   (if (and (iri? p) (iri? stype))
+		       (append `((GRAPH ,(get-graph stype p) (,s ,p ,o)))
+			       (rewrite-triples (cdr triples) (cons (cons s stype)
+								    type-bindings)))
+		       (let ((graph (new-sparql-variable "graph")))
+
+			 (cons (append
+				(graph-statement graph stype p)
+				`((GRAPH ,graph (,s ,p ,o))))
+			       (rewrite-triples (cdr triples) type-bindings)))))))))
 
 (define (rewrite-special group type-bindings)
   (case (car group)
@@ -121,6 +178,7 @@
             (all-graphs)))))
 
 (define (rewrite QueryUnit #!optional realm)
+  (parameterize ((query-namespaces (query-prefixes QueryUnit)))
     (map (lambda (unit)
            (case (car unit)
              ((@Query)
@@ -134,7 +192,7 @@
                          (cdr unit))))
 	     ;; @Update : do WHERE first, pass bindings to DELETE/INSERT
              (else unit)))
-         (alist-ref '@Unit QueryUnit)))
+         (alist-ref '@Unit QueryUnit))))
 
 ;;; testing
 
