@@ -18,84 +18,87 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Rewriting
 
-(define graph-counter (make-parameter 0))
-
 (define (graph-statement graph triple)
   (match triple
     ((s p o)
      (let ((rule (new-sparql-variable "rule"))
            (stype (new-sparql-variable "stype"))
            (gtype (new-sparql-variable "gtype")))
-       `(((,rule a rewriter:GraphRule)
-          (,graph a rewriter:Graph)
-          ,(if (*use-realms?*)
-               `(UNION ((,rule rewriter:graph ,graph))
-                       ((,rule rewriter:graphType ,gtype)
-                        (,graph rewriter:type ,gtype)
-                        (,graph rewriter:realm ,(*realm*))))
-               `(,rule rewriter:graph ,graph))
+       `(GRAPH ,(*rules-graph*) 
+	       (,rule a rewriter:GraphRule)
+	       (,graph a rewriter:Graph)
+	       ,(if (*use-realms?*)
+		    `(UNION ((,rule rewriter:graph ,graph))
+			    ((,rule rewriter:graphType ,gtype)
+			     (,graph rewriter:type ,gtype)
+			     (,graph rewriter:realm ,(*realm*))))
+		    `(,rule rewriter:graph ,graph))
                 
-          (UNION ((,rule rewriter:predicate ,p))
-                 ((,rule rewriter:subjectType ,stype)
-                  (,s a ,stype)))))))))
+	       (UNION ((,rule rewriter:predicate ,p))
+		      ((,rule rewriter:subjectType ,stype)
+		       (,s a ,stype))))))))
 
-(define (join-cons conses)
-  (fold (lambda (pair accum)
-          (cons (cons (car pair) (car accum))
-                (cons (cdr pair) (cdr accum))))
-        '(() . ())
-        conses))
+(define (special? quad)
+  (case (car quad)
+    ((WHERE INSERT DELETE 
+	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
+	    |@()| |@[]| MINUS OPTIONAL UNION GRAPH)
+     #t)
+    (else #f)))
 
-(define (join-cons conses)
-  (fold (lambda (pair accum)
-          (cons (append (car accum)  (car pair))
-                (append (cdr accum) (cdr pair))))
-        '(() . ())
-        conses))
+(define (type-def triple)
+  (match triple
+    ((s `a o) (list s o))
+    (else #f)))
 
-(define (rewrite-triple triple)
-  (let ((graph (new-sparql-variable "graph")))
-    (cons
-     (graph-statement graph triple)
-     `((GRAPH ,graph ,triple)))))
+(define (type-defs triples)
+  (filter values (map type-def triples)))
 
-(define (rewrite-triple-path triple-path)
-  (join-cons
-   (map rewrite-triple
-        (expand-triple triple-path))))
+;; rewrite!
+(define (unify-bindings new-bindings old-bindings)
+  (append new-bindings old-bindings)) 
 
-(define (rewrite-quads group)
-  (or (rewrite-special group)
-      (join-cons
-       (map rewrite-triple-path
-            (expand-triple group)))))
+;; should test for:
+;; -- is a type def
+;; -- known type (in bindings
+;; -- literal predicate and/or subject
+(define (rewrite-triples triples type-bindings)
+  (if (null? triples)
+      '()
+      (let ((graph (new-sparql-variable "graph"))
+	    (triple (car triples)))
+	(cons (append
+	       (graph-statement graph triple)
+	       `((GRAPH ,graph ,triple)))
+	      (rewrite-triples (cdr triples) type-bindings)))))
 
-(define (rewrite-special group)
+(define (rewrite-special group type-bindings)
   (case (car group)
     ((WHERE INSERT DELETE 
              |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
              |@()| |@[]| MINUS OPTIONAL)
-     (match-let (((graph-statements . quads)
-                  (join-cons (map rewrite-quads (cdr group)))))
-       (cons graph-statements `((,(car group) ,@quads)))))
-
+     (cons (car group) (rewrite-quads (cdr group) type-bindings)))
     ((UNION)
-     (match-let (((graph-statements . quads)
-                  (join-cons (map rewrite-quads (cdr group)))))
-       (cons graph-statements `((,(car group) ,@quads)))))
+     (cons (car group) (map (cute rewrite-quads <> type-bindings)  (cdr group))))
 
     ;; remove graph statements -- but what about defaults?
-    ((GRAPH)   
-     (match-let (((graph-statements . quads)
-                  (join-cons (map rewrite-quads (cddr group)))))
-       (cons graph-statements quads)))
+    ((GRAPH)
+     (rewrite-quads (cddr group) type-bindings))
 
     ;; list of triples
-    (else (and (pair? (car group))
-               (match-let (((graph-statements . quads)
-                      (join-cons (map rewrite-quads group))))
-                 (cons graph-statements (list quads)))))))
+    (else #f)))
 
+(define (rewrite-quads quads #!optional (type-bindings '()))
+  (or (rewrite-special quads type-bindings)
+      (let-values (((quads-not-triples triples)
+		    (partition special? (expand-triples quads))))
+	(print "QUADS") (print quads-not-triples) (newline)
+	(print "TRIPLES")(print triples)(newline)(newline)
+	(let ((new-bindings (unify-bindings (type-defs triples)
+					    type-bindings)))
+	  (append ((cute rewrite-triples <> new-bindings)  triples)
+		   (map (cute rewrite-quads <> new-bindings) quads-not-triples))))))
+    
 ;; but if using realms, restrict graphs on realm...
 (define (all-graphs)
   (query-with-vars 
@@ -104,6 +107,8 @@
           '?graph
           (s-triples `((?graph a rewriter:Graph))))
          graph))
+
+(define (all-graphs) '(<http://g1> <http://g2> ))
 
 (define (replace-dataset)
   `((@Dataset
@@ -115,38 +120,16 @@
 (define (rewrite QueryUnit #!optional realm)
     (map (lambda (unit)
            (case (car unit)
-             ((@Query) ;; should be redundant except for dataset differences
+             ((@Query)
               (cons (car unit)
                     (map (lambda (part)
                            (case (car part)
                              ((@Dataset) (replace-dataset))
                               
-                             ((WHERE)
-                              (match-let (((graph-statements . ((`WHERE . quads)))
-                                           (rewrite-special part)))
-                                `(WHERE ,@quads 
-                                        (GRAPH ,(*rules-graph*) ,@graph-statements))))
-                              (else part)))
+                             ((WHERE) (rewrite-quads (cdr part) '()))
+			     (else part)))
                          (cdr unit))))
-             ((@Update) ;; also @Query **
-              (cons (car unit)
-                    (match-let (((graph-statements . quads-and-others)
-                           (join-cons
-                            (map (lambda (part)
-                                   (case (car part)
-                                     ((WHERE INSERT DELETE 
-                                             |DELETE WHERE| |DELETE DATA| |INSERT WHERE|)
-                                      (rewrite-special part))
-                                     (else (cons '() (list part)))))
-                                 (cdr unit)))))
-                      (map (lambda (pair)
-                             (case (car pair)
-                               ((@Dataset) `(WITH ,(*rules-graph*)))
-                               ((WHERE) `(WHERE ,(cdr pair) 
-                                                (GRAPH ,(*rules-graph*) ,@graph-statements)))
-                               (else pair)))
-                           quads-and-others))))
-
+	     ;; @Update : do WHERE first, pass bindings to DELETE/INSERT
              (else unit)))
          (alist-ref '@Unit QueryUnit)))
 
