@@ -21,6 +21,7 @@
 (define (graph-statement graph triple)
   (match triple
     ((s p o)
+     ;; test if type/pred are literals or variables
      (let ((rule (new-sparql-variable "rule"))
            (stype (new-sparql-variable "stype"))
            (gtype (new-sparql-variable "gtype")))
@@ -92,8 +93,6 @@
   (or (rewrite-special quads type-bindings)
       (let-values (((quads-not-triples triples)
 		    (partition special? (expand-triples quads))))
-	(print "QUADS") (print quads-not-triples) (newline)
-	(print "TRIPLES")(print triples)(newline)(newline)
 	(let ((new-bindings (unify-bindings (type-defs triples)
 					    type-bindings)))
 	  (append ((cute rewrite-triples <> new-bindings)  triples)
