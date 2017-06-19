@@ -133,9 +133,9 @@
   (append new-bindings old-bindings)) 
 
 ;; expand namespaces !
-(define (rewrite-triples triples type-bindings)
+(define (rewrite-triples triples type-bindings #!key (statements '()) (in-place? #t) (graph-statements '()) )
   (if (null? triples)
-      '()
+      (values statements graph-statements)
       (match (car triples)
 	((s p o) (let ((stype (or (alist-ref s type-bindings)
 				  (and (iri? s) (get-type
@@ -144,15 +144,31 @@
 				  (new-sparql-variable "stype"))))
 
 		   (if (and (iri? p) (iri? stype))
-		       (append `((GRAPH ,(get-graph stype p) (,s ,p ,o)))
-			       (rewrite-triples (cdr triples) (cons (cons s stype)
-								    type-bindings)))
-		       (let ((graph (new-sparql-variable "graph")))
+		       ;;(append `((GRAPH ,(get-graph stype p) (,s ,p ,o)))
+			 ;;      (rewrite-triples (cdr triples) (cons (cons s stype)
+                       ;; type-bindings)))
+		       (rewrite-triples (cdr triples) 
+                                        (cons (cons s stype) type-bindings)
+                                        statements: (cons `(GRAPH ,(get-graph stype p) (,s ,p ,o))
+                                                            statements)
+                                        in-place?: in-place?
+                                        graph-statements: graph-statements)
 
-			 (cons (append
-				(graph-match-statements graph stype p)
-				`((GRAPH ,graph (,s ,p ,o))))
-			       (rewrite-triples (cdr triples) type-bindings)))))))))
+		       (let* ((graph (new-sparql-variable "graph"))
+                              (new-graph-statements (graph-match-statements graph stype p)))
+
+                         (rewrite-triples (cdr triples) type-bindings 
+                                          statements: (cons (append
+                                                             (if in-place? 
+                                                                 new-graph-statements 
+                                                                 '())
+                                                             `((GRAPH ,graph (,s ,p ,o))))
+                                                            statements)
+			 
+                                          graph-statements: (append
+                                                             new-graph-statements
+                                                             graph-statements)
+                                          in-place?: in-place?))))))))
 
 (define (rewrite-special group type-bindings)
   (case (car group)
@@ -168,9 +184,26 @@
 
     (else #f)))
 
-;; (join (map
-;;   (lambda (triple) (if (equal? 'GRAPH (car triple)) (cddr triple) (list triple)))
-;;    (expand-triples '((a b c) (GRAPH ?g (x y (w o r)))))))
+
+(define (rewrite-special group type-bindings)
+  (case (car group)
+    ((WHERE INSERT DELETE 
+             |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
+             |@()| |@[]| MINUS OPTIONAL)
+     (let-values (((rewritten-quads graph-statements)
+                   (rewrite-quads (cdr group) type-bindings)))
+       (values (cons (car group) rewritten-quads)
+               graph-statements)))
+    ((UNION)
+     (let-values (((rewritten-quads graph-statements)
+                   (map-values/2 (cute rewrite-quads <> type-bindings) (cdr group))))
+       (values (cons (car group) rewritten-quads)
+               graph-statements)))
+
+    ;; ((GRAPH)
+    ;;  (rewrite-quads (cddr group) type-bindings))
+
+    (else #f)))
 
 (define (flatten-graphs triples)
   (join (map (lambda (triple)
@@ -179,17 +212,27 @@
                    (list triple)))
              triples)))
 
-(define (rewrite-quads quads #!optional (type-bindings '()))
+(define (map-values/2 proc lst)
+  (if (null? lst)
+      (values '() '())
+      (let-values (((car-a car-b) (proc (car lst)))
+                   ((cdr-a cdr-b) (map-values/2 proc (cdr lst))))
+        (values (cons car-a cdr-a)
+                (cons car-b cdr-b)))))        
+
+(define (rewrite-quads quads #!optional (type-bindings '()) #!key in-place?)
   (or (rewrite-special quads type-bindings)
       (let-values (((quads-not-triples triples)
 		    (partition special? (expand-triples quads))))
 	(let ((new-bindings (unify-bindings (type-defs triples) type-bindings)))
-	  (append ((cute rewrite-triples <> new-bindings) (flatten-graphs triples))
-                   ;; triples)
-
-;;    (expand-triples '((a b c) (GRAPH ?g (x y (w o r)))))))
-
-		   (map (cute rewrite-quads <> new-bindings) quads-not-triples))))))
+          (let-values (((rewritten-triples graph-statements)
+                        (rewrite-triples (flatten-graphs triples) new-bindings 
+                                         in-place?: in-place?))
+                       ((rewritten-quads quads-graph-statements)
+                        (map-values/2 (cute rewrite-quads <> new-bindings)
+                                      quads-not-triples)))
+            (values (join (append rewritten-triples rewritten-quads))
+                    (append graph-statements quads-graph-statements)))))))
     
 (define (replace-dataset)
   `((@Dataset
@@ -204,20 +247,34 @@
            (case (car unit)
              ((@Query @Update)
               (cons (car unit)
-                    (map (lambda (part)
-                           (case (car part)
-                             ((@Dataset) (replace-dataset))
-                              
-                             ((WHERE DELETE INSERT
-                                     |DELETE DATA| |INSERT DATA|)
-                              (cons (car part) (rewrite-quads (cdr part) '())))
-			     (else part)))
-                         (cdr unit))))
-	     ;; @Update : do WHERE first, pass bindings to DELETE/INSERT
+                    (let* ((where-clause (alist-ref 'WHERE (cdr unit)))
+                           (where-statements (or 
+                                              (and where-clause
+                                                   (rewrite-quads where-clause '()
+                                                                  in-place?: #t))
+                                              '())))
+                      (let-values (((parts graph-statements)
+                                    (map-values/2 (lambda (part)
+                                                    (print (car part))
+                                                    (case (car part)
+                                                      ((WHERE) (values '() '()))
+                                                      ((DELETE INSERT
+                                                               |INSERT DATA| |DELETE DATA|
+                                                               |DELETE WHERE|)
+                                                       (let-values (((rewritten-quads g-statements)
+                                                                     (rewrite-quads (cdr part) '())))
+                                                         (values (cons (car part) rewritten-quads)
+                                                                 g-statements)))
+                                                      (else (values part '()))))
+                                                  (cdr unit))))
+                        ;; but WHERE isn't always last!
+                        (append (reverse (filter pair? parts))
+                                (list (cons 'WHERE (append (list where-statements)
+                                                           (list graph-statements)))))))))
              (else unit)))
          (alist-ref '@Unit QueryUnit))))
 
-;;; testing
+;; testing
 
 (define-namespace skos "http://www.w3.org/2004/02/skos/core#")
 (define-namespace eurostat "http://data.europa.eu/eurostat/")
@@ -285,9 +342,22 @@ PREFIX eurostat: <http://data.europa.eu/eurostat/>
 
 INSERT DATA {
     eurostat:ECOICOP4 a skos:Concept .
-
     eurostat:product1 mu:category eurostat:ECOICOP4 .
   } 
+"))
+
+(define t2c (parse-query "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX graphs: <http://mu.semte.ch/graphs/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/>
+
+INSERT {
+    eurostat:ECOICOP4 a skos:Concept .
+    ?product mu:category eurostat:ECOICOP4 .
+  } 
+WHERE {
+  ?product mu:uuid eurostat:uuid4
+}
 "))
 
 ;;    eurostat:ECOICOP4 mu:uuid \"ecoicop4\" .
