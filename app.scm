@@ -3,17 +3,88 @@
 (require-extension sort-combinators)
 
 (define-namespace mu "http://mu.semte.ch/vocabularies/core/") 
-(define-namespace rewriter "http://mu.semte.ch/graph-rewriter/")
+(define-namespace graphs "http://mu.semte.ch/graphs/")
 
-(*default-graph* '<http://mu.semte.ch/graph-rewriter/>)
+(*default-graph* '<http://mu.semte.ch/graphs>)
 
-(define *rules-graph* (make-parameter '<http://mu.semte.ch/graph-rewriter/>))
+(define *rules-graph* (make-parameter '<http://mu.semte.ch/graphs>))
 
 (define query-namespaces (make-parameter (*namespaces*)))
 
 (define *realm* (make-parameter #f))
 
-(define *use-realms?* (make-parameter #f))
+(define *use-realms?* (make-parameter #t))
+
+(define *cache* (make-hash-table))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Queries
+
+(define (get-type subject)
+  (query-unique-with-vars
+   (type)
+   (s-select '?type (s-triples `((,subject a ?type)))
+	     from-graph: #f)
+   type))
+
+(define (get-graph-query stype p)
+  `((GRAPH ,(*default-graph*)
+           ((?graph a graphs:Graph)
+            
+            ,@(if (*use-realms?*)
+                  `((?graph graphs:realm ,(*realm*)))
+                  '()) ;; ??
+            
+            (UNION ((?rule graphs:predicate ,p))
+                   (((?rule graphs:subjectType ,stype)))))
+           
+           (UNION ((?graph graphs:type ?type)
+                   (?rule graphs:graphType ?type))
+                  ((?rule graphs:graph ?graph))))))
+
+(define (get-graph stype p)
+  (car-when
+   ;;(hit-property-cache
+   ;;  p (string->symbol (or (*realm*) "_ALL")) ;; ** also stype
+   (hit-hashed-cache
+    *cache* (list stype p (or (*realm*) "_ALL"))
+    (query-with-vars 
+     (graph)
+     (s-select 
+      '?graph
+      (s-triples (get-graph-query stype p))
+      from-graph: #f)
+     graph))))
+
+(define (graph-match-statements graph stype p)
+  (let ((rule (new-sparql-variable "rule"))
+	(gtype (new-sparql-variable "gtype")))
+    `(GRAPH ,(*rules-graph*) 
+	    (,rule a graphs:GraphRule)
+	    (,graph a graphs:Graph)
+	    ,(if (*use-realms?*)
+		 `(UNION ((,rule graphs:graph ,graph))
+			 ((,rule graphs:graphType ,gtype)
+			  (,graph graphs:type ,gtype)
+			  (,graph graphs:realm ,(*realm*))))
+		 `(,rule graphs:graph ,graph))
+	    
+	    (UNION ,@(splice-when (and (not (equal? p 'a))
+                                      `(((,rule graphs:predicate ,p)))))
+		   ((,rule graphs:subjectType ,stype))))))
+
+;; but if using realms, restrict graphs on realm...
+(define (all-graphs)
+  (hit-hashed-cache
+   *cache* 'all-graphs
+   (query-with-vars 
+    (graph)
+    (s-select 
+     '?graph
+     (s-triples `((?graph a graphs:Graph))))
+    graph)))
+
+; (define (all-graphs) '(<http://g1> <http://g2> ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Rewriting
@@ -41,62 +112,11 @@
                (write-uri (caddr decl))))
        (map cdr (filter BaseDecl? (unit-prologue QueryUnit)))))
 
-(define (graph-statement graph stype p)
-  (let ((rule (new-sparql-variable "rule"))
-	(gtype (new-sparql-variable "gtype")))
-    `(GRAPH ,(*rules-graph*) 
-	    (,rule a rewriter:GraphRule)
-	    (,graph a rewriter:Graph)
-	    ,(if (*use-realms?*)
-		 `(UNION ((,rule rewriter:graph ,graph))
-			 ((,rule rewriter:graphType ,gtype)
-			  (,graph rewriter:type ,gtype)
-			  (,graph rewriter:realm ,(*realm*))))
-		 `(,rule rewriter:graph ,graph))
-	    
-	    (UNION ((,rule rewriter:predicate ,p))
-		   ((,rule rewriter:subjectType ,stype))))))
-
-(define (get-type subject)
-  (query-unique-with-vars
-   (type)
-   (s-select '?type (s-triples `((,subject a ?type)))
-	     from-graph: #f)
-   type))
-
-;; check!!
-
-(define (get-graph stype p)
-  (car-when
-   (hit-property-cache
-    p (string->symbol (or (*realm*) "_ALL"))
-
-      (query-with-vars 
-       (graph)
-       (s-select 
-	'?graph
-	(s-triples
-	 `((GRAPH ,(*default-graph*)
-		  ((?graph a rewriter:Graph)
-		   
-		   ,@(if (*use-realms?*)
-			 `((?graph rewriter:realm ,(*realm*)))
-			 '()) ;; ??
-		   
-		   (UNION ((?rule rewriter:predicate ,p))
-			  (((?rule rewriter:subjectType ,stype)))))
-		  
-		  (UNION ((?graph rewriter:type ?type)
-			  (?rule rewriter:graphType ?type))
-			 ((?rule rewriter:graph ?graph))))))
-	from-graph: #f)
-       graph))))
-
 (define (special? quad)
   (case (car quad)
     ((WHERE INSERT DELETE 
 	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
-	    |@()| |@[]| MINUS OPTIONAL UNION GRAPH)
+	    |@()| |@[]| MINUS OPTIONAL UNION)
      #t)
     (else #f)))
 
@@ -130,7 +150,7 @@
 		       (let ((graph (new-sparql-variable "graph")))
 
 			 (cons (append
-				(graph-statement graph stype p)
+				(graph-match-statements graph stype p)
 				`((GRAPH ,graph (,s ,p ,o))))
 			       (rewrite-triples (cdr triples) type-bindings)))))))))
 
@@ -143,51 +163,54 @@
     ((UNION)
      (cons (car group) (map (cute rewrite-quads <> type-bindings)  (cdr group))))
 
-    ;; remove graph statements -- but what about defaults?
-    ((GRAPH)
-     (rewrite-quads (cddr group) type-bindings))
+    ;; ((GRAPH)
+    ;;  (rewrite-quads (cddr group) type-bindings))
 
-    ;; list of triples
     (else #f)))
+
+;; (join (map
+;;   (lambda (triple) (if (equal? 'GRAPH (car triple)) (cddr triple) (list triple)))
+;;    (expand-triples '((a b c) (GRAPH ?g (x y (w o r)))))))
+
+(define (flatten-graphs triples)
+  (join (map (lambda (triple)
+               (if (equal? 'GRAPH (car triple))
+                   (cddr triple)
+                   (list triple)))
+             triples)))
 
 (define (rewrite-quads quads #!optional (type-bindings '()))
   (or (rewrite-special quads type-bindings)
       (let-values (((quads-not-triples triples)
 		    (partition special? (expand-triples quads))))
-	(let ((new-bindings (unify-bindings (type-defs triples)
-					    type-bindings)))
-	  (append ((cute rewrite-triples <> new-bindings)  triples)
+	(let ((new-bindings (unify-bindings (type-defs triples) type-bindings)))
+	  (append ((cute rewrite-triples <> new-bindings) (flatten-graphs triples))
+                   ;; triples)
+
+;;    (expand-triples '((a b c) (GRAPH ?g (x y (w o r)))))))
+
 		   (map (cute rewrite-quads <> new-bindings) quads-not-triples))))))
     
-;; but if using realms, restrict graphs on realm...
-(define (all-graphs)
-  (query-with-vars 
-         (graph)
-         (s-select 
-          '?graph
-          (s-triples `((?graph a rewriter:Graph))))
-         graph))
-
-(define (all-graphs) '(<http://g1> <http://g2> ))
-
 (define (replace-dataset)
   `((@Dataset
-     (FROM ,(*rules-graph*))
+     (|FROM NAMED| ,(*rules-graph*))
      ,@(map (lambda (graph) 
-              `(FROM ,graph))
+              `(|FROM NAMED| ,graph))
             (all-graphs)))))
 
 (define (rewrite QueryUnit #!optional realm)
   (parameterize ((query-namespaces (query-prefixes QueryUnit)))
     (map (lambda (unit)
            (case (car unit)
-             ((@Query)
+             ((@Query @Update)
               (cons (car unit)
                     (map (lambda (part)
                            (case (car part)
                              ((@Dataset) (replace-dataset))
                               
-                             ((WHERE) (rewrite-quads (cdr part) '()))
+                             ((WHERE DELETE INSERT
+                                     |DELETE DATA| |INSERT DATA|)
+                              (cons (car part) (rewrite-quads (cdr part) '())))
 			     (else part)))
                          (cdr unit))))
 	     ;; @Update : do WHERE first, pass bindings to DELETE/INSERT
@@ -243,6 +266,45 @@ FROM NAMED <http://www.google.com/>
   } 
 "))
 
+(define t2 (parse-query "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX graphs: <http://mu.semte.ch/graphs/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/>
+
+SELECT ?s
+  WHERE {
+    ?s a skos:Concept.
+    ?s ?p ?o
+  } 
+"))
+
+(define t2b (parse-query "PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX graphs: <http://mu.semte.ch/graphs/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/>
+
+INSERT DATA {
+    eurostat:ECOICOP4 a skos:Concept .
+
+    eurostat:product1 mu:category eurostat:ECOICOP4 .
+  } 
+"))
+
+;;    eurostat:ECOICOP4 mu:uuid \"ecoicop4\" .
+
+(define t3 (parse-query "
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX graphs: <http://mu.semte.ch/graphs/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/>
+
+SELECT ?s
+  WHERE {
+    GRAPH <http://google> {
+    ?s mu:category ?category
+  }
+  } 
+"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Calls
@@ -253,3 +315,4 @@ FROM NAMED <http://www.google.com/>
 ;;  (*handlers* `((GET ("test") ,(lambda (b) `((status . "success"))))
 ;;                (GET ("schemes") ,concept-schemes-call)
 
+ 
