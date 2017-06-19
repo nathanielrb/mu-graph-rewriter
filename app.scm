@@ -199,3 +199,13 @@ FROM NAMED <http://www.google.com/>
   } 
 "))
 
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Calls
+
+;; (define (descendance-call relation inverse?)
+;;   (rest-call (scheme-id id)
+
+;;  (*handlers* `((GET ("test") ,(lambda (b) `((status . "success"))))
+;;                (GET ("schemes") ,concept-schemes-call)
+
