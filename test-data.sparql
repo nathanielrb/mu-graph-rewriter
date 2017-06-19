@@ -16,6 +16,12 @@ INSERT DATA {
            graphs:predicate mu:category;
            graphs:graphType graphs:ScannerData.
 
+  eurostat:ids a graphs:Graph.
+  graphs:ids a graphs:GraphRule;
+             graphs:predicate mu:uuid;
+             graphs:graph eurostat:ids.
+               
+
   eurostat:AlbertHeijn a graphs:Graph;
                        graphs:type graphs:ScannerData;
                        graphs:realm "AlbertHeijn".
@@ -50,3 +56,4 @@ INSERT DATA {
   }
 
 }
+
