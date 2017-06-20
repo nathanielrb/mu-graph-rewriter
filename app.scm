@@ -68,13 +68,15 @@
                            (,graph graphs:realm ,(*realm*))))
                   `(,rule graphs:graph ,graph)))
 	    
-      (UNION
-       ((GRAPH ,(*rules-graph*)
+      ;;(UNION
+       (OPTIONAL
+        (,s a ,stype)
+        (GRAPH ,(*rules-graph*)               
                ,(if (equal? p 'a)
-                    `(,rule graphs:predicate rdf:type)
+                     `(,rule graphs:predicate rdf:type)
                     `(,rule graphs:predicate ,p))))
-       ((,s a ,stype)
-        (GRAPH ,(*rules-graph*) (,rule graphs:subjectType ,stype)))))))
+       (OPTIONAL (,s a ,stype)
+        (GRAPH ,(*rules-graph*) (,rule graphs:subjectType ,stype))))))
 
 ;; but if using realms, restrict graphs on realm...
 (define (all-graphs)
@@ -197,19 +199,19 @@
                                               in-place? graph-statements 
                                               type-bindings)))))))
 
-(define (rewrite-special group type-bindings)
+(define (rewrite-special group type-bindings #!key in-place?)
   (case (car group)
     ((WHERE INSERT DELETE 
              |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
              |@()| |@[]| MINUS OPTIONAL)
      (let-values (((rewritten-quads graph-statements t-bindings)
-                   (rewrite-quads (cdr group) type-bindings)))
-       (values (cons (car group) rewritten-quads)
+                   (rewrite-quads (cdr group) type-bindings in-place?: in-place?)))
+       (values (list (cons (car group) rewritten-quads))
                graph-statements
                t-bindings)))
     ((UNION)
      (let-values (((rewritten-quads graph-statements t-bindings)
-                   (map-values/3 (cute rewrite-quads <> type-bindings) (cdr group))))
+                   (map-values/3 (cute rewrite-quads <> type-bindings in-place?: in-place?) (cdr group))))
        (values (cons (car group) rewritten-quads)
                graph-statements
                (join t-bindings))))
@@ -240,17 +242,18 @@
                 (cons car-c cdr-c)))))
 
 (define (rewrite-quads quads #!optional (type-bindings '()) #!key in-place?)
+  (print "QUADS " quads) (newline)
   (if (special? quads)
-      (let-values (((x y z) (rewrite-special quads type-bindings)))
+      (let-values (((x y z) (rewrite-special quads type-bindings in-place?: in-place?)))
         (values x y z))
       (let-values (((quads-not-triples triples)
-		    (partition special? (expand-triples quads))))
+		    (partition special? (flatten-graphs (expand-triples quads)))))
 	(let ((new-bindings (unify-bindings (type-defs triples) type-bindings)))
           (let-values (((rewritten-triples graph-statements triples-t-bindings)
-                        (rewrite-triples (flatten-graphs triples) new-bindings 
+                        (rewrite-triples triples new-bindings 
                                          in-place?: in-place?))
                        ((rewritten-quads quads-graph-statements quads-t-bindings)
-                        (map-values/3 (cute rewrite-quads <> new-bindings)
+                        (map-values/3 (cute rewrite-quads <> new-bindings in-place?: in-place?)
                                       quads-not-triples)))
             (values (join (append rewritten-triples rewritten-quads))
                     (append graph-statements quads-graph-statements)
@@ -260,6 +263,9 @@
 (define (replace-dataset)
   `((@Dataset
      (|FROM NAMED| ,(*rules-graph*))
+     ,@(map (lambda (graph) 
+              `(FROM ,graph))
+            (all-graphs))
      ,@(map (lambda (graph) 
               `(|FROM NAMED| ,graph))
             (all-graphs)))))
@@ -277,8 +283,6 @@
                   (if where-clause
                       (rewrite-quads where-clause '() in-place?: #t)
                       (values '() '() '()))))
-      (print "WHERECLAUSE " where-clause)
-      (print "TYPES: " type-bindings)
       (let-values (((parts graph-statements t-bindings)
                     (map-values/3
                    (lambda (part)
@@ -341,7 +345,6 @@ FROM <http://www.google.com/>
 FROM NAMED <http://www.google.com/>  
   WHERE {
      GRAPH ?g { ?s ?p ?o }
-
   } 
 "))
 
@@ -402,10 +405,11 @@ PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
 PREFIX graphs: <http://mu.semte.ch/graphs/>
 PREFIX eurostat: <http://data.europa.eu/eurostat/>
 
-SELECT ?s
+SELECT *
   WHERE {
     GRAPH <http://google> {
-    ?s mu:category ?category
+    OPTIONAL { ?s mu:category ?category }
+    OPTIONAL { ?t mu:uuid ?id }
   }
   } 
 "))
