@@ -119,13 +119,14 @@
   (case (car quad)
     ((WHERE INSERT DELETE 
 	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
-	    |@()| |@[]| MINUS OPTIONAL UNION)
+	    |@()| |@[]| MINUS OPTIONAL UNION FILTER)
      #t)
     (else #f)))
 
 (define (type-def triple)
   (match triple
-    ((s `a o) (cons s o))
+    ((s `a o) ;;(cons s o))
+     `((,s . ((type . ,o)))))
     (else #f)))
 
 (define (type-defs triples)
@@ -139,7 +140,13 @@
   (match (car triples)
     ((s p o)
      (rewrite-triples (cdr triples)
-                      (cons (cons s stype) type-bindings)
+                      ;; (cons (cons s stype) type-bindings)
+                      ;; fold this into (update..)
+                      (alist-update s
+                                    (update-type-bindings
+                                     (or (alist-ref s type-bindings) '())
+                                     stype p graph)
+                                    type-bindings)
                       statements: (cons `(GRAPH ,(get-graph stype p) (,s ,p ,o))
                                         (append 
                                          statements))
@@ -165,15 +172,16 @@
        (rewrite-triples (cdr triples)
 
                         (alist-update s                
-                                      (update-type-bindings (or (alist-ref s type-bindings) '())
-                                                            stype p graph)
+                                      (update-type-bindings
+                                       (or (alist-ref s type-bindings) '())
+                                       stype p graph)
                                       type-bindings)
                         
                         statements: (cons
                                      (cons 
                                       `(GRAPH ,graph (,s ,p ,o))
                                       (if in-place? 
-                                          (list new-graph-statement)
+                                           new-graph-statement
                                           '()))
                                      statements)
                         graph-statements:  (if bound-graph
@@ -186,7 +194,7 @@
   (if (null? triples)
       (values statements graph-statements type-bindings)
       (match (car triples)
-	((s p o) (let ((stype ;; (or ;; (alist-ref s type-bindings)
+	((s p o) (let ((stype
                         (or (nested-alist-ref type-bindings s 'type)
                             (and (iri? s)
                                  (get-type (expand-namespace s (query-namespaces))))
@@ -215,6 +223,7 @@
        (values (cons (car group) rewritten-quads)
                graph-statements
                (join t-bindings))))
+    ((FILTER) (values (list group) '() '()))
     (else #f)))
 
 (define (flatten-graphs triples)
@@ -242,7 +251,6 @@
                 (cons car-c cdr-c)))))
 
 (define (rewrite-quads quads #!optional (type-bindings '()) #!key in-place?)
-  (print "QUADS " quads) (newline)
   (if (special? quads)
       (let-values (((x y z) (rewrite-special quads type-bindings in-place?: in-place?)))
         (values x y z))
@@ -277,6 +285,9 @@
               `(|USING NAMED| ,graph))
             (all-graphs)))))
 
+(define (extract-all-variables where-clause)
+  (delete-duplicates (filter sparql-variable? (flatten where-clause))))
+
 (define (rewrite-update-unit unit)
   (let ((where-clause (alist-ref 'WHERE (cdr unit))))
     (let-values (((where-statements _ type-bindings)
@@ -296,6 +307,13 @@
                                   '())))
                        ((@Dataset) (values (replace-dataset) '() '()))
                        ((@Using) (values (replace-using) '() '()))
+                       ((SELECT |SELECT DISTINCT| |SELECT REDUCED|)
+                        
+                            (values `(|SELECT DISTINCT|
+                                      ,@(if (equal? (cdr part) '(*))
+                                            (extract-all-variables where-clause)
+                                            (cdr part)))
+                                    '() '()))
                        (else (values part '() '()))))
                    (cdr unit))))
         (alist-update 'WHERE (append where-statements
@@ -405,12 +423,13 @@ PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
 PREFIX graphs: <http://mu.semte.ch/graphs/>
 PREFIX eurostat: <http://data.europa.eu/eurostat/>
 
-SELECT *
+SELECT DISTINCT *
   WHERE {
     GRAPH <http://google> {
     OPTIONAL { ?s mu:category ?category }
     OPTIONAL { ?t mu:uuid ?id }
   }
+  FILTER( ?s < 45)
   } 
 "))
 
