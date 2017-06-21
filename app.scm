@@ -28,19 +28,19 @@
    type))
 
 (define (get-graph-query stype p)
-  `((GRAPH ,(*default-graph*)
-           ((?graph a graphs:Graph)
+  `((GRAPH ,(*rules-graph*)
+          (?graph a graphs:Graph)
             
-            ,@(if (*use-realms?*)
-                  `((?graph graphs:realm ,(*realm*)))
-                  '()) ;; ??
-            
-            (UNION ((?rule graphs:predicate ,p))
-                   (((?rule graphs:subjectType ,stype)))))
+          
+          (?rule graphs:predicate ,p)
+          (?rule graphs:subjectType ,stype)
            
-           (UNION ((?graph graphs:type ?type)
-                   (?rule graphs:graphType ?type))
-                  ((?rule graphs:graph ?graph))))))
+          ,(if (*use-realms?*)
+               `(UNION ((?rule graphs:graphType ?type)
+                        (?graph graphs:type ?type)
+                        (?graph graphs:realm ,(*realm*)))
+                       ((?rule graphs:graph ?graph)))
+                `(?rule graphs:graph ?graph)))))
 
 (define (get-graph stype p)
   (car-when
@@ -58,7 +58,8 @@
   (let ((rule (new-sparql-variable "rule"))
 	(gtype (new-sparql-variable "gtype")))
   ;;  `(GRAPH ,(*rules-graph*) 
-    `((GRAPH ,(*rules-graph*) 
+    `((,s a ,stype)
+      (GRAPH ,(*rules-graph*) 
              (,rule a graphs:GraphRule)
              (,graph a graphs:Graph)
              ,(if (*use-realms?*)
@@ -66,17 +67,12 @@
                           ((,rule graphs:graphType ,gtype)
                            (,graph graphs:type ,gtype)
                            (,graph graphs:realm ,(*realm*))))
-                  `(,rule graphs:graph ,graph)))
-	    
-      ;;(UNION
-       (OPTIONAL
-        (,s a ,stype)
-        (GRAPH ,(*rules-graph*)               
-               ,(if (equal? p 'a)
-                     `(,rule graphs:predicate rdf:type)
-                    `(,rule graphs:predicate ,p))))
-       (OPTIONAL (,s a ,stype)
-        (GRAPH ,(*rules-graph*) (,rule graphs:subjectType ,stype))))))
+                  `(,rule graphs:graph ,graph))
+             ,(if (equal? p 'a)
+                  `(,rule graphs:predicate rdf:type)
+                  `(,rule graphs:predicate ,p))
+             (,rule graphs:subjectType ,stype)))))
+
 
 ;; but if using realms, restrict graphs on realm...
 (define (all-graphs)
@@ -130,7 +126,7 @@
     (else #f)))
 
 (define (type-defs triples)
-  (filter values (map type-def triples)))
+  (join (filter values (map type-def triples))))
 
 ;; rewrite!
 (define (unify-bindings new-bindings old-bindings)
@@ -139,21 +135,24 @@
 (define (rewrite-triple-in-place triples stype statements in-place? graph-statements type-bindings)
   (match (car triples)
     ((s p o)
-     (rewrite-triples (cdr triples)
+     (let ((graph (get-graph stype p)))
+       (rewrite-triples (cdr triples)
                       ;; (cons (cons s stype) type-bindings)
                       ;; fold this into (update..)
-                      (alist-update s
-                                    (update-type-bindings
-                                     (or (alist-ref s type-bindings) '())
-                                     stype p graph)
-                                    type-bindings)
-                      statements: (cons `(GRAPH ,(get-graph stype p) (,s ,p ,o))
-                                        (append 
-                                         statements))
-                      in-place?: in-place?
-                      graph-statements: graph-statements))))
+                        (alist-update s
+                                      (update-type-bindings
+                                       (or (alist-ref s type-bindings) '())
+                                       stype p graph)
+                                      type-bindings)
+                        statements: (cons `((GRAPH ,graph (,s ,p ,o)))
+                                          (append 
+                                           statements))
+                        in-place?: in-place?
+                        graph-statements: graph-statements)))))
 
 (define (update-type-bindings bindings stype p graph)
+  (print "Updating " bindings)
+  (print "with " stype " " p " " graph)
   (alist-update 'type stype
                 (alist-update 'predicates
                               (alist-update p graph 
@@ -199,10 +198,14 @@
                             (and (iri? s)
                                  (get-type (expand-namespace s (query-namespaces))))
                             (new-sparql-variable "stype"))))
+                   (print "here " type-bindings)
 		   (if (and (iri? p) (iri? stype))
-                       (rewrite-triples-in-place triples stype statements
+                       (rewrite-triple-in-place triples stype statements
                                                  in-place? graph-statements 
-                                                 (alist-update s stype type-bindings))
+
+                                                 (if (alist-ref s type-bindings)
+                                                     type-bindings
+                                                     (alist-update s `((type . ,stype)) type-bindings)))
                        (rewrite-triples-query triples stype statements 
                                               in-place? graph-statements 
                                               type-bindings)))))))
@@ -220,7 +223,7 @@
     ((UNION)
      (let-values (((rewritten-quads graph-statements t-bindings)
                    (map-values/3 (cute rewrite-quads <> type-bindings in-place?: in-place?) (cdr group))))
-       (values (cons (car group) rewritten-quads)
+       (values (list (cons (car group) rewritten-quads))
                graph-statements
                (join t-bindings))))
     ((FILTER) (values (list group) '() '()))
@@ -263,6 +266,7 @@
                        ((rewritten-quads quads-graph-statements quads-t-bindings)
                         (map-values/3 (cute rewrite-quads <> new-bindings in-place?: in-place?)
                                       quads-not-triples)))
+            (print "rewritten quads" rewritten-quads)
             (values (join (append rewritten-triples rewritten-quads))
                     (append graph-statements quads-graph-statements)
                     (append (join quads-t-bindings)
@@ -281,6 +285,9 @@
 (define (replace-using)
   `((@Dataset
      (|USING NAMED| ,(*rules-graph*))
+     ,@(map (lambda (graph) 
+              `(USING ,graph))
+            (all-graphs))
      ,@(map (lambda (graph) 
               `(|USING NAMED| ,graph))
             (all-graphs)))))
@@ -411,7 +418,8 @@ INSERT {
   } 
 WHERE {
   ?product mu:category eurostat:ECOICOP2.
-  ?ecoicop mu:uuid \"ecoicop1\"
+  ?ecoicop mu:uuid ?id.
+  FILTER( ?id = \"ecoicop1\")
 }
 "))
 
@@ -433,6 +441,20 @@ SELECT DISTINCT *
   } 
 "))
 
+(define t4 (parse-query "
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX graphs: <http://mu.semte.ch/graphs/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/>
+
+INSERT {
+  ?s skos:notation \"12345\"
+}
+  WHERE {
+    ?s a skos:Concept .
+  } 
+"))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Calls
 
@@ -443,3 +465,4 @@ SELECT DISTINCT *
 ;;                (GET ("schemes") ,concept-schemes-call)
 
  
+(define *rules-graph* (make-parameter '<http://data.europa.eu/eurostat/graphs>))

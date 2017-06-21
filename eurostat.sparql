@@ -1,0 +1,83 @@
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX graphs: <http://mu.semte.ch/graphs/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/>
+PREFIX types: <http://data.europa.eu/eurostat/graphs/types/>
+PREFIX rules: <http://data.europa.eu/eurostat/graphs/rules/>
+PREFIX retailers: <http://data.europa.eu/eurostat/retailers/>
+PREFIX schema: <http://schema.org/>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+
+INSERT DATA {
+ GRAPH eurostat:graphs {
+
+  eurostat:ECOICOPS a graphs:Graph.
+
+  rules:rule1 a graphs:GraphRule;
+     graphs:graph eurostat:ECOICOPS;
+     graphs:subjectType skos:Concept;
+     graphs:predicate rdf:type,
+                      skos:prefLabel, 
+                      skos:broader,
+                      skos:notation.
+
+
+  eurostat:uuid a graphs:Graph.
+
+  rules:rule2 a graphs:GraphRule;
+     graphs:graph eurostat:uuid;
+     graphs:subjectType skos:Concept,
+                        qb:Observation,
+                        schema:Offer,
+                        qb:Dataset;
+     graphs:predicate mu:uuid.
+
+
+  types:ScannerData a graphs:GraphType.
+
+  rules:rule3 a graphs:GraphRule;
+     graphs:graphType types:ScannerData;
+     graphs:subjectType qb:Observation;
+     graphs:predicate rdf:type,
+                      qb:dataSet,
+                      eurostat:product.
+
+  retailers:AlbertHeijn a graphs:Graph;
+                        graphs:type types:ScannerData;
+                        graphs:realm "AlbertHeijn".
+
+  retailers:Lidl a graphs:Graph;
+                 graphs:type types:ScannerData;
+                 graphs:realm "Lidl".
+
+
+  eurostat:products a graphs:Graph.               
+
+  rules:rule4 a graphs:GraphRule;
+     graphs:graph eurostat:products;
+     graphs:subjectType schema:Offer;
+     graphs:predicate rdf:type,
+                      schema:description,
+                      schema:gtin13,
+                      schema:identifier,
+                      schema:category.
+
+
+  eurostat:datasets a graphs:Graph.
+
+  rules:rule5 a graphs:GraphRule;
+     graphs:graph eurostat:datasets;
+     graphs:subjectType qb:DataSet;
+     graphs:predicate rdf:type,
+                      dct:title,
+                      rdfs:label,
+                      dct:issued,
+                      dct:publisher,
+                      qb:structure,
+                      qb:subject.
+  }
+
+}
+
