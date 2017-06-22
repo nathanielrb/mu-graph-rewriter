@@ -43,16 +43,17 @@
                 `(?rule graphs:graph ?graph)))))
 
 (define (get-graph stype p)
-  (car-when
-   (hit-hashed-cache
-    *cache* (list stype p (*realm*))
-    (query-with-vars 
-     (graph)
-     (s-select 
-      '?graph
-      (s-triples (get-graph-query stype p))
-      from-graph: #f)
-     graph))))
+  (parameterize ((*namespaces* (append (*namespaces*) (query-namespaces))))
+    (car-when
+     (hit-hashed-cache
+      *cache* (list stype p (*realm*))
+      (query-with-vars 
+       (graph)
+       (s-select 
+        '?graph
+        (s-triples (get-graph-query stype p))
+        from-graph: #f)
+       graph)))))
 
 (define (graph-match-statements graph s stype p)
   (let ((rule (new-sparql-variable "rule"))
@@ -80,7 +81,10 @@
     (graph)
     (s-select 
      '?graph
-     (s-triples `((?graph a graphs:Graph))))
+     (s-triples `((GRAPH ,(*rules-graph*)
+                         (?graph a graphs:Graph))))
+     from-graph: #f)
+     ;; (s-triples `((?graph a graphs:Graph))))
     graph)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -307,15 +311,13 @@
     (let-values (((where-statements _ bindings)
                   (if where-clause
                       (rewrite-quads where-clause '() in-place?: #t)
-                      (values #f '() '()))))
+                      (values '() '() '()))))
       (let-values (((parts graph-statements _)
                     (map-values/3
                      (cute rewrite-update-unit-part <> bindings where-clause)
                      (cdr unit))))
-        (if where-statements
-            (alist-update 'WHERE (append where-statements (join graph-statements))
-                          (filter pair? parts))
-            (filter pair? parts))))))
+        (alist-update 'WHERE (append where-statements (join graph-statements))
+                      (filter pair? parts))))))
 
 (define (rewrite QueryUnit #!optional realm)
   (parameterize ((query-namespaces (query-prefixes QueryUnit)))
@@ -324,6 +326,10 @@
              ((@Update @Query)
               (cons (car unit)
                     (rewrite-update-unit unit)))
+             ((@Prologue)
+              `(@Prologue
+                (PREFIX |graphs:| <http://mu.semte.ch/graphs/>)
+                ,@(cdr unit)))
              (else unit)))
          (alist-ref '@Unit QueryUnit))))
 
@@ -457,3 +463,143 @@ INSERT {
 
  
 (define *rules-graph* (make-parameter '<http://data.europa.eu/eurostat/graphs>))
+(*default-graph* '<http://data.europa.eu/eurostat/graphs>)
+
+(define q1 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT ((COUNT (DISTINCT ?uuid)) AS ?count) WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s mu:uuid ?uuid; a qb:Observation. 
+}
+}
+"))
+
+(define q2 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT DISTINCT ?uuid WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s mu:uuid ?uuid; a qb:Observation. 
+}
+} GROUP BY ?uuid OFFSET 0 LIMIT 20
+"))
+
+(define q3 (parse-query "
+PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT ?s WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s mu:uuid \"3bea4b42e69a0360905c837ac12b6515\". 
+}
+}
+"))
+
+(define q4 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT * WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+    OPTIONAL {<http://data.europa.eu/eurostat/id/observation/2b8174ad39a111ba85c3544aa4188c5e> eurostat:amount ?amount.}
+}
+}
+
+"))
+
+(define q5 (parse-query "
+PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+INSERT DATA 
+{
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+        <http://data.europa.eu/eurostat/id/offer/594BA222EC3E6C0009000002> a schema:Offer.
+    <http://data.europa.eu/eurostat/id/offer/594BA222EC3E6C0009000002> mu:uuid \"594BA222EC3E6C0009000002\".
+    <http://data.europa.eu/eurostat/id/offer/594BA222EC3E6C0009000002> schema:description \"a bag of coke\".
+}
+}"))
+
+(define q6 (parse-query "
+PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT * WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+    OPTIONAL {<http://data.europa.eu/eurostat/id/offer/594BA222EC3E6C0009000002> schema:description ?description.}
+OPTIONAL {<http://data.europa.eu/eurostat/id/offer/594BA222EC3E6C0009000002> schema:gtin13 ?gtin13.}
+OPTIONAL {<http://data.europa.eu/eurostat/id/offer/594BA222EC3E6C0009000002> schema:identifier ?identifier.}
+}
+}"))

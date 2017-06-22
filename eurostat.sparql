@@ -42,7 +42,8 @@ INSERT DATA {
      graphs:subjectType qb:Observation;
      graphs:predicate rdf:type,
                       qb:dataSet,
-                      eurostat:product.
+                      eurostat:product,
+                      eurostat:amount.
 
   retailers:AlbertHeijn a graphs:Graph;
                         graphs:type types:ScannerData;
