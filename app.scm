@@ -287,6 +287,14 @@
 (define (extract-all-variables where-clause)
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
 
+(define (rewrite-part-name part-name where-statements?)
+  (if (not where-statements?)
+      part-name
+      (case part-name
+        ((|INSERT DATA|) 'INSERT)
+        ((|DELETE DATA| |DELETE WHERE|) 'DELETE)
+        (else part-name))))
+
 (define (rewrite-update-unit-part part bindings where-clause)
   (case (car part)
     ((WHERE) (values '(WHERE) '() '()))
@@ -295,7 +303,8 @@
     ((DELETE INSERT |INSERT DATA| |DELETE DATA| |DELETE WHERE|)
      (let-values (((rewritten-quads graph-statements _)
                    (rewrite-quads (cdr part) bindings)))
-       (values (cons (car part) rewritten-quads)
+       (values (cons (rewrite-part-name (car part) (pair? graph-statements))
+                     rewritten-quads)
                graph-statements
                '())))
     ((SELECT |SELECT DISTINCT| |SELECT REDUCED|)
