@@ -5,6 +5,7 @@
 (define *rules-graph* (make-parameter '<http://data.europa.eu/eurostat/graphs>))
 (*default-graph* '<http://data.europa.eu/eurostat/graphs>)
 
+(vhost-map `((".*" . ,handle-app)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing

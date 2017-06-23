@@ -1,4 +1,6 @@
-(use s-sparql s-sparql-parser mu-chicken-support matchable intarweb)
+(use s-sparql s-sparql-parser mu-chicken-support
+     matchable intarweb spiffy spiffy-request-vars
+     uri-common intarweb medea irregex srfi-13 http-client)
 
 (require-extension sort-combinators)
 
@@ -341,32 +343,33 @@
                       unit))
                (alist-ref '@Unit QueryUnit)))))
 
-(use s-sparql spiffy spiffy-request-vars uri-common intarweb medea irregex srfi-13 matchable http-client)
-
 (define (rewrite-call _)
-  (let* ((query (parse-query ((request-vars source: 'request-body) 'query)))
-         ;; ((request-vars) 'query)) ;; (parse-query body))
+  (let* (($ (request-vars source: 'request-body))
+	 (query (parse-query ($ 'query)))
          (graph-realm (header-value 'mu-graph-realm (request-headers (current-request))))
          (rewritten-query (parameterize ((*realm* graph-realm))
                             (rewrite query))))
 	 
-    (format (current-error-port) "==Rewriting Query==~%~A~%" (write-sparql query))
-    (format (current-error-port) "==Rewriting Result==~%~A~%" (write-sparql rewritten-query))
+    (format (current-error-port) "~%==Rewriting Query==~%~A~%" (write-sparql query))
+    (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
 
     (let-values (((result uri response)
 		  (with-input-from-request 
 		   (make-request method: 'POST
 				 uri: (uri-reference (*sparql-endpoint*))
-				 headers: (headers '((Content-Type application/x-www-form-urlencoded)
-						     (Accept application/json))))
+				 headers: (headers
+					   '((Content-Type application/x-www-form-urlencoded)
+					     (Accept application/json))))
 		   `((query . , (format #f "~A" (write-sparql rewritten-query))))
                    read-json)))
       (close-connection! uri)
-      (format (current-error-port) "==Headers==~%~A" (response-headers response))
-      (format (current-error-port) "==Result==~%~A" result)
-      result)))
+      (let ((headers (headers->list (response-headers response))))
+	(format (current-error-port) "==Virtuoso Headers==~%~A" headers)
+      
+	(format (current-error-port) "~%==Result==~%~A" result)
+	(mu-headers headers)
+	result))))
 
-(*handlers* `((GET ("test") ,(lambda (b) `((status . "success"))))
-              (POST ("sparql") ,rewrite-call)))
+(define-rest-call 'POST '("sparql") rewrite-call)
 
 (*port* 8890)
