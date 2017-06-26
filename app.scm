@@ -54,20 +54,23 @@
 (define (graph-match-statements graph s stype p)
   (let ((rule (new-sparql-variable "rule"))
 	(gtype (new-sparql-variable "gtype")))
-    `((,s a ,stype) ;; ??
-      (GRAPH ,(*default-graph*) 
-             (,rule a graphs:GraphRule)
-             (,graph a graphs:Graph)
-             ,(if (*realm*)
-                  `(UNION ((,rule graphs:graph ,graph))
-                          ((,rule graphs:graphType ,gtype)
-                           (,graph graphs:type ,gtype)
-                           (,graph graphs:realm ,(*realm*))))
-                  `(,rule graphs:graph ,graph))
-             ,(if (equal? p 'a)
-                  `(,rule graphs:predicate rdf:type)
-                  `(,rule graphs:predicate ,p))
-             (,rule graphs:subjectType ,stype)))))
+    `((OPTIONAL
+       ,@(splice-when
+          (and (not (iri? stype))
+               `((,s a ,stype)))) ;; ??
+       (GRAPH ,(*default-graph*) 
+              (,rule a graphs:GraphRule)
+              (,graph a graphs:Graph)
+              ,(if (*realm*)
+                   `(UNION ((,rule graphs:graph ,graph))
+                           ((,rule graphs:graphType ,gtype)
+                            (,graph graphs:type ,gtype)
+                            (,graph graphs:realm ,(*realm*))))
+                   `(,rule graphs:graph ,graph))
+              ,(if (equal? p 'a)
+                   `(,rule graphs:predicate rdf:type)
+                   `(,rule graphs:predicate ,p))
+              (,rule graphs:subjectType ,stype))))))
 
 ;; add restriction on realms...
 (define (all-graphs)
@@ -197,13 +200,13 @@
                                      (graph-match-statements graph s stype p))))
        (rewrite-triples (cdr triples)
                         (update-bindings bindings stype p graph)
-                        statements: (cons
-                                     `((GRAPH ,graph (,s ,p ,o))
+                        statements: (append
+                                     statements
+                                     `(((GRAPH ,graph (,s ,p ,o))
                                        ,@(splice-when
-                                          (and in-place? new-graph-statement)))
-                                     statements)
+                                          (and in-place? new-graph-statement)))))
                         graph-statements:  (if bound-graph graph-statements
-                                               (cons new-graph-statement graph-statements))
+                                               (cons (car new-graph-statement) graph-statements))
                         in-place?: in-place?)))))
 
 (define (rewrite-triples triples bindings
@@ -216,7 +219,7 @@
                             (and (iri? s)
                                  (get-type (expand-namespace s (query-namespaces))))
                             (new-sparql-variable "stype"))))
-		   (if (and (iri? p) (iri? stype))
+		   (if (and (iri? stype)  (iri? p) (get-graph stype p))
                        (rewrite-triple-in-place triples stype statements
                                                  in-place? graph-statements 
 
@@ -231,14 +234,14 @@
 (define (special? quad)
   (case (car quad)
     ((WHERE INSERT DELETE 
-	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE|
+	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA|
 	    |@()| |@[]| MINUS OPTIONAL UNION FILTER)
      #t)
     (else #f)))
 
 (define (rewrite-special group bindings #!key in-place?)
   (case (car group)
-    ((WHERE INSERT DELETE |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |@()| |@[]| MINUS OPTIONAL)
+    ((WHERE INSERT DELETE |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA| |@()| |@[]| MINUS OPTIONAL)
      (let-values (((rewritten-quads graph-statements new-bindings)
                    (rewrite-quads (cdr group) bindings in-place?: in-place?)))
        (values (list (cons (car group) rewritten-quads))
@@ -321,10 +324,15 @@
                     (map-values/3
                      (cute rewrite-update-unit-part <> bindings where-clause)
                      (cdr unit))))
-        (if where-clause
-            (alist-update 'WHERE (append where-statements (join graph-statements))
+        (let ((joined-graph-statements (join graph-statements)))
+          (if (or where-clause graph-statements)
+              (alist-update 'WHERE (append where-statements
+                                           (if (pair? joined-graph-statements)
+                                               `((@Query (SELECT *) 
+                                                       (WHERE ,@joined-graph-statements)))
+                                               '()))
                           (filter pair? parts))
-            (filter pair? parts))))))
+            (filter pair? parts)))))))
 
 (define (rewrite QueryUnit #!optional realm)
   (cons '@Unit
@@ -332,9 +340,17 @@
           (map (lambda (unit)
                  (map (lambda (part)
                         (case (car part)
-                          ((@Update @Query)
+                          ((@Query)
                            (cons (car part)
                                  (rewrite-update-unit part)))
+                          ((@Update)
+                           (cons (car part)
+                                 (rewrite-update-unit 
+                                  (cons 
+                                   '@Update
+                                   (alist-update '@Using ;; make sure there's a Using to replace
+                                                 (alist-ref '@Using (cdr part))
+                                                 (cdr part))))))
                           ((@Prologue)
                            `(@Prologue
                              (PREFIX |graphs:| <http://mu.semte.ch/graphs/>)
@@ -344,12 +360,13 @@
                (alist-ref '@Unit QueryUnit)))))
 
 (define (rewrite-call _)
-  (let* (($ (request-vars source: 'request-body))
-	 (query (parse-query ($ 'query)))
-         (graph-realm (header-value 'mu-graph-realm (request-headers (current-request))))
-         (rewritten-query (parameterize ((*realm* graph-realm))
-                            (rewrite query))))
-	 
+  (let* (($ (request-vars source: 'query-string))
+         (query-string ($ 'query)))
+    (let* ((query (parse-query (or query-string (read-request-body))))
+          (graph-realm (header-value 'mu-graph-realm (request-headers (current-request))))
+          (rewritten-query (parameterize ((*realm* graph-realm))
+                             (rewrite query))))
+
     (format (current-error-port) "~%==Rewriting Query==~%~A~%" (write-sparql query))
     (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
 
@@ -358,18 +375,20 @@
 		   (make-request method: 'POST
 				 uri: (uri-reference (*sparql-endpoint*))
 				 headers: (headers
-					   '((Content-Type application/x-www-form-urlencoded)
-					     (Accept application/json))))
+                                           (append
+                                            (headers->list (request-headers (current-request)))
+                                            '((Content-Type application/x-www-form-urlencoded)
+                                              (Accept application/json)))))
 		   `((query . , (format #f "~A" (write-sparql rewritten-query))))
-                   read-json)))
+                   read-string)))
       (close-connection! uri)
       (let ((headers (headers->list (response-headers response))))
-	(format (current-error-port) "==Virtuoso Headers==~%~A" headers)
-      
 	(format (current-error-port) "~%==Result==~%~A" result)
 	(mu-headers headers)
-	result))))
+	(format #f "~A~" result))))))
 
 (define-rest-call 'POST '("sparql") rewrite-call)
+
+(define-rest-call 'GET '("sparql") rewrite-call)
 
 (*port* 8890)

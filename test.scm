@@ -2,7 +2,9 @@
 
 (load "app.scm")
 
-(define *rules-graph* (make-parameter '<http://data.europa.eu/eurostat/graphs>))
+(access-log "access.log")
+(debug-log "debug.log")
+
 (*default-graph* '<http://data.europa.eu/eurostat/graphs>)
 
 (vhost-map `((".*" . ,handle-app)))
@@ -88,6 +90,7 @@ PREFIX eurostat: <http://data.europa.eu/eurostat/>
 
 INSERT {
    ?product mu:category ?ecoicop .
+   ?product mu:uuid \"12345\" .
   } 
 WHERE {
   ?product mu:category eurostat:ECOICOP2.

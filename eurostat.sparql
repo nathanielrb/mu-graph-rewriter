@@ -31,7 +31,8 @@ INSERT DATA {
      graphs:subjectType skos:Concept,
                         qb:Observation,
                         schema:Offer,
-                        qb:Dataset;
+                        qb:Dataset,
+                        dct:Agent;
      graphs:predicate mu:uuid.
 
 
@@ -78,6 +79,14 @@ INSERT DATA {
                       dct:publisher,
                       qb:structure,
                       qb:subject.
+
+  eurostat:retailers a graphs:Graph.
+
+  rules:rule6 a graphs:GraphRule;
+     graphs:graph eurostat:retailers;
+     graphs:subjectType dct:Agent;
+     graphs:predicate dct:title,
+                      rdf:type.
   }
 
 }
