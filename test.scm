@@ -353,3 +353,59 @@ DELETE {
 }
 
 "))
+
+(define q9 (parse-query "
+PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+INSERT 
+{
+  ?s mu:uuid ?id.
+  ?s schema:description ?desc
+}
+WHERE {
+   GRAPH <http://data.europa.eu/eurostat/temp> {
+                                                ?s a schema:Offer.
+                                                   ?s mu:uuid ?id.
+                                                   ?s schema:description ?desc
+}
+}"))
+
+(define class (parse-query "            SELECT DISTINCT ?GTINdesc ?GTIN ?ISBA ?ISBAUUID ?ESBA ?ESBAdesc ?UUID ?quantity ?unit ?training
+	        FROM <http://data.europa.eu/eurostat/temp>
+            FROM <http://data.europa.eu/eurostat/ECOICOP>
+	        WHERE {
+                ?obs eurostat:product ?offer.
+                ?offer a schema:Offer;
+                    semtech:uuid ?UUID;
+                    schema:description ?GTINdesc;
+                    schema:gtin13 ?GTIN.
+                OPTIONAL {
+                    ?offer schema:includesObject [
+                        a schema:TypeAndQuantityNode;
+                        schema:amountOfThisGood ?quantity;
+                        schema:unitCode ?unit
+                    ].}
+               OPTIONAL {
+                    ?offer schema:category ?ISBA.
+                    ?ISBA semtech:uuid ?ISBAUUID.
+                    }
+                ?obs eurostat:classification ?ESBA.
+                ?ESBA skos:prefLabel ?ESBAdesc.
+                ?obs qb:dataSet ?dataset.
+                ?dataset dct:publisher <http://data.europa.eu/eurostat/id/organization/publishers>.
+                ?dataset dct:issued \"issueds\".
+                ?obs eurostat:training ?training.
+            }"))

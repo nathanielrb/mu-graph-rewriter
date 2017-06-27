@@ -11,6 +11,11 @@
 
 (define *realm* (make-parameter #f))
 
+(define *rewrite-graph-statements?*
+  (config-param "REWRITE_GRAPH_STATEMENTS" #t))
+
+(define *from/using-graphs* (make-parameter '()))
+
 (define *cache* (make-hash-table))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -124,7 +129,8 @@
      (|FROM NAMED| ,(*default-graph*))
      ,@(map (lambda (graph) 
               `(FROM ,graph))
-            (all-graphs))
+            (append (*from/using-graphs*)
+                    (all-graphs)))
      ,@(map (lambda (graph) 
               `(|FROM NAMED| ,graph))
             (all-graphs)))))
@@ -134,7 +140,8 @@
      (|USING NAMED| ,(*default-graph*))
      ,@(map (lambda (graph) 
               `(USING ,graph))
-            (all-graphs))
+            (append (*from/using-graphs*) 
+                    (all-graphs)))
      ,@(map (lambda (graph) 
               `(|USING NAMED| ,graph))
             (all-graphs)))))
@@ -235,7 +242,7 @@
   (case (car quad)
     ((WHERE INSERT DELETE 
 	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA|
-	    |@()| |@[]| MINUS OPTIONAL UNION FILTER)
+	    |@()| |@[]| MINUS OPTIONAL UNION FILTER GRAPH)
      #t)
     (else #f)))
 
@@ -255,33 +262,40 @@
                graph-statements
                (join new-bindings))))
     ((FILTER) (values (list group) '() '()))
+    ((GRAPH) (if (*rewrite-graph-statements?*)
+                 (rewrite-quads (cddr group))
+                 (values (list group) '() '())))
     (else #f)))
 
 (define (flatten-graphs triples)
-  (join (map (lambda (triple)
-               (if (equal? 'GRAPH (car triple))
-                   (cddr triple)
-                   (list triple)))
-             triples)))
+  (print "flattening?? " (*rewrite-graph-statements?*))
+  (if (*rewrite-graph-statements?*)
+      (join (map (lambda (triple)
+                   (if (equal? 'GRAPH (car triple))
+                       (cddr triple)
+                       (list triple)))
+                 triples))
+      triples))
 
 ;; this re-orders the triples and quads, which isn't great...
 (define (rewrite-quads quads #!optional (bindings '()) #!key in-place?)
-  (if (special? quads)
-      (let-values (((x y z) (rewrite-special quads bindings in-place?: in-place?)))
-        (values x y z))
-      (let-values (((quads-not-triples triples)
-		    (partition special? (flatten-graphs (expand-triples quads)))))
-	(let ((new-bindings (unify-bindings (type-defs triples) bindings)))
-          (let-values (((rewritten-triples graph-statements triples-bindings)
-                        (rewrite-triples triples new-bindings 
-                                         in-place?: in-place?))
-                       ((rewritten-quads quads-graph-statements quads-bindings)
-                        (map-values/3 (cute rewrite-quads <> new-bindings in-place?: in-place?)
-                                      quads-not-triples)))
-            (values (join (append rewritten-triples rewritten-quads))
-                    (append graph-statements quads-graph-statements)
-                    (append (join quads-bindings)
-                            triples-bindings)))))))
+  (cond ((special? quads)
+         (let-values (((x y z) (rewrite-special quads bindings in-place?: in-place?)))
+           (values x y z)))
+        (else
+         (let-values (((quads-not-triples triples)
+                       (partition special? (flatten-graphs (expand-triples quads)))))
+           (let ((new-bindings (unify-bindings (type-defs triples) bindings)))
+             (let-values (((rewritten-triples graph-statements triples-bindings)
+                           (rewrite-triples triples new-bindings 
+                                            in-place?: in-place?))
+                          ((rewritten-quads quads-graph-statements quads-bindings)
+                           (map-values/3 (cute rewrite-quads <> new-bindings in-place?: in-place?)
+                                         quads-not-triples)))
+               (values (join (append rewritten-triples rewritten-quads))
+                       (append graph-statements quads-graph-statements)
+                       (append (join quads-bindings)
+                               triples-bindings))))))))
     
 (define (extract-all-variables where-clause)
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
@@ -325,11 +339,12 @@
                      (cute rewrite-update-unit-part <> bindings where-clause)
                      (cdr unit))))
         (let ((joined-graph-statements (join graph-statements)))
-          (if (or where-clause graph-statements)
+          (if (or (pair? where-clause) (pair? (join graph-statements)))
               (alist-update 'WHERE (append where-statements
+                                           ;; Virtuoso workaround, for INSERT
                                            (if (pair? joined-graph-statements)
-                                               `((@Query (SELECT *) 
-                                                       (WHERE ,@joined-graph-statements)))
+                                               `((@Query (SELECT *)
+                                                         (WHERE ,@joined-graph-statements)))
                                                '()))
                           (filter pair? parts))
             (filter pair? parts)))))))
