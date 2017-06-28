@@ -429,6 +429,7 @@ PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 
 DELETE {
   GRAPH <http://data.europa.eu/eurostat/backup> { ?s ?p ?o }
+  ?s ?p ?o
 }
 INSERT {
   ?s ?p ?o

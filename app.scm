@@ -199,7 +199,7 @@
     ((s p o)
      (let ((graph (get-graph stype p)))
        (rewrite-triples (cdr triples)
-                        (update-bindings bindings stype p graph)
+                        (update-bindings bindings s stype p graph)
                         statements: (cons `((GRAPH ,graph (,s ,p ,o)))
                                           statements)
                         graph-statements: graph-statements
@@ -213,7 +213,7 @@
             (new-graph-statement (if bound-graph '()
                                      (graph-match-statements graph s stype p))))
        (rewrite-triples (cdr triples)
-                        (update-bindings bindings stype p graph)
+                        (update-bindings bindings s stype p graph)
                         statements: (append
                                      statements
                                      `(((GRAPH ,graph (,s ,p ,o))
@@ -336,12 +336,12 @@
     ((@Dataset) (values (replace-dataset where-clause) '() '()))
     ((@Using) (values (replace-using where-clause) '() '()))
     ((DELETE INSERT |INSERT DATA| |DELETE DATA| |DELETE WHERE|)
-     (let-values (((rewritten-quads graph-statements _)
+     (let-values (((rewritten-quads graph-statements type-bindings)
                    (rewrite-quads (cdr part) bindings)))
        (values (cons (rewrite-part-name (car part) (pair? graph-statements))
                      rewritten-quads)
                graph-statements
-               '())))
+               type-bindings)))
     ((SELECT |SELECT DISTINCT| |SELECT REDUCED|)
      (values `(,(car part)
                ,@(if (equal? (cdr part) '(*))
@@ -357,14 +357,22 @@
                       (rewrite-quads where-clause '() in-place?: #t)
                       (values '() '() '()))))
       (let-values (((parts graph-statements _)
-                    (map-values/3
-                     (cute rewrite-update-unit-part <> bindings where-clause)
-                     (cdr unit))))
+                    (let loop ((parts (cdr unit))
+                               (rewritten-parts '())
+                               (g-statements '())
+                               (t-bindings bindings))
+                      (if (null? parts)
+                          (values rewritten-parts g-statements t-bindings)
+                          (let-values (((rw gs tbs)
+                                        (rewrite-update-unit-part (car parts) t-bindings where-clause)))
+                            (loop (cdr parts) (append rewritten-parts (list rw))
+                                  (append g-statements (list gs)) tbs))))))
         (let ((joined-graph-statements (join (filter pair? graph-statements))))
           (if (or (pair? where-clause) (pair? (join graph-statements)))
               (alist-update 'WHERE (append where-statements joined-graph-statements)
                             (filter pair? parts))
             (filter pair? parts)))))))
+
 
 (define (rewrite QueryUnit #!optional realm)
   (cons '@Unit
