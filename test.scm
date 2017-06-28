@@ -333,14 +333,14 @@ PREFIX app: <http://mu.semte.ch/app/>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
 DELETE {
-    GRAPH <http://data.europa.eu/eurostat/temp> {
+
         ?s mu:uuid \"594BBE69EC3E6C0009000001\".
     ?s a schema:Offer.
     ?s schema:description ?description.
     ?s schema:gtin13 ?gtin13.
     ?s schema:identifier ?identifier.
     ?s schema:category ?category.
-}
+
 } WHERE {
     GRAPH <http://data.europa.eu/eurostat/temp> {
         ?s mu:uuid \"594BBE69EC3E6C0009000001\".
@@ -409,3 +409,34 @@ WHERE {
                 ?dataset dct:issued \"issueds\".
                 ?obs eurostat:training ?training.
             }"))
+
+(define sync (parse-query "
+PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+DELETE {
+  GRAPH <http://data.europa.eu/eurostat/backup> { ?s ?p ?o }
+}
+INSERT {
+  ?s ?p ?o
+}
+WHERE {
+  GRAPH <http://data.europa.eu/eurostat/backup> {
+    ?s ?p ?o
+  }
+}
+"))
+

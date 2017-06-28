@@ -13,73 +13,82 @@ PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 INSERT DATA {
  GRAPH eurostat:graphs {
 
-  eurostat:ECOICOPS a graphs:Graph.
-
-  rules:rule1 a graphs:GraphRule;
-     graphs:graph eurostat:ECOICOPS;
-     graphs:subjectType skos:Concept;
-     graphs:predicate rdf:type,
-                      skos:prefLabel, 
-                      skos:broader,
-                      skos:notation.
-
-
+  # uuids
   eurostat:uuid a graphs:Graph.
 
   rules:rule2 a graphs:GraphRule;
-     graphs:graph eurostat:uuid;
-     graphs:subjectType skos:Concept,
-                        qb:Observation,
-                        schema:Offer,
-                        qb:Dataset,
-                        dct:Agent;
-     graphs:predicate mu:uuid.
+              graphs:graph eurostat:uuid;
+              graphs:subjectType skos:Concept,
+                                 qb:Observation,
+                                 schema:Offer,
+                                 qb:Dataset,
+                                 dct:Agent,
+                                 eurostat:Date,
+                                 schema:TypeAndQuantityNode;
+              graphs:predicate mu:uuid.
 
+  #####
+  # ECOICOP and ISBA
+  eurostat:ECOICOPS a graphs:Graph.
 
+  rules:rule1 a graphs:GraphRule;
+              graphs:graph eurostat:ECOICOPS;
+              graphs:subjectType skos:Concept;
+              graphs:predicate rdf:type,
+                               skos:prefLabel, 
+                               skos:broader,
+                               skos:notation.
+
+  #####
+  # Product Data
+  eurostat:products a graphs:Graph.               
+
+  rules:rule4 a graphs:GraphRule;
+              graphs:graph eurostat:products;
+              graphs:subjectType schema:Offer;
+              graphs:predicate rdf:type,
+                               schema:description,
+                               schema:gtin13,
+                               schema:identifier,
+                               schema:includesObject,
+                               schema:category.
+
+  #####
+  # Scanner Data
   types:ScannerData a graphs:GraphType.
-
-  rules:rule3 a graphs:GraphRule;
-     graphs:graphType types:ScannerData;
-     graphs:subjectType qb:Observation;
-     graphs:predicate rdf:type,
-                      qb:dataSet,
-                      eurostat:product,
-                      eurostat:amount.
-
-  retailers:AlbertHeijn a graphs:Graph;
-                        graphs:type types:ScannerData;
-                        graphs:realm "AlbertHeijn".
 
   retailers:Lidl a graphs:Graph;
                  graphs:type types:ScannerData;
                  graphs:realm "Lidl".
 
+  rules:rule3 a graphs:GraphRule;
+              graphs:graphType types:ScannerData;
+              graphs:subjectType qb:Observation;
+              graphs:predicate rdf:type,
+                               qb:dataSet,
+                               eurostat:product,
+                               eurostat:classification, # ??
+                               eurostat:period,
+                               eurostat:training,
+                               eurostat:amount.
 
-  eurostat:products a graphs:Graph.               
-
-  rules:rule4 a graphs:GraphRule;
-     graphs:graph eurostat:products;
-     graphs:subjectType schema:Offer;
-     graphs:predicate rdf:type,
-                      schema:description,
-                      schema:gtin13,
-                      schema:identifier,
-                      schema:category.
-
-
+  #####
+  # Datasets
   eurostat:datasets a graphs:Graph.
 
   rules:rule5 a graphs:GraphRule;
-     graphs:graph eurostat:datasets;
-     graphs:subjectType qb:DataSet;
-     graphs:predicate rdf:type,
-                      dct:title,
-                      rdfs:label,
-                      dct:issued,
-                      dct:publisher,
-                      qb:structure,
-                      qb:subject.
+              graphs:graph eurostat:datasets;
+              graphs:subjectType qb:DataSet;
+              graphs:predicate rdf:type,
+                               dct:title,
+                               rdfs:label,
+                               dct:issued,
+                               dct:publisher,
+                               qb:structure,
+                               qb:subject.
 
+  #####
+  # Retailers
   eurostat:retailers a graphs:Graph.
 
   rules:rule6 a graphs:GraphRule;

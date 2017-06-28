@@ -14,8 +14,6 @@
 (define *rewrite-graph-statements?*
   (config-param "REWRITE_GRAPH_STATEMENTS" #t))
 
-(define *from/using-graphs* (make-parameter '()))
-
 (define *cache* (make-hash-table))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -59,7 +57,7 @@
     `((OPTIONAL
        ,@(splice-when
           (and (not (iri? stype))
-               `((,s a ,stype)))) ;; ??
+               `((,s a ,stype))))
        (GRAPH ,(*default-graph*) 
               (,rule a graphs:GraphRule)
               (,graph a graphs:Graph)
@@ -127,27 +125,33 @@
 (define (type-defs triples)
   (join (filter values (map type-def triples))))
 
-(define (replace-dataset)
-  `((@Dataset
-     (|FROM NAMED| ,(*default-graph*))
-     ,@(map (lambda (graph) 
-              `(FROM ,graph))
-            (append (*from/using-graphs*)
-                    (all-graphs)))
-     ,@(map (lambda (graph) 
-              `(|FROM NAMED| ,graph))
-            (all-graphs)))))
+(define (replace-dataset where-clause)
+  (let ((graphs (append (if (*rewrite-graph-statements?*)
+                        '()
+                        (extract-graphs where-clause))
+                    (all-graphs))))
+    `((@Dataset
+       ,@(map (lambda (graph) 
+                `(FROM ,graph))
+              graphs)
+       (|FROM NAMED| ,(*default-graph*))
+      ,@(map (lambda (graph) 
+               `(|FROM NAMED| ,graph))
+            graphs)))))
 
-(define (replace-using)
-  `((@Dataset
-     (|USING NAMED| ,(*default-graph*))
+(define (replace-using where-clause)
+  (let ((graphs (append (if (*rewrite-graph-statements?*)
+                        '()
+                        (extract-graphs where-clause))
+                    (all-graphs))))
+  `((@Dataset    
      ,@(map (lambda (graph) 
               `(USING ,graph))
-            (append (*from/using-graphs*) 
-                    (all-graphs)))
+            graphs)
+    (|USING NAMED| ,(*default-graph*))
      ,@(map (lambda (graph) 
               `(|USING NAMED| ,graph))
-            (all-graphs)))))
+            graphs)))))
 
 (define (unify-bindings new-bindings old-bindings)
   (append new-bindings old-bindings)) 
@@ -240,6 +244,9 @@
                        (rewrite-triples-queried triples stype statements 
                                               in-place? graph-statements 
                                               bindings)))))))
+(define (graph? quad)
+  (and (list? quad)
+       (equal? (car quad) 'GRAPH)))
 
 (define (special? quad)
   (case (car quad)
@@ -271,7 +278,6 @@
     (else #f)))
 
 (define (flatten-graphs triples)
-  (print "flattening?? " (*rewrite-graph-statements?*))
   (if (*rewrite-graph-statements?*)
       (join (map (lambda (triple)
                    (if (equal? 'GRAPH (car triple))
@@ -296,10 +302,23 @@
                            (map-values/3 (cute rewrite-quads <> new-bindings in-place?: in-place?)
                                          quads-not-triples)))
                (values (join (append rewritten-triples rewritten-quads))
-                       (append graph-statements quads-graph-statements)
+                       (append (filter pair? graph-statements) (filter pair? quads-graph-statements))
                        (append (join quads-bindings)
                                triples-bindings))))))))
     
+(define (extract-graphs quads #!optional (graphs '()))
+  (if (null? quads)
+      graphs
+      (let ((quad (car quads)))
+        (cond ((graph? quad) 
+               (extract-graphs
+                (cdr quads) (cons (cadr quad) (extract-graphs (cddr quad) graphs))))
+              ((special? quad)
+               (extract-graphs
+                (cdr quads) (extract-graphs (cdr quad) graphs)))
+              (else
+               (extract-graphs (cdr quads) graphs))))))
+
 (define (extract-all-variables where-clause)
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
 
@@ -314,8 +333,8 @@
 (define (rewrite-update-unit-part part bindings where-clause)
   (case (car part)
     ((WHERE) (values '(WHERE) '() '()))
-    ((@Dataset) (values (replace-dataset) '() '()))
-    ((@Using) (values (replace-using) '() '()))
+    ((@Dataset) (values (replace-dataset where-clause) '() '()))
+    ((@Using) (values (replace-using where-clause) '() '()))
     ((DELETE INSERT |INSERT DATA| |DELETE DATA| |DELETE WHERE|)
      (let-values (((rewritten-quads graph-statements _)
                    (rewrite-quads (cdr part) bindings)))
@@ -341,15 +360,10 @@
                     (map-values/3
                      (cute rewrite-update-unit-part <> bindings where-clause)
                      (cdr unit))))
-        (let ((joined-graph-statements (join graph-statements)))
+        (let ((joined-graph-statements (join (filter pair? graph-statements))))
           (if (or (pair? where-clause) (pair? (join graph-statements)))
-              (alist-update 'WHERE (append where-statements
-                                           ;; Virtuoso workaround, for INSERT
-                                           (if (pair? joined-graph-statements)
-                                               `((@Query (SELECT *)
-                                                         (WHERE ,@joined-graph-statements)))
-                                               '()))
-                          (filter pair? parts))
+              (alist-update 'WHERE (append where-statements joined-graph-statements)
+                            (filter pair? parts))
             (filter pair? parts)))))))
 
 (define (rewrite QueryUnit #!optional realm)
