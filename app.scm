@@ -31,11 +31,8 @@
 (define (get-graph-query stype p)
   `((GRAPH ,(*default-graph*)
           (?graph a graphs:Graph)
-            
-          
           (?rule graphs:predicate ,p)
           (?rule graphs:subjectType ,stype)
-           
           ,(if (*realm*)
                `(UNION ((?rule graphs:graphType ?type)
                         (?graph graphs:type ?type)
@@ -77,19 +74,25 @@
                    `(,rule graphs:predicate ,p))
               (,rule graphs:subjectType ,stype))))))
 
-;; add restriction on realms...
 (define (all-graphs)
   (hit-hashed-cache
-   *cache* 'all-graphs
+   *cache* (list 'graphs (*realm*))
    (query-with-vars 
     (graph)
     (s-select 
      '?graph
-     (s-triples `((GRAPH ,(*default-graph*)
-                         (?graph a graphs:Graph))))
+     (s-triples
+      `((GRAPH
+         ,(*default-graph*)
+         (?graph a graphs:Graph)
+         ,@(splice-when
+            (and (*realm*)
+                 `((UNION ((?rule graphs:graphType ?type)
+                           (?graph graphs:type ?type)
+                           (?graph graphs:realm ,(*realm*)))
+                          ((?rule graphs:graph ?graph)))))))))
      from-graph: #f)
-     ;; (s-triples `((?graph a graphs:Graph))))
-    graph)))
+     graph)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Rewriting
