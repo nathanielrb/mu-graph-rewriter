@@ -31,10 +31,10 @@ INSERT DATA {
 
   #####
   # ECOICOP and ISBA
-  graphs:ECOICOPS a rewriter:Graph.
+  graphs:ECOICOP a rewriter:Graph.
 
   rules:rule1 a rewriter:GraphRule;
-              rewriter:graph graphs:ECOICOPS;
+              rewriter:graph graphs:ECOICOP;
               rewriter:subjectType skos:Concept;
               rewriter:predicate rdf:type,
                                skos:prefLabel, 
@@ -54,6 +54,13 @@ INSERT DATA {
                                schema:identifier,
                                schema:includesObject,
                                schema:category.
+
+  rules:rule7 a rewriter:GraphRule;
+              rewriter:graph graphs:products;
+              rewriter:subjectType schema:TypeAndQuantityNode;
+              rewriter:predicate rdf:type,
+                                 schema:amountOfThisGood,
+                                 schema:unitCode.
 
   #####
   # Scanner Data
