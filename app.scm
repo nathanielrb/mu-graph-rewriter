@@ -14,6 +14,9 @@
 (define *rewrite-graph-statements?*
   (config-param "REWRITE_GRAPH_STATEMENTS" #t))
 
+(define *realm-id-graph*
+  (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid>))
+
 (define *cache* (make-hash-table))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -26,6 +29,14 @@
 	     from-graph: #f)
    type))
 
+(define (get-realm realm-id)
+  (and realm-id
+       (query-unique-with-vars
+        (realm)
+        (s-select '?realm (s-triples `((?realm mu:uuid ,realm-id)))
+                  from-graph: (*realm-id-graph*))
+        realm)))
+                              
 (define (get-graph-query stype p)
   `((GRAPH ,(*default-graph*)
           (?graph a rewriter:Graph)
@@ -131,13 +142,13 @@
                         (extract-graphs where-clause))
                     (all-graphs))))
     `((@Dataset
+       (FROM ,(*default-graph*))
        ,@(map (lambda (graph) 
                 `(FROM ,graph))
-              graphs)
-       (|FROM NAMED| ,(*default-graph*))
-      ,@(map (lambda (graph) 
-               `(|FROM NAMED| ,graph))
-            graphs)))))
+              graphs)))))
+      ;; ,@(map (lambda (graph) 
+      ;;          `(|FROM NAMED| ,graph))
+      ;;       graphs)))))
 
 (define (replace-using where-clause)
   (let ((graphs (append (if (*rewrite-graph-statements?*)
@@ -145,13 +156,13 @@
                         (extract-graphs where-clause))
                     (all-graphs))))
   `((@Dataset    
+     (USING ,(*default-graph*))
      ,@(map (lambda (graph) 
               `(USING ,graph))
-            graphs)
-    (|USING NAMED| ,(*default-graph*))
-     ,@(map (lambda (graph) 
-              `(|USING NAMED| ,graph))
             graphs)))))
+     ;;,@(map (lambda (graph) 
+     ;;         `(|USING NAMED| ,graph))
+     ;;       graphs)))))
 
 (define (unify-bindings new-bindings old-bindings)
   (append new-bindings old-bindings)) 
@@ -369,7 +380,10 @@
                                   (append g-statements (list gs)) tbs))))))
         (let ((joined-graph-statements (join (filter pair? graph-statements))))
           (if (or (pair? where-clause) (pair? (join graph-statements)))
-              (alist-update 'WHERE (append where-statements joined-graph-statements)
+              (alist-update 'WHERE 
+                            `((@Query (|SELECT DISTINCT| *)
+                                      (WHERE ,@(append where-statements joined-graph-statements))))
+                                       ;;(append where-statements joined-graph-statements)
                             (filter pair? parts))
             (filter pair? parts)))))))
 
@@ -403,12 +417,18 @@
   (let* (($ (request-vars source: 'query-string))
          (query-string ($ 'query)))
     (let* ((query (parse-query (or query-string (read-request-body))))
-          (graph-realm (header-value 'mu-graph-realm (request-headers (current-request))))
-          (rewritten-query (parameterize ((*realm* graph-realm))
-                             (rewrite query))))
+           (req-headers (request-headers (current-request)))
+           (graph-realm (or (header-value 'mu-graph-realm req-headers)
+                            (get-realm (header-value 'mu-graph-realm-id req-headers))))
+           (rewritten-query (parameterize ((*realm* graph-realm)
+                                           (*rewrite-graph-statements?* 
+                                            (not
+                                             (header-value 'preserve-graph-statements req-headers))))
+                              (rewrite query))))
 
-    (format (current-error-port) "~%==Rewriting Query==~%~A~%" (write-sparql query))
-    (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
+      (format (current-error-port) "~%==Graph Realm==~%~A~%" graph-realm)
+      (format (current-error-port) "~%==Rewriting Query==~%~A~%" (write-sparql query))
+      (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
 
     (let-values (((result uri response)
 		  (with-input-from-request 
@@ -423,7 +443,7 @@
                    read-string)))
       (close-connection! uri)
       (let ((headers (headers->list (response-headers response))))
-	(format (current-error-port) "~%==Result==~%~A" result)
+	(format (current-error-port) "~%==Result==~%~A~%" result)
 	(mu-headers headers)
 	(format #f "~A~" result))))))
 

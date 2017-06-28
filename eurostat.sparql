@@ -74,12 +74,12 @@ INSERT DATA {
               rewriter:graphType types:ScannerData;
               rewriter:subjectType qb:Observation;
               rewriter:predicate rdf:type,
-                               qb:dataSet,
-                               eurostat:product,
-                               eurostat:classification,
-                               eurostat:period,
-                               eurostat:training,
-                               eurostat:amount.
+                                 qb:dataSet,
+                                 eurostat:product,
+                                 eurostat:classification,
+                                 eurostat:period,
+                                 eurostat:training,
+                                 eurostat:amount.
 
   #####
   # Datasets

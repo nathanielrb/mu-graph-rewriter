@@ -7,6 +7,8 @@
 
 (*default-graph* '<http://data.europa.eu/eurostat/graphs>)
 
+(*realm-id-graph* '<http://data.europa.eu/eurostat/uuid>)
+
 (vhost-map `((".*" . ,handle-app)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
