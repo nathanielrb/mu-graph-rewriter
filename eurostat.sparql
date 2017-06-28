@@ -1,52 +1,54 @@
 PREFIX dct: <http://purl.org/dc/terms/>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
-PREFIX graphs: <http://mu.semte.ch/graphs/>
-PREFIX eurostat: <http://data.europa.eu/eurostat/>
 PREFIX types: <http://data.europa.eu/eurostat/graphs/types/>
-PREFIX rules: <http://data.europa.eu/eurostat/graphs/rules/>
 PREFIX retailers: <http://data.europa.eu/eurostat/retailers/>
 PREFIX schema: <http://schema.org/>
 PREFIX qb: <http://purl.org/linked-data/cube#>
 PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
 
+PREFIX rewriter: <http://mu.semte.ch/graphs/>
+PREFIX graphs: <http://data.europa.eu/eurostat/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rules: <http://data.europa.eu/eurostat/graphs/rules/>
+
 INSERT DATA {
- GRAPH eurostat:graphs {
+ GRAPH graphs:graphs {
 
   # uuids
-  eurostat:uuid a graphs:Graph.
+  graphs:uuid a rewriter:Graph.
 
-  rules:rule2 a graphs:GraphRule;
-              graphs:graph eurostat:uuid;
-              graphs:subjectType skos:Concept,
+  rules:rule2 a rewriter:GraphRule;
+              rewriter:graph graphs:uuid;
+              rewriter:subjectType skos:Concept,
                                  qb:Observation,
                                  schema:Offer,
                                  qb:Dataset,
                                  dct:Agent,
                                  eurostat:Date,
                                  schema:TypeAndQuantityNode;
-              graphs:predicate mu:uuid.
+              rewriter:predicate mu:uuid.
 
   #####
   # ECOICOP and ISBA
-  eurostat:ECOICOPS a graphs:Graph.
+  graphs:ECOICOPS a rewriter:Graph.
 
-  rules:rule1 a graphs:GraphRule;
-              graphs:graph eurostat:ECOICOPS;
-              graphs:subjectType skos:Concept;
-              graphs:predicate rdf:type,
+  rules:rule1 a rewriter:GraphRule;
+              rewriter:graph graphs:ECOICOPS;
+              rewriter:subjectType skos:Concept;
+              rewriter:predicate rdf:type,
                                skos:prefLabel, 
                                skos:broader,
                                skos:notation.
 
   #####
   # Product Data
-  eurostat:products a graphs:Graph.               
+  graphs:products a rewriter:Graph.               
 
-  rules:rule4 a graphs:GraphRule;
-              graphs:graph eurostat:products;
-              graphs:subjectType schema:Offer;
-              graphs:predicate rdf:type,
+  rules:rule4 a rewriter:GraphRule;
+              rewriter:graph graphs:products;
+              rewriter:subjectType schema:Offer;
+              rewriter:predicate rdf:type,
                                schema:description,
                                schema:gtin13,
                                schema:identifier,
@@ -55,31 +57,31 @@ INSERT DATA {
 
   #####
   # Scanner Data
-  types:ScannerData a graphs:GraphType.
+  types:ScannerData a rewriter:GraphType.
 
-  retailers:Lidl a graphs:Graph;
-                 graphs:type types:ScannerData;
-                 graphs:realm "Lidl".
+  retailers:Lidl a rewriter:Graph;
+                 rewriter:type types:ScannerData;
+                 rewriter:realm "Lidl".
 
-  rules:rule3 a graphs:GraphRule;
-              graphs:graphType types:ScannerData;
-              graphs:subjectType qb:Observation;
-              graphs:predicate rdf:type,
+  rules:rule3 a rewriter:GraphRule;
+              rewriter:graphType types:ScannerData;
+              rewriter:subjectType qb:Observation;
+              rewriter:predicate rdf:type,
                                qb:dataSet,
                                eurostat:product,
-                               eurostat:classification, # ??
+                               eurostat:classification,
                                eurostat:period,
                                eurostat:training,
                                eurostat:amount.
 
   #####
   # Datasets
-  eurostat:datasets a graphs:Graph.
+  graphs:datasets a rewriter:Graph.
 
-  rules:rule5 a graphs:GraphRule;
-              graphs:graph eurostat:datasets;
-              graphs:subjectType qb:DataSet;
-              graphs:predicate rdf:type,
+  rules:rule5 a rewriter:GraphRule;
+              rewriter:graph graphs:datasets;
+              rewriter:subjectType qb:DataSet;
+              rewriter:predicate rdf:type,
                                dct:title,
                                rdfs:label,
                                dct:issued,
@@ -89,12 +91,12 @@ INSERT DATA {
 
   #####
   # Retailers
-  eurostat:retailers a graphs:Graph.
+  graphs:retailers a rewriter:Graph.
 
-  rules:rule6 a graphs:GraphRule;
-     graphs:graph eurostat:retailers;
-     graphs:subjectType dct:Agent;
-     graphs:predicate dct:title,
+  rules:rule6 a rewriter:GraphRule;
+     rewriter:graph graphs:retailers;
+     rewriter:subjectType dct:Agent;
+     rewriter:predicate dct:title,
                       rdf:type.
   }
 
