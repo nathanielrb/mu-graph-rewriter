@@ -443,3 +443,85 @@ WHERE {
 }
 "))
 
+
+(define vincents-query "   
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX qb: <http://purl.org/linked-data/cube#>
+    PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    PREFIX dct: <http://purl.org/dc/terms/>
+    PREFIX schema: <http://schema.org/>
+    PREFIX interval: <http://reference.data.gov.uk/def/intervals/>
+    PREFIX offer: <http://data.europa.eu/eurostat/id/offer/>
+    PREFIX sdmx-subject: <http://purl.org/linked-data/sdmx/2009/subject#>
+    PREFIX sdmx-concept: <http://purl.org/linked-data/sdmx/2009/concept#>
+    PREFIX sdmx-measure: <http://purl.org/linked-data/sdmx/2009/measure#>
+    PREFIX semtech: <http://mu.semte.ch/vocabularies/core/>
+
+    SELECT DISTINCT ?GTINdesc ?GTIN ?ISBA ?ISBAUUID ?ESBA ?ESBAdesc ?UUID ?quantity ?unit ?training
+        FROM <http://data.europa.eu/eurostat/temp>
+         FROM <http://data.europa.eu/eurostat/ECOICOP>
+	        WHERE {
+                ?obs eurostat:product ?offer.
+                ?offer a schema:Offer;
+                    semtech:uuid ?UUID;
+                    schema:description ?GTINdesc;
+                    schema:gtin13 ?GTIN.
+                OPTIONAL {
+                    ?offer schema:includesObject [
+                        a schema:TypeAndQuantityNode;
+                        schema:amountOfThisGood ?quantity;
+                        schema:unitCode ?unit
+                    ].}
+                OPTIONAL {
+                    ?offer schema:category ?ISBA.
+                    ?ISBA semtech:uuid ?ISBAUUID.
+                    }
+                ?obs eurostat:classification ?ESBA.
+                ?ESBA skos:prefLabel ?ESBAdesc.
+                ?obs qb:dataSet ?dataset.
+                ?dataset dct:publisher <http://data.europa.eu/eurostat/id/organization/59562F0BDF757B0009000002>.
+                ?dataset dct:issued \"2017-06-30\"^^xsd:dateTime.
+                ?obs eurostat:training ?training.
+            }
+")
+
+(define v (parse-query vincents-query))
+
+(define aads-query "
+PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+DELETE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+        <http://data.europa.eu/eurostat/id/offer/829898b55516ea087eabeac67dd8b6b1> schema:category ?s.
+}
+} WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+        OPTIONAL {     <http://data.europa.eu/eurostat/id/offer/829898b55516ea087eabeac67dd8b6b1> schema:category ?s.
+ }
+}
+}; 
+INSERT DATA 
+{
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+        <http://data.europa.eu/eurostat/id/offer/829898b55516ea087eabeac67dd8b6b1> schema:category <http://data.europa.eu/eurostat/id/taxonomy/ECOICOP/concept/021310701>.
+}
+}  ")
+
+(define aads (parse-query aads-query))
+
+(print aads)

@@ -146,9 +146,6 @@
        ,@(map (lambda (graph) 
                 `(FROM ,graph))
               graphs)))))
-      ;; ,@(map (lambda (graph) 
-      ;;          `(|FROM NAMED| ,graph))
-      ;;       graphs)))))
 
 (define (replace-using where-clause)
   (let ((graphs (append (if (*rewrite-graph-statements?*)
@@ -160,9 +157,6 @@
      ,@(map (lambda (graph) 
               `(USING ,graph))
             graphs)))))
-     ;;,@(map (lambda (graph) 
-     ;;         `(|USING NAMED| ,graph))
-     ;;       graphs)))))
 
 (define (unify-bindings new-bindings old-bindings)
   (append new-bindings old-bindings)) 
