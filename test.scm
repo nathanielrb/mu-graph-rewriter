@@ -463,10 +463,10 @@ WHERE {
         FROM <http://data.europa.eu/eurostat/temp>
          FROM <http://data.europa.eu/eurostat/ECOICOP>
 	        WHERE {
-                ?obs eurostat:product ?offer.
+          GRAPH <http://google/temp> {                          ?obs eurostat:product ?offer.}
                 ?offer a schema:Offer;
                     semtech:uuid ?UUID;
-                    schema:description ?GTINdesc;
+                    schema:description ?GTINdesc; 
                     schema:gtin13 ?GTIN.
                 OPTIONAL {
                     ?offer schema:includesObject [
@@ -524,4 +524,25 @@ INSERT DATA
 
 (define aads (parse-query aads-query))
 
-(print aads)
+(define sync (parse-query " DELETE {
+  GRAPH <http://data.europa.eu/eurostat/backup> {
+    ?s ?p ?o.
+   }  
+  ?s ?pp ?oo.
+ }
+INSERT {
+  ?s ?p ?newo.
+ }
+
+WHERE {
+  GRAPH <http://data.europa.eu/eurostat/backup> {
+    ?s ?p ?o.
+    ?s ?pp ?oo.
+    BIND (IF(DATATYPE(?o) = <http://www.w3.org/2001/XMLSchema#string>, STR(?o), ?o) AS ?newo)
+   }  
+ }
+"))
+(print sync)
+
+
+

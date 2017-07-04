@@ -14,8 +14,11 @@
 (define *rewrite-graph-statements?*
   (config-param "REWRITE_GRAPH_STATEMENTS" #t))
 
+(define *rewrite-select-queries?* 
+  (config-param "REWRITE_SELECT_QUERIES" #f))
+
 (define *realm-id-graph*
-  (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid>))
+  (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 
 (define *cache* (make-hash-table))
 
@@ -145,6 +148,10 @@
        (FROM ,(*default-graph*))
        ,@(map (lambda (graph) 
                 `(FROM ,graph))
+              graphs)
+       (|FROM NAMED| ,(*default-graph*))
+       ,@(map (lambda (graph) 
+                `(|FROM NAMED| ,graph))
               graphs)))))
 
 (define (replace-using where-clause)
@@ -156,6 +163,10 @@
      (USING ,(*default-graph*))
      ,@(map (lambda (graph) 
               `(USING ,graph))
+            graphs)
+     (|USING NAMED| ,(*default-graph*))
+     ,@(map (lambda (graph) 
+              `(|USING NAMED| ,graph))
             graphs)))))
 
 (define (unify-bindings new-bindings old-bindings)
@@ -257,7 +268,7 @@
   (case (car quad)
     ((WHERE INSERT DELETE 
 	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA|
-	    |@()| |@[]| MINUS OPTIONAL UNION FILTER GRAPH)
+	    |@()| |@[]| MINUS OPTIONAL UNION FILTER BIND GRAPH)
      #t)
     (else #f)))
 
@@ -276,7 +287,7 @@
        (values (list (cons (car group) rewritten-quads))
                graph-statements
                (join new-bindings))))
-    ((FILTER) (values (list group) '() '()))
+    ((FILTER BIND) (values (list group) '() '()))
     ((GRAPH) (if (*rewrite-graph-statements?*)
                  (rewrite-quads (cddr group))
                  (values (list group) '() '())))
@@ -290,6 +301,18 @@
                        (list triple)))
                  triples))
       triples))
+
+(define (flatten-graphs-recursive quads)
+  (join (map (lambda (triple)
+               (if (pair? (car triple))
+                   (list (flatten-graphs-recursive triple))
+                   (case (car triple)
+                     ((GRAPH) (cddr triple))
+                     ((FILTER BIND) triple)
+                     ((OPTIONAL MINUS UNION)
+                      `((,(car triple) ,@(flatten-graphs-recursive (cdr triple)))))
+                     (else (list triple)))))
+             quads)))
 
 ;; this re-orders the triples and quads, which isn't great...
 (define (rewrite-quads quads #!optional (bindings '()) #!key in-place?)
@@ -328,12 +351,12 @@
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
 
 (define (rewrite-part-name part-name where-statements?)
-  (if (not where-statements?)
-      part-name
+;  (if (not where-statements?)
+ ;     part-name
       (case part-name
         ((|INSERT DATA|) 'INSERT)
         ((|DELETE DATA| |DELETE WHERE|) 'DELETE)
-        (else part-name))))
+        (else part-name)))
 
 (define (rewrite-update-unit-part part bindings where-clause)
   (case (car part)
@@ -379,7 +402,8 @@
                                       (WHERE ,@(append where-statements joined-graph-statements))))
                                        ;;(append where-statements joined-graph-statements)
                             (filter pair? parts))
-            (filter pair? parts)))))))
+              (alist-update 'WHERE '()
+                            (filter pair? parts))))))))
 
 
 (define (rewrite QueryUnit #!optional realm)
@@ -389,8 +413,13 @@
                  (map (lambda (part)
                         (case (car part)
                           ((@Query)
-                           (cons (car part)
-                                 (rewrite-update-unit part)))
+                           (if (*rewrite-select-queries?*)
+                               (cons (car part) (rewrite-update-unit part))
+                               (cons (car part)
+                                     (alist-update 'WHERE (flatten-graphs-recursive
+                                                           (alist-ref 'WHERE (cdr part)))
+                                                   (alist-update '@Dataset (replace-dataset '())
+                                                                 (cdr part))))))
                           ((@Update)
                            (cons (car part)
                                  (rewrite-update-unit 
@@ -409,37 +438,74 @@
 
 (define (rewrite-call _)
   (let* (($ (request-vars source: 'query-string))
-         (query-string ($ 'query)))
-    (let* ((query (parse-query (or query-string (read-request-body))))
-           (req-headers (request-headers (current-request)))
-           (graph-realm (or (header-value 'mu-graph-realm req-headers)
-                            (get-realm (header-value 'mu-graph-realm-id req-headers))))
-           (rewritten-query (parameterize ((*realm* graph-realm)
-                                           (*rewrite-graph-statements?* 
-                                            (not
-                                             (header-value 'preserve-graph-statements req-headers))))
-                              (rewrite query))))
+         (body (read-request-body))
+         ($body (and body (form-urldecode body)))
+         (query-string (or ($ 'query)
+                           (and $body (alist-ref 'query $body))
+                           body))
+         (req-headers (request-headers (current-request)))
+         (query (parse-query query-string))
+         
+         (graph-realm (or (header-value 'mu-graph-realm req-headers)
+                          ($ 'graph-realm)
+                          ;; ... $body
+                          (get-realm (header-value 'mu-graph-realm-id req-headers))
+                          (get-realm ($ 'graph-realm-id))))
+         (rewritten-query (parameterize ((*realm* graph-realm)
+                                         (*rewrite-graph-statements?* 
+                                          (not
+                                           (or
+                                            (header-value 'preserve-graph-statements req-headers)
+                                            ($ 'preserve-graph-statements))))
+                                         (*rewrite-select-queries?* 
+                                          (or
+                                           (equal? "true" (header-value 'rewrite-select-queries req-headers))
+                                           (equal? "true" ($ 'rewrite-select-queries))
+                                           (*rewrite-select-queries?*))))
+                            (rewrite query))))
 
       (format (current-error-port) "~%==Graph Realm==~%~A~%" graph-realm)
-      (format (current-error-port) "~%==Rewriting Query==~%~A~%" (write-sparql query))
+      (format (current-error-port) "~%==Rewriting Query==~%~A~%" query-string)
+      (format (current-error-port) "~%==Parsed As==~%~A~%" (write-sparql query))
       (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
+      (format (current-error-port) "~%==Received headers==~%~A~%" req-headers)
 
-    (let-values (((result uri response)
-		  (with-input-from-request 
-		   (make-request method: 'POST
-				 uri: (uri-reference (*sparql-endpoint*))
-				 headers: (headers
-                                           (append
-                                            (headers->list (request-headers (current-request)))
-                                            '((Content-Type application/x-www-form-urlencoded)
-                                              (Accept application/json)))))
-		   `((query . , (format #f "~A" (write-sparql rewritten-query))))
-                   read-string)))
-      (close-connection! uri)
-      (let ((headers (headers->list (response-headers response))))
-	(format (current-error-port) "~%==Result==~%~A~%" result)
-	(mu-headers headers)
-	(format #f "~A~" result))))))
+      (handle-exceptions exn 
+          (begin
+            (let ((response (or
+                             ((condition-property-accessor 'client-error 'response) exn)
+                             ((condition-property-accessor 'server-error 'response) exn)))
+                  (body (or
+                         ((condition-property-accessor 'client-error 'body) exn)
+                         ((condition-property-accessor 'server-error 'body) exn))))
+              (format (current-error-port)
+                      "~%==Virtuoso Error==~% ~A ~%" body)
+              (when response
+                (format (current-error-port)
+                        "~%==Reason==:~%~A~%"
+                        (response-reason response)))
+              (abort exn)))
+
+      (parameterize ((tcp-read-timeout #f)
+                     (tcp-write-timeout #f)
+                     (tcp-connect-timeout #f))
+          (let-values (((result uri response)
+                        (with-input-from-request 
+                         (make-request method: 'POST
+                                       uri: (uri-reference (*sparql-endpoint*))
+                                     headers: (headers
+                                               (append
+                                                ;; (headers->list (request-headers (current-request)))
+                                                '((Content-Type application/x-www-form-urlencoded)
+                                                  (Accept application/sparql-results+json)))))
+                       `((query . , (format #f "~A" (write-sparql rewritten-query))))
+                       read-string)))
+          (close-connection! uri)
+          (let ((headers (headers->list (response-headers response))))
+            (format (current-error-port) "~%==Results==~%~A~%" 
+                    (substring result 0 (min 1000 (string-length result))))
+            (mu-headers headers)
+            (format #f "~A~" result)))))))
 
 (define-rest-call 'POST '("sparql") rewrite-call)
 
