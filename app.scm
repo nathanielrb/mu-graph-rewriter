@@ -474,11 +474,11 @@
                                            (*rewrite-select-queries?*))))
                             (rewrite query))))
 
+      (format (current-error-port) "~%==Received Headers==~%~A~%" req-headers)
       (format (current-error-port) "~%==Graph Realm==~%~A~%" graph-realm)
       (format (current-error-port) "~%==Rewriting Query==~%~A~%" query-string)
       (format (current-error-port) "~%==Parsed As==~%~A~%" (write-sparql query))
       (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
-      (format (current-error-port) "~%==Received headers==~%~A~%" req-headers)
 
       (handle-exceptions exn 
           (begin
@@ -521,6 +521,10 @@
   (rest-call
    (realm-id)
    (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
+
+     (format (current-error-port) "~%Changing graph-realm-id for mu-session-id ~A to ~A~%"
+             mu-session-id realm-id)
+             
      (and mu-session-id
           (hash-table-set! *session-realms* mu-session-id realm-id)
           `((mu-session-id . ,mu-session-id)
