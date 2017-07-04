@@ -22,6 +22,8 @@
 
 (define *cache* (make-hash-table))
 
+(define *session-realms* (make-hash-table))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Queries
 
@@ -39,7 +41,14 @@
         (s-select '?realm (s-triples `((?realm mu:uuid ,realm-id)))
                   from-graph: (*realm-id-graph*))
         realm)))
-                              
+
+(define (add-realm realm graph graph-type)
+  (sparql/update
+   (s-insert
+    (s-triples
+     `((,graph rewriter:realm ,realm)
+       (,graph rewriter:type ,graph-type))))))
+         
 (define (get-graph-query stype p)
   `((GRAPH ,(*default-graph*)
           (?graph a rewriter:Graph)
@@ -308,7 +317,6 @@
                    (list (flatten-graphs-recursive triple))
                    (case (car triple)
                      ((GRAPH) (cddr triple))
-                     ((FILTER BIND) triple)
                      ((OPTIONAL MINUS UNION)
                       `((,(car triple) ,@(flatten-graphs-recursive (cdr triple)))))
                      (else (list triple)))))
@@ -436,6 +444,7 @@
                       unit))
                (alist-ref '@Unit QueryUnit)))))
 
+;; omigod refactor this please
 (define (rewrite-call _)
   (let* (($ (request-vars source: 'query-string))
          (body (read-request-body))
@@ -445,8 +454,9 @@
                            body))
          (req-headers (request-headers (current-request)))
          (query (parse-query query-string))
-         
-         (graph-realm (or (header-value 'mu-graph-realm req-headers)
+         (mu-session-id (header-value 'mu-session-id req-headers))
+         (graph-realm (or (hash-table-ref/default *session-realms* mu-session-id #f)
+                          (header-value 'mu-graph-realm req-headers)
                           ($ 'graph-realm)
                           ;; ... $body
                           (get-realm (header-value 'mu-graph-realm-id req-headers))
@@ -507,8 +517,30 @@
             (mu-headers headers)
             (format #f "~A~" result)))))))
 
+(define change-realm-call 
+  (rest-call
+   (realm-id)
+   (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
+     (and mu-session-id
+          (hash-table-set! *session-realms* mu-session-id realm-id)
+          `((mu-session-id . ,mu-session-id)
+            (realm-id . ,realm-id))))))
+                     
+(define (add-realm-call _)
+  (let* ((req-headers (request-headers (current-request)))
+         (body (read-request-json))
+         (realm (or (read-uri (alist-ref 'graph-realm body))
+                    (get-realm (alist-ref 'graph-realm-id body))))
+         (graph-type (read-uri (alist-ref 'graph-type body)))
+         (graph (read-uri (alist-ref 'graph body))))
+    (add-realm realm graph graph-type)))
+                  
 (define-rest-call 'POST '("sparql") rewrite-call)
 
 (define-rest-call 'GET '("sparql") rewrite-call)
+
+(define-rest-call 'POST '("realms" "change" realm-id) change-realm-call)
+
+(define-rest-call 'POST '("realms" "add") add-realm-call)
 
 (*port* 8890)

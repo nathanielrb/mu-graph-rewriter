@@ -484,7 +484,7 @@ WHERE {
                 ?dataset dct:publisher <http://data.europa.eu/eurostat/id/organization/59562F0BDF757B0009000002>.
                 ?dataset dct:issued \"2017-06-30\"^^xsd:dateTime.
                 ?obs eurostat:training ?training.
-            }
+            } ORDER BY ?a ?b ?c
 ")
 
 (define v (parse-query vincents-query))
