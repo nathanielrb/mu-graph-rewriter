@@ -50,13 +50,12 @@
        (,graph a rewriter:Graph)
        (,graph rewriter:type ,graph-type))))))
 
-(define (delete-realm realm graph graph-type)
+(define (delete-realm graph)
   (sparql/update
    (s-delete
     (s-triples
-     `((,graph rewriter:realm ,realm)
-       (,graph a rewriter:Graph)
-       (,graph rewriter:type ,graph-type))))))
+     `((,graph ?p ?o)))
+    where: (s-triples `((,graph ?p ?o))))))
          
 (define (get-graph-query stype p)
   `((GRAPH ,(*default-graph*)
@@ -551,11 +550,8 @@
 (define (delete-realm-call _)
   (let* ((req-headers (request-headers (current-request)))
          (body (read-request-json))
-         (realm (or (read-uri (alist-ref 'graph-realm body))
-                    (get-realm (alist-ref 'graph-realm-id body))))
-         (graph-type (read-uri (alist-ref 'graph-type body)))
          (graph (read-uri (alist-ref 'graph body))))
-    (delete-realm realm graph graph-type)))
+    (delete-realm graph)))
                   
 (define-rest-call 'POST '("sparql") rewrite-call)
 
