@@ -22,7 +22,7 @@
 
 (define *cache* (make-hash-table))
 
-(define *session-realms* (make-hash-table))
+(define *session-realm-ids* (make-hash-table))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Queries
@@ -467,7 +467,7 @@
          (req-headers (request-headers (current-request)))
          (query (parse-query query-string))
          (mu-session-id (header-value 'mu-session-id req-headers))
-         (graph-realm (or (hash-table-ref/default *session-realms* mu-session-id #f)
+         (graph-realm (or (get-realm (hash-table-ref/default *session-realm-ids* mu-session-id #f))
                           (header-value 'mu-graph-realm req-headers)
                           ($ 'graph-realm)
                           ;; ... $body
@@ -538,7 +538,7 @@
              mu-session-id realm-id)
              
      (and mu-session-id
-          (hash-table-set! *session-realms* mu-session-id realm-id)
+          (hash-table-set! *session-realm-ids* mu-session-id realm-id)
           `((mu-session-id . ,mu-session-id)
             (realm-id . ,realm-id))))))
                      
