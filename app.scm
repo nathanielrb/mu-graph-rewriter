@@ -49,6 +49,14 @@
      `((,graph rewriter:realm ,realm)
        (,graph a rewriter:Graph)
        (,graph rewriter:type ,graph-type))))))
+
+(define (delete-realm realm graph graph-type)
+  (sparql/update
+   (s-delete
+    (s-triples
+     `((,graph rewriter:realm ,realm)
+       (,graph a rewriter:Graph)
+       (,graph rewriter:type ,graph-type))))))
          
 (define (get-graph-query stype p)
   `((GRAPH ,(*default-graph*)
@@ -539,13 +547,27 @@
          (graph-type (read-uri (alist-ref 'graph-type body)))
          (graph (read-uri (alist-ref 'graph body))))
     (add-realm realm graph graph-type)))
+
+(define (delete-realm-call _)
+  (let* ((req-headers (request-headers (current-request)))
+         (body (read-request-json))
+         (realm (or (read-uri (alist-ref 'graph-realm body))
+                    (get-realm (alist-ref 'graph-realm-id body))))
+         (graph-type (read-uri (alist-ref 'graph-type body)))
+         (graph (read-uri (alist-ref 'graph body))))
+    (delete-realm realm graph graph-type)))
                   
 (define-rest-call 'POST '("sparql") rewrite-call)
 
 (define-rest-call 'GET '("sparql") rewrite-call)
 
+;; should be something else...
 (define-rest-call 'POST '("realms" "change" realm-id) change-realm-call)
 
+;; should be a POST call + ID?
 (define-rest-call 'POST '("realms" "add") add-realm-call)
+
+;; should be a DELETE call + ID?
+(define-rest-call 'POST '("realms" "delete") delete-realm-call)
 
 (*port* 8890)
