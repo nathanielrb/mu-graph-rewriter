@@ -47,6 +47,7 @@
    (s-insert
     (s-triples
      `((,graph rewriter:realm ,realm)
+       (,graph a rewriter:Graph)
        (,graph rewriter:type ,graph-type))))))
          
 (define (get-graph-query stype p)
