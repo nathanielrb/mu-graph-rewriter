@@ -17,6 +17,8 @@
 (define *rewrite-select-queries?* 
   (config-param "REWRITE_SELECT_QUERIES" #f))
 
+(*default-graph* '<http://mu.semte.ch/graphs>)
+
 (define *realm-id-graph*
   (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 

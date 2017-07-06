@@ -178,11 +178,11 @@ WHERE {
 
 **MU_DEFAULT_GRAPH**
 
-Graph containing the graph rules, defaults to "http://mu.semte.ch/graphs".
+Graph containing the graph rules, defaults to `http://mu.semte.ch/graphs`.
 
 **REALM_ID_GRAPH**
 
-Graph containing uuids of realms, defaults to "http://mu.semte.ch/uuid".
+Graph containing uuids of realms, defaults to `http://mu.semte.ch/uuid`.
 
 **REWRITE_GRAPH_STATEMENTS**
 
@@ -198,7 +198,7 @@ This parameter may be overridden on a per-query basis, either by including a `re
 
 **MU_SPARQL_ENDPOINT**
 
-The SPARQL endpoint. Defaults to "http://database:8890/sparql" when inside docker, and "http://127.0.0.1:8890/sparql" otherwise.
+The SPARQL endpoint. Defaults to `http://database:8890/sparql` when inside docker, and `http://127.0.0.1:8890/sparql` otherwise.
 
 ## API
 
