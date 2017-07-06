@@ -136,6 +136,18 @@
 
 (define (BaseDecl? decl) (equal? (car decl) 'BASE))
 
+(define (graph? quad)
+  (and (list? quad)
+       (equal? (car quad) 'GRAPH)))
+
+(define (special? quad)
+  (case (car quad)
+    ((WHERE INSERT DELETE 
+	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA|
+	    |@()| |@[]| MINUS OPTIONAL UNION FILTER BIND GRAPH)
+     #t)
+    (else #f)))
+
 (define (remove-trailing-char sym #!optional (len 1))
   (let ((s (symbol->string sym)))
     (string->symbol
@@ -160,35 +172,25 @@
 (define (type-defs triples)
   (join (filter values (map type-def triples))))
 
-(define (replace-dataset where-clause)
+(define (replace-dataset where-clause label-key)
   (let ((graphs (append (if (*rewrite-graph-statements?*)
                         '()
                         (extract-graphs where-clause))
-                    (all-graphs))))
-    `((@Dataset
-       (FROM ,(*default-graph*))
+                    (all-graphs)))
+        (type  (case label-key ((from) '@Dataset) ((using) '@Using)))
+        (label (case label-key ((from) 'FROM) ((using) 'USING)))
+        (label-named (case label-key
+                       ((from) '|FROM NAMED|)
+                       ((using) '|USING NAMED|))))
+    `((,type
+       (,label ,(*default-graph*))
        ,@(map (lambda (graph) 
-                `(FROM ,graph))
+                `(,label ,graph))
               graphs)
-       (|FROM NAMED| ,(*default-graph*))
+       (,label-named ,(*default-graph*))
        ,@(map (lambda (graph) 
-                `(|FROM NAMED| ,graph))
+                `(,label-named ,graph))
               graphs)))))
-
-(define (replace-using where-clause)
-  (let ((graphs (append (if (*rewrite-graph-statements?*)
-                        '()
-                        (extract-graphs where-clause))
-                    (all-graphs))))
-  `((@Dataset    
-     (USING ,(*default-graph*))
-     ,@(map (lambda (graph) 
-              `(USING ,graph))
-            graphs)
-     (|USING NAMED| ,(*default-graph*))
-     ,@(map (lambda (graph) 
-              `(|USING NAMED| ,graph))
-            graphs)))))
 
 (define (unify-bindings new-bindings old-bindings)
   (append new-bindings old-bindings)) 
@@ -281,17 +283,6 @@
                        (rewrite-triples-queried triples stype statements 
                                               in-place? graph-statements 
                                               bindings)))))))
-(define (graph? quad)
-  (and (list? quad)
-       (equal? (car quad) 'GRAPH)))
-
-(define (special? quad)
-  (case (car quad)
-    ((WHERE INSERT DELETE 
-	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA|
-	    |@()| |@[]| MINUS OPTIONAL UNION FILTER BIND GRAPH)
-     #t)
-    (else #f)))
 
 (define (rewrite-special group bindings #!key in-place?)
   (case (car group)
@@ -371,18 +362,16 @@
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
 
 (define (rewrite-part-name part-name where-statements?)
-;  (if (not where-statements?)
- ;     part-name
-      (case part-name
-        ((|INSERT DATA|) 'INSERT)
-        ((|DELETE DATA| |DELETE WHERE|) 'DELETE)
-        (else part-name)))
+  (case part-name
+    ((|INSERT DATA|) 'INSERT)
+    ((|DELETE DATA| |DELETE WHERE|) 'DELETE)
+    (else part-name)))
 
-(define (rewrite-update-unit-part part bindings where-clause)
+(define (rewrite-query-parts part bindings where-clause)
   (case (car part)
     ((WHERE) (values '(WHERE) '() '()))
-    ((@Dataset) (values (replace-dataset where-clause) '() '()))
-    ((@Using) (values (replace-using where-clause) '() '()))
+    ((@Dataset) (values (replace-dataset where-clause 'from) '() '()))
+    ((@Using) (values (replace-dataset where-clause 'using) '() '()))
     ((DELETE INSERT |INSERT DATA| |DELETE DATA| |DELETE WHERE|)
      (let-values (((rewritten-quads graph-statements type-bindings)
                    (rewrite-quads (cdr part) bindings)))
@@ -398,7 +387,7 @@
              '() '()))
     (else (values part '() '()))))
 
-(define (rewrite-update-unit unit)
+(define (rewrite-query-part unit)
   (let ((where-clause (alist-ref 'WHERE (cdr unit))))
     (let-values (((where-statements _ bindings)
                   (if where-clause
@@ -412,7 +401,7 @@
                       (if (null? parts)
                           (values rewritten-parts g-statements t-bindings)
                           (let-values (((rw gs tbs)
-                                        (rewrite-update-unit-part (car parts) t-bindings where-clause)))
+                                        (rewrite-query-parts (car parts) t-bindings where-clause)))
                             (loop (cdr parts) (append rewritten-parts (list rw))
                                   (append g-statements (list gs)) tbs))))))
         (let ((joined-graph-statements (join (filter pair? graph-statements))))
@@ -429,20 +418,20 @@
 (define (rewrite QueryUnit #!optional realm)
   (cons '@Unit
         (parameterize ((query-namespaces (query-prefixes QueryUnit)))
-          (map (lambda (unit)
+          (map (lambda (Query)
                  (map (lambda (part)
                         (case (car part)
                           ((@Query)
                            (if (*rewrite-select-queries?*)
-                               (cons (car part) (rewrite-update-unit part))
+                               (cons (car part) (rewrite-query-part part))
                                (cons (car part)
                                      (alist-update 'WHERE (flatten-graphs-recursive
                                                            (alist-ref 'WHERE (cdr part)))
-                                                   (alist-update '@Dataset (replace-dataset '())
+                                                   (alist-update '@Dataset (replace-dataset '() 'from)
                                                                  (cdr part))))))
                           ((@Update)
                            (cons (car part)
-                                 (rewrite-update-unit 
+                                 (rewrite-query-part
                                   (cons 
                                    '@Update
                                    (alist-update '@Using ;; make sure there's a Using to replace
@@ -453,37 +442,50 @@
                              (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
                              ,@(cdr part)))
                           (else part)))
-                      unit))
+                      Query))
                (alist-ref '@Unit QueryUnit)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Calls
+(define (virtuoso-error exn)
+  (let ((response (or ((condition-property-accessor 'client-error 'response) exn)
+                      ((condition-property-accessor 'server-error 'response) exn)))
+        (body (or ((condition-property-accessor 'client-error 'body) exn)
+                  ((condition-property-accessor 'server-error 'body) exn))))
+    (format (current-error-port)  "~%==Virtuoso Error==~% ~A ~%" body)
+    (when response
+      (format (current-error-port)
+              "~%==Reason==:~%~A~%"
+              (response-reason response)))
+    (abort exn)))
 
 ;; omigod refactor this please
 (define (rewrite-call _)
   (let* (($ (request-vars source: 'query-string))
          (body (read-request-body))
-         ($body (and body (form-urldecode body)))
-         (query-string (or ($ 'query)
-                           (and $body (alist-ref 'query $body))
-                           body))
-         (req-headers (request-headers (current-request)))
+         ($body (let ((parsed-body (form-urldecode body)))
+                  (lambda (key)
+                    (and parsed-body (alist-ref key parsed-body)))))
+         (query-string (or ($ 'query) ($body 'query) body))
          (query (parse-query query-string))
+         (req-headers (request-headers (current-request)))
          (mu-session-id (header-value 'mu-session-id req-headers))
          (graph-realm (or (get-realm (hash-table-ref/default *session-realm-ids* mu-session-id #f))
                           (header-value 'mu-graph-realm req-headers)
                           ($ 'graph-realm)
-                          ;; ... $body
+                          ($body 'graph-realm) 
                           (get-realm (header-value 'mu-graph-realm-id req-headers))
                           (get-realm ($ 'graph-realm-id))))
          (rewritten-query (parameterize ((*realm* graph-realm)
                                          (*rewrite-graph-statements?* 
-                                          (not
-                                           (or
-                                            (header-value 'preserve-graph-statements req-headers)
-                                            ($ 'preserve-graph-statements))))
+                                          (not (or (header-value
+                                                    'preserve-graph-statements req-headers)
+                                                   ($ 'preserve-graph-statements))))
                                          (*rewrite-select-queries?* 
-                                          (or
-                                           (equal? "true" (header-value 'rewrite-select-queries req-headers))
-                                           (equal? "true" ($ 'rewrite-select-queries))
-                                           (*rewrite-select-queries?*))))
+                                          (or (equal? "true" (header-value
+                                                              'rewrite-select-queries req-headers))
+                                              (equal? "true" ($ 'rewrite-select-queries))
+                                              (*rewrite-select-queries?*))))
                             (rewrite query))))
 
       (format (current-error-port) "~%==Received Headers==~%~A~%" req-headers)
@@ -493,41 +495,28 @@
       (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
 
       (handle-exceptions exn 
-          (begin
-            (let ((response (or
-                             ((condition-property-accessor 'client-error 'response) exn)
-                             ((condition-property-accessor 'server-error 'response) exn)))
-                  (body (or
-                         ((condition-property-accessor 'client-error 'body) exn)
-                         ((condition-property-accessor 'server-error 'body) exn))))
-              (format (current-error-port)
-                      "~%==Virtuoso Error==~% ~A ~%" body)
-              (when response
-                (format (current-error-port)
-                        "~%==Reason==:~%~A~%"
-                        (response-reason response)))
-              (abort exn)))
-
-      (parameterize ((tcp-read-timeout #f)
-                     (tcp-write-timeout #f)
-                     (tcp-connect-timeout #f))
+          (virtuoso-error exn)
+        
+        (parameterize ((tcp-read-timeout #f)
+                       (tcp-write-timeout #f)
+                       (tcp-connect-timeout #f))
           (let-values (((result uri response)
                         (with-input-from-request 
                          (make-request method: 'POST
                                        uri: (uri-reference (*sparql-endpoint*))
                                      headers: (headers
-                                               (append
-                                                ;; (headers->list (request-headers (current-request)))
                                                 '((Content-Type application/x-www-form-urlencoded)
-                                                  (Accept application/sparql-results+json)))))
-                       `((query . , (format #f "~A" (write-sparql rewritten-query))))
-                       read-string)))
-          (close-connection! uri)
-          (let ((headers (headers->list (response-headers response))))
-            (format (current-error-port) "~%==Results==~%~A~%" 
-                    (substring result 0 (min 1000 (string-length result))))
-            (mu-headers headers)
-            (format #f "~A~" result)))))))
+                                                  (Accept application/sparql-results+json))))                                               
+                                                ;;(append (headers->list (request-headers (current-request)))
+
+                         `((query . , (format #f "~A" (write-sparql rewritten-query))))
+                         read-string)))
+            (close-connection! uri)
+            (let ((headers (headers->list (response-headers response))))
+              (format (current-error-port) "~%==Results==~%~A~%" 
+                      (substring result 0 (min 1000 (string-length result))))
+              (mu-headers headers)
+              (format #f "~A~" result)))))))
 
 (define change-realm-call 
   (rest-call
@@ -563,17 +552,17 @@
             realm graph)
     (delete-realm realm graph)))
                   
+(define-rest-call 'GET '("sparql") rewrite-call)
 (define-rest-call 'POST '("sparql") rewrite-call)
 
-(define-rest-call 'GET '("sparql") rewrite-call)
+;; (define-rest-call 'GET '("session" "realm") get-realm-call)
 
-;; should be something else...
-(define-rest-call 'POST '("realms" "change" realm-id) change-realm-call)
+(define-rest-call 'PATCH '("session" "realm" realm-id) change-realm-call)
 
-;; should be a POST call + ID?
-(define-rest-call 'POST '("realms" "add") add-realm-call)
+(define-rest-call 'POST '("realm") add-realm-call)
+(define-rest-call 'POST '("realm" realm-id) add-realm-call)
 
-;; should be a DELETE call + ID?
-(define-rest-call 'POST '("realms" "delete") delete-realm-call)
+(define-rest-call 'DELETE '("realm") delete-realm-call)
+(define-rest-call 'DELETE '("realm" realm-id) delete-realm-call)
 
 (*port* 8890)
