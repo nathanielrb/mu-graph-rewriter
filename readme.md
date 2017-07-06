@@ -8,6 +8,8 @@ The SPARQL parser is currently limited, so user beware.
  
 Graphs are decided on a per-triple basis, based on the subject type, the predicate, and an optional "realm". Rules are defined in the triple store, and  must be defined explicitly and exhaustively for all subject types and predicates. Rules must also be complete: if no graph is matched, triples may still resolve in other graphs.
 
+A realm can be a node or an RDF literal. Note that realms can be added and deleted on the fly using the `/realm` endpoint, see below.
+
 Example:
 
 ```
@@ -29,7 +31,7 @@ Example:
 # uuids
 graphs:uuid a rewriter:Graph.
 
-rules:rule2 a rewriter:GraphRule;
+rules:rule1 a rewriter:GraphRule;
             rewriter:graph graphs:uuid;
             rewriter:subjectType skos:Concept,
                                  qb:Observation,
@@ -44,7 +46,7 @@ rules:rule2 a rewriter:GraphRule;
 # ECOICOP and ISBA
 graphs:ECOICOP a rewriter:Graph.
 
-rules:rule1 a rewriter:GraphRule;
+rules:rule2 a rewriter:GraphRule;
             rewriter:graph graphs:ECOICOP;
             rewriter:subjectType skos:Concept;
             rewriter:predicate rdf:type,
@@ -58,7 +60,7 @@ types:ScannerData a rewriter:GraphType.
 
 retailers:Lidl a rewriter:Graph;
                rewriter:type types:ScannerData;
-               rewriter:realm "Lidl".
+               rewriter:realm <http://data.europa.eu/eurostat/id/organization/595CC438E1D94E0009000003>.
 
 rules:rule3 a rewriter:GraphRule;
               rewriter:graphType types:ScannerData;
@@ -135,7 +137,6 @@ WHERE {
     ?s1 a ?type.
    }  
   OPTIONAL {
-    ?s1 a ?type.
     GRAPH <http://data.europa.eu/eurostat/graphs> {
       ?rule2589 a rewriter:GraphRule.
       ?graph2588 a rewriter:Graph.
@@ -148,7 +149,6 @@ WHERE {
     ?s1 ?p ?o1.
    }  
   OPTIONAL {
-    ?s1 a ?type.
     GRAPH <http://data.europa.eu/eurostat/graphs> {
       ?rule2592 a rewriter:GraphRule.
       ?graph2591 a rewriter:Graph.

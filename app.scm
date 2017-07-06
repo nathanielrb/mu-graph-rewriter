@@ -328,6 +328,7 @@
              quads)))
 
 ;; this re-orders the triples and quads, which isn't great...
+;; in the refactor, do this on a 2nd pass after rewrite-triples
 (define (rewrite-quads quads #!optional (bindings '()) #!key in-place?)
   (cond ((special? quads)
          (let-values (((x y z) (rewrite-special quads bindings in-place?: in-place?)))
