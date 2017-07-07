@@ -17,8 +17,6 @@
 (define *rewrite-select-queries?* 
   (config-param "REWRITE_SELECT_QUERIES" #f))
 
-(*default-graph* '<http://mu.semte.ch/graphs>)
-
 (define *realm-id-graph*
   (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 
@@ -143,12 +141,11 @@
        (equal? (car quad) 'GRAPH)))
 
 (define (special? quad)
-  (case (car quad)
-    ((WHERE INSERT DELETE 
-	    |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA|
-	    |@()| |@[]| MINUS OPTIONAL UNION FILTER BIND GRAPH)
-     #t)
-    (else #f)))
+  (member (car quad)
+          '(WHERE
+            DELETE |DELETE WHERE| |DELETE DATA|
+            INSERT |INSERT WHERE| |INSERT DATA|
+            |@()| |@[]| MINUS OPTIONAL UNION FILTER BIND GRAPH)))
 
 (define (remove-trailing-char sym #!optional (len 1))
   (let ((s (symbol->string sym)))
@@ -164,47 +161,6 @@
   (map (lambda (decl)
          (list (cadr decl) (write-uri (caddr decl))))
        (map cdr (filter BaseDecl? (unit-prologue QueryUnit)))))
-
-
-(define (rewrite-triples-reverse triples bindings
-                                 #!key (statements '()) (in-place? #t) (graph-statements '()))
-  (if (null? triples)
-      (values statements graph-statements bindings)
-      (let ((triple (car triples)))
-        (case (car triple)
-          ((*GRAPH*) (rewrite-triples-reverse (cdr triples) bindings
-                                              statements: (append (cadr triple) statements)
-                                              graph-statements: graph-statements))
-          (else (let-values (((new-statements new-graph-statements new-bindings)
-                              (rewrite-special triple bindings in-place?: in-place?)))
-                (rewrite-triples-reverse (cdr triples)
-                                         (unify-bindings bindings new-bindings)
-                                         statements: (append new-statements statements)
-                                         graph-statements: (append graph-statements new-graph-statements)
-                                         in-place?: in-place?)))))))
-      
-      
-(define (rewrite-triples triples bindings
-                         #!key (statements '()) (in-place? #t) (graph-statements '()) )
-  (cond ((null? triples)
-         (rewrite-triples-reverse statements bindings graph-statements: graph-statements in-place?: in-place?))
-        ((special? (car triples))
-         (rewrite-triples (cdr triples)
-                          bindings
-                          in-place?: in-place?
-                          statements: (cons (car triples) statements)))
-        (else
-         (match (car triples)
-           ((s p o) (let ((stype (get-type-binding bindings s)))
-                      (if (and (iri? stype)  (iri? p) (get-graph stype p))
-                          (rewrite-triple-in-place triples stype statements
-                                                   in-place? graph-statements 
-                                                   bindings)
-                                                   
-                          
-                          (rewrite-triples-queried triples stype statements 
-                                                   in-place? graph-statements 
-                                                   bindings))))))))
 
 
 (define (type-def triple)
@@ -235,13 +191,42 @@
                           (cdr triples)))))
              (else (loop bindings  (cdr triples)))))))))
 
+(define (flatten-graphs triples)
+  (if (*rewrite-graph-statements?*)
+      (join (map (lambda (triple)
+                   (if (equal? 'GRAPH (car triple))
+                       (cddr triple)
+                       (list triple)))
+                 triples))
+      triples))
 
-(define (rewrite-triplesblock triples #!optional (bindings '()) #!key in-place?)
-  (let ((triples (flatten-graphs (expand-triples triples))))
-    (let ((new-bindings (assign-type-defs triples bindings)))
-      (print "EXISTING BINDINGS")(print bindings)
-      (print "NEW BINDINGS")(print new-bindings)(newline)
-      (rewrite-triples triples new-bindings in-place?: in-place?))))
+(define (flatten-graphs-recursive quads)
+  (join (map (lambda (triple)
+               (if (pair? (car triple))
+                   (list (flatten-graphs-recursive triple))
+                   (case (car triple)
+                     ((GRAPH) (cddr triple))
+                     ((OPTIONAL MINUS UNION)
+                      `((,(car triple) ,@(flatten-graphs-recursive (cdr triple)))))
+                     (else (list triple)))))
+             quads)))
+
+    
+(define (extract-graphs quads #!optional (graphs '()))
+  (if (null? quads)
+      graphs
+      (let ((quad (car quads)))
+        (cond ((graph? quad) 
+               (extract-graphs
+                (cdr quads) (cons (cadr quad) (extract-graphs (cddr quad) graphs))))
+              ((special? quad)
+               (extract-graphs
+                (cdr quads) (extract-graphs (cdr quad) graphs)))
+              (else
+               (extract-graphs (cdr quads) graphs))))))
+
+(define (extract-all-variables where-clause)
+  (delete-duplicates (filter sparql-variable? (flatten where-clause))))
 
 (define (replace-dataset where-clause label-key)
   (let ((graphs (append (if (*rewrite-graph-statements?*)
@@ -347,9 +332,58 @@
                                                    in-place? graph-statements 
                                                    bindings))))))))
 
+
+(define (rewrite-triples-reverse triples bindings
+                                 #!key (statements '()) (in-place? #t) (graph-statements '()))
+  (if (null? triples)
+      (values statements graph-statements bindings)
+      (let ((triple (car triples)))
+        (case (car triple)
+          ((*GRAPH*) (rewrite-triples-reverse (cdr triples) bindings
+                                              statements: (append (cadr triple) statements)
+                                              graph-statements: graph-statements))
+          (else (let-values (((new-statements new-graph-statements new-bindings)
+                              (rewrite-special triple bindings in-place?: in-place?)))
+                (rewrite-triples-reverse (cdr triples)
+                                         (unify-bindings bindings new-bindings)
+                                         statements: (append new-statements statements)
+                                         graph-statements: (append graph-statements new-graph-statements)
+                                         in-place?: in-place?)))))))
+      
+      
+(define (rewrite-triples triples bindings
+                         #!key (statements '()) (in-place? #t) (graph-statements '()) )
+  (cond ((null? triples)
+         (rewrite-triples-reverse statements bindings graph-statements: graph-statements in-place?: in-place?))
+        ((special? (car triples))
+         (rewrite-triples (cdr triples)
+                          bindings
+                          in-place?: in-place?
+                          statements: (cons (car triples) statements)))
+        (else
+         (match (car triples)
+           ((s p o) (let ((stype (get-type-binding bindings s)))
+                      (if (and (iri? stype)  (iri? p) (get-graph stype p))
+                          (rewrite-triple-in-place triples stype statements
+                                                   in-place? graph-statements 
+                                                   bindings)
+                                                   
+                          
+                          (rewrite-triples-queried triples stype statements 
+                                                   in-place? graph-statements 
+                                                   bindings))))))))
+
+(define (rewrite-triplesblock triples #!optional (bindings '()) #!key in-place?)
+  (let ((triples (flatten-graphs (expand-triples triples))))
+    (let ((new-bindings (assign-type-defs triples bindings)))
+      (rewrite-triples triples new-bindings in-place?: in-place?))))
+
 (define (rewrite-special group bindings #!key in-place?)
   (case (car group)
-    ((WHERE INSERT DELETE |DELETE WHERE| |DELETE DATA| |INSERT WHERE| |INSERT DATA| |@()| |@[]| MINUS OPTIONAL)
+    ((WHERE 
+            DELETE |DELETE WHERE| |DELETE DATA|
+            INSERT  |INSERT WHERE| |INSERT DATA|
+            |@()| |@[]| MINUS OPTIONAL)
      (let-values (((rewritten-quads graph-statements new-bindings)
                    (rewrite-triplesblock (cdr group) bindings in-place?: in-place?)))
        (values (list (cons (car group) rewritten-quads))
@@ -367,43 +401,6 @@
                  (rewrite-triplesblock (cddr group))
                  (values (list group) '() '())))
     (else #f)))
-
-(define (flatten-graphs triples)
-  (if (*rewrite-graph-statements?*)
-      (join (map (lambda (triple)
-                   (if (equal? 'GRAPH (car triple))
-                       (cddr triple)
-                       (list triple)))
-                 triples))
-      triples))
-
-(define (flatten-graphs-recursive quads)
-  (join (map (lambda (triple)
-               (if (pair? (car triple))
-                   (list (flatten-graphs-recursive triple))
-                   (case (car triple)
-                     ((GRAPH) (cddr triple))
-                     ((OPTIONAL MINUS UNION)
-                      `((,(car triple) ,@(flatten-graphs-recursive (cdr triple)))))
-                     (else (list triple)))))
-             quads)))
-
-    
-(define (extract-graphs quads #!optional (graphs '()))
-  (if (null? quads)
-      graphs
-      (let ((quad (car quads)))
-        (cond ((graph? quad) 
-               (extract-graphs
-                (cdr quads) (cons (cadr quad) (extract-graphs (cddr quad) graphs))))
-              ((special? quad)
-               (extract-graphs
-                (cdr quads) (extract-graphs (cdr quad) graphs)))
-              (else
-               (extract-graphs (cdr quads) graphs))))))
-
-(define (extract-all-variables where-clause)
-  (delete-duplicates (filter sparql-variable? (flatten where-clause))))
 
 (define (rewrite-part-name part-name where-statements?)
   (case part-name
