@@ -567,10 +567,9 @@
      (format (current-error-port) "~%Changing graph-realm-id for mu-session-id ~A to ~A~%"
              mu-session-id realm-id)
              
-     (and mu-session-id
-          (hash-table-set! *session-realm-ids* mu-session-id realm-id)
-          `((mu-session-id . ,mu-session-id)
-            (realm-id . ,realm-id))))))
+     (hash-table-set! *session-realm-ids* mu-session-id realm-id)
+     `((mu-session-id . ,mu-session-id)
+       (realm-id . ,realm-id)))))
                      
 (define (add-realm-call _)
   (let* ((req-headers (request-headers (current-request)))
