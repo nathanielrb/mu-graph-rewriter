@@ -327,25 +327,25 @@
 
 (define (rewrite-triples triples bindings
                          #!key (statements '()) (in-place? #t) (graph-statements '()) )
-  (if (null? triples)
-      (values statements graph-statements bindings)
-      (match (car triples)
-	((s p o) (let ((stype
-                        (or (get-type-binding bindings s)
-                            (and (iri? s)
-                                 (get-type (expand-namespace s (query-namespaces))))
-                            (new-sparql-variable "stype"))))
-		   (if (and (iri? stype)  (iri? p) (get-graph stype p))
-                       (rewrite-triple-in-place triples stype statements
-                                                 in-place? graph-statements 
-
-                                                 (if (alist-ref s bindings)
-                                                     bindings
-                                                     (update-bindings bindings s stype)))
-
-                       (rewrite-triples-queried triples stype statements 
-                                              in-place? graph-statements 
-                                              bindings)))))))
+  (cond ((null? triples)
+         (rewrite-triples-reverse statements bindings graph-statements: graph-statements in-place?: in-place?))
+        ((special? (car triples))
+         (rewrite-triples (cdr triples)
+                          bindings
+                          in-place?: in-place?
+                          statements: (cons (car triples) statements)))
+        (else
+         (match (car triples)
+           ((s p o) (let ((stype (get-type-binding bindings s)))
+                      (if (and (iri? stype)  (iri? p) (get-graph stype p))
+                          (rewrite-triple-in-place triples stype statements
+                                                   in-place? graph-statements 
+                                                   bindings)
+                                                   
+                          
+                          (rewrite-triples-queried triples stype statements 
+                                                   in-place? graph-statements 
+                                                   bindings))))))))
 
 (define (rewrite-special group bindings #!key in-place?)
   (case (car group)
