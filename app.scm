@@ -21,7 +21,7 @@
   (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 
 (define *print-messages?*
-  (config-param "PRINT_MESSAGES" #f))
+  (config-param "PRINT_MESSAGES" #t))
 
 (define log-message
   (let ((port (if (or (feature? 'docker)
@@ -192,6 +192,7 @@
        (if (null? triples)
            bindings
            (match (car triples)
+             (((or `GRAPH `OPTIONAL `MINUS) . _)  (loop bindings (cdr triples)))
              ((s p o)
               (if (get-type-binding bindings s)
                   (loop bindings (cdr triples))
@@ -202,7 +203,7 @@
                              (new-sparql-variable "stype"))))
                     (loop (cons `(,s . ((type . ,stype))) bindings)
                           (cdr triples)))))
-             (else (loop bindings  (cdr triples)))))))))
+             (else (loop bindings (cdr triples)))))))))
 
 (define (flatten-graphs triples)
   (if (*rewrite-graph-statements?*)
@@ -496,7 +497,8 @@
                       ((condition-property-accessor 'server-error 'response) exn)))
         (body (or ((condition-property-accessor 'client-error 'body) exn)
                   ((condition-property-accessor 'server-error 'body) exn))))
-    (log-message "~%==Virtuoso Error==~% ~A ~%" body)
+    (when body
+      (log-message "~%==Virtuoso Error==~% ~A ~%" body))
     (when response
       (log-message "~%==Reason==:~%~A~%" (response-reason response)))
     (abort exn)))
@@ -527,7 +529,10 @@
                                                               'rewrite-select-queries req-headers))
                                               (equal? "true" ($ 'rewrite-select-queries))
                                               (*rewrite-select-queries?*))))
+                            (print "REALM!: " (*realm*))
+                            (print "QUERY? "  query)
                             (rewrite query))))
+    (print "MADe IT" rewritten-query)
 
     (when (*print-messages?*)
       (log-message "~%==Received Headers==~%~A~%" req-headers)
