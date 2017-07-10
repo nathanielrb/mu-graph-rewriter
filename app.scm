@@ -20,6 +20,17 @@
 (define *realm-id-graph*
   (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 
+(define *print-messages?*
+  (config-param "PRINT_MESSAGES" #f))
+
+(define log-message
+  (let ((port (if (or (feature? 'docker)
+                      (*print-messages?*))
+                  (current-error-port)
+                  (open-output-file "rewriter.log"))))
+    (lambda (str #!rest args)
+      (apply format port str args))))
+
 (define *cache* (make-hash-table))
 
 (define *session-realm-ids* (make-hash-table))
@@ -27,11 +38,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Queries
 (define (get-type subject)
-  (query-unique-with-vars
-   (type)
-   (s-select '?type (s-triples `((,subject a ?type)))
-	     from-graph: #f)
-   type))
+  (hit-hashed-cache
+   *cache* (list 'Type subject)
+   (query-unique-with-vars
+    (type)
+    (s-select '?type (s-triples `((,subject a ?type)))
+              from-graph: #f)
+    type)))
 
 (define (get-realm realm-id)
   (and realm-id
@@ -483,11 +496,9 @@
                       ((condition-property-accessor 'server-error 'response) exn)))
         (body (or ((condition-property-accessor 'client-error 'body) exn)
                   ((condition-property-accessor 'server-error 'body) exn))))
-    (format (current-error-port)  "~%==Virtuoso Error==~% ~A ~%" body)
+    (log-message "~%==Virtuoso Error==~% ~A ~%" body)
     (when response
-      (format (current-error-port)
-              "~%==Reason==:~%~A~%"
-              (response-reason response)))
+      (log-message "~%==Reason==:~%~A~%" (response-reason response)))
     (abort exn)))
 
 (define (rewrite-call _)
@@ -518,11 +529,12 @@
                                               (*rewrite-select-queries?*))))
                             (rewrite query))))
 
-      (format (current-error-port) "~%==Received Headers==~%~A~%" req-headers)
-      (format (current-error-port) "~%==Graph Realm==~%~A~%" graph-realm)
-      (format (current-error-port) "~%==Rewriting Query==~%~A~%" query-string)
-      (format (current-error-port) "~%==Parsed As==~%~A~%" (write-sparql query))
-      (format (current-error-port) "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
+    (when (*print-messages?*)
+      (log-message "~%==Received Headers==~%~A~%" req-headers)
+      (log-message "~%==Graph Realm==~%~A~%" graph-realm)
+      (log-message "~%==Rewriting Query==~%~A~%" query-string)
+      (log-message "~%==Parsed As==~%~A~%" (write-sparql query))
+      (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query)))
 
       (handle-exceptions exn 
           (virtuoso-error exn)
@@ -542,8 +554,9 @@
                          read-string)))
             (close-connection! uri)
             (let ((headers (headers->list (response-headers response))))
-              (format (current-error-port) "~%==Results==~%~A~%" 
-                      (substring result 0 (min 1000 (string-length result))))
+              (when  (*print-messages?*)
+                (log-message "~%==Results==~%~A~%" 
+                              (substring result 0 (min 1000 (string-length result)))))
               (mu-headers headers)
               (format #f "~A~" result)))))))
 
@@ -551,7 +564,7 @@
   (rest-call
    (realm-id)
    (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
-     (format (current-error-port) "~%Changing graph-realm-id for mu-session-id ~A to ~A~%"
+     (log-message "~%Changing graph-realm-id for mu-session-id ~A to ~A~%"
              mu-session-id realm-id)
      (hash-table-set! *session-realm-ids* mu-session-id realm-id)
      `((mu-session-id . ,mu-session-id)
@@ -559,7 +572,7 @@
 
 (define (delete-session-realm-call _)
   (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
-    (format (current-error-port) "~%Removing graph-realm-id for mu-session-id ~A to ~A~%"
+    (log-message "~%Removing graph-realm-id for mu-session-id ~A to ~A~%"
             mu-session-id realm-id)
     (hash-table-delete! *session-realm-ids* mu-session-id)
      `((mu-session-id . ,mu-session-id)
@@ -572,7 +585,7 @@
                     (get-realm (alist-ref 'graph-realm-id body))))
          (graph-type (read-uri (alist-ref 'graph-type body)))
          (graph (read-uri (alist-ref 'graph body))))
-    (format (current-error-port) "~%Adding graph-realm ~A for ~A  ~%"
+    (log-message "~%Adding graph-realm ~A for ~A  ~%"
             realm graph)
     (add-realm realm graph graph-type)))
 
@@ -582,7 +595,7 @@
          (realm (or (read-uri (alist-ref 'graph-realm body))
                     (get-realm (alist-ref 'graph-realm-id body))))
          (graph (read-uri (alist-ref 'graph body))))
-    (format (current-error-port) "~%Deleting graph-realm for ~A or ~A  ~%"
+    (log-message "~%Deleting graph-realm for ~A or ~A  ~%"
             realm graph)
     (delete-realm realm graph)))
 
