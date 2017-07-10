@@ -184,6 +184,8 @@
                   (loop bindings (cdr triples))
                   (let ((stype
                          (or (get-type-binding declared-bindings s)
+                             (and (iri? s)
+                                 (get-type (expand-namespace s (query-namespaces))))
                              (new-sparql-variable "stype"))))
                     (loop (cons `(,s . ((type . ,stype))) bindings)
                           (cdr triples)))))
@@ -339,7 +341,7 @@
         (else
          (match (car triples)
            ((s p o) (let ((stype (get-type-binding bindings s)))
-                      (if (and (iri? stype)  (iri? p) (get-graph stype p))
+                      (if (and (iri? stype) (iri? p) (get-graph stype p))
                           (rewrite-triple-in-place triples stype bindings
                                                    statements graph-statements 
                                                    in-place?: in-place?)
