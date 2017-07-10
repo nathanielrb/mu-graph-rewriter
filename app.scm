@@ -20,17 +20,6 @@
 (define *realm-id-graph*
   (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 
-(define *print-messages?*
-  (config-param "PRINT_MESSAGES" #t))
-
-(define log-message
-  (let ((port (if (or (feature? 'docker)
-                      (*print-messages?*))
-                  (current-error-port)
-                  (open-output-file "rewriter.log"))))
-    (lambda (str #!rest args)
-      (apply format port str args))))
-
 (define *cache* (make-hash-table))
 
 (define *session-realm-ids* (make-hash-table))
@@ -529,17 +518,14 @@
                                                               'rewrite-select-queries req-headers))
                                               (equal? "true" ($ 'rewrite-select-queries))
                                               (*rewrite-select-queries?*))))
-                            (print "REALM!: " (*realm*))
-                            (print "QUERY? "  query)
                             (rewrite query))))
-    (print "MADe IT" rewritten-query)
 
-    (when (*print-messages?*)
+
       (log-message "~%==Received Headers==~%~A~%" req-headers)
       (log-message "~%==Graph Realm==~%~A~%" graph-realm)
       (log-message "~%==Rewriting Query==~%~A~%" query-string)
       (log-message "~%==Parsed As==~%~A~%" (write-sparql query))
-      (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query)))
+      (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
 
       (handle-exceptions exn 
           (virtuoso-error exn)
@@ -559,9 +545,9 @@
                          read-string)))
             (close-connection! uri)
             (let ((headers (headers->list (response-headers response))))
-              (when  (*print-messages?*)
-                (log-message "~%==Results==~%~A~%" 
-                              (substring result 0 (min 1000 (string-length result)))))
+
+              (log-message "~%==Results==~%~A~%" 
+                           (substring result 0 (min 1000 (string-length result))))
               (mu-headers headers)
               (format #f "~A~" result)))))))
 
