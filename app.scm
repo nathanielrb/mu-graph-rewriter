@@ -310,7 +310,7 @@
                                        (and in-place? new-graph-statement))))
                          statements)
                         (if bound-graph graph-statements
-                            (cons (car new-graph-statement)
+                            (append new-graph-statement
                                   graph-statements))
                         in-place?: in-place?)))))
 

@@ -657,3 +657,36 @@ INSERT DATA
 }
 }
 "))
+
+(define aad4 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX cms: <http://mu.semte.ch/vocabulary/cms/>
+PREFIX auth: <http://mu.semte.ch/vocabularies/authorization/>
+PREFIX session: <http://mu.semte.ch/vocabularies/session/>
+PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX dctype: <http://purl.org/dc/dcmitype/>
+PREFIX dcat: <http://www.w3.org/ns/dcat#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
+PREFIX nco: <http://www.semanticdesktop.org/ontologies/2007/03/22/nco#>
+PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie/#>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT DISTINCT ?target WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s mu:uuid \"595CC438E1D94E0009000003\". ?s ^dct:publisher/mu:uuid ?target.  
+}
+}"))
