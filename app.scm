@@ -90,7 +90,7 @@
 (define (graph-match-statements graph s stype p)
   (let ((rule (new-sparql-variable "rule"))
 	(gtype (new-sparql-variable "gtype")))
-    `((OPTIONAL
+    `(;(OPTIONAL
        ,@(splice-when
           (and (not (iri? stype))
                `((,s a ,stype))))
@@ -106,7 +106,7 @@
               ,(if (equal? p 'a)
                    `(,rule rewriter:predicate rdf:type)
                    `(,rule rewriter:predicate ,p))
-              (,rule rewriter:subjectType ,stype))))))
+              (,rule rewriter:subjectType ,stype)))))
 
 (define (all-graphs)
   (hit-hashed-cache
@@ -519,7 +519,6 @@
                                               (equal? "true" ($ 'rewrite-select-queries))
                                               (*rewrite-select-queries?*))))
                             (rewrite query))))
-
 
       (log-message "~%==Received Headers==~%~A~%" req-headers)
       (log-message "~%==Graph Realm==~%~A~%" graph-realm)
