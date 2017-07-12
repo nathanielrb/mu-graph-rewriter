@@ -508,12 +508,12 @@
          (query (parse-query query-string))
          (req-headers (request-headers (current-request)))
          (mu-session-id (header-value 'mu-session-id req-headers))
-         (graph-realm (or (get-realm (hash-table-ref/default *session-realm-ids* mu-session-id #f))
-                          (header-value 'mu-graph-realm req-headers)
-                          ($ 'graph-realm)
-                          ($body 'graph-realm) 
+         (graph-realm (or (header-value 'mu-graph-realm req-headers)
                           (get-realm (header-value 'mu-graph-realm-id req-headers))
-                          (get-realm ($ 'graph-realm-id))))
+                          (get-realm ($ 'graph-realm-id))
+                          ($ 'graph-realm)
+                          ($body 'graph-realm)
+                          (get-realm (hash-table-ref/default *session-realm-ids* mu-session-id #f))))
          (rewritten-query (parameterize ((*realm* graph-realm)
                                          (*rewrite-graph-statements?* 
                                           (not (or (header-value
