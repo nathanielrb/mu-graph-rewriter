@@ -87,12 +87,13 @@
         from-graph: #f)
        graph)))))
 
-(define (graph-match-statements graph s stype p)
+(define (graph-match-statements graph s stype p new-stype?)
   (let ((rule (new-sparql-variable "rule"))
 	(gtype (new-sparql-variable "gtype")))
     `(;(OPTIONAL
        ,@(splice-when
           (and (not (iri? stype))
+               new-stype?
                `((,s a ,stype))))
        (GRAPH ,(*default-graph*) 
               (,rule a rewriter:GraphRule)
@@ -281,6 +282,9 @@
 (define (get-type-binding bindings s)
   (nested-alist-ref bindings s 'type))
 
+(define (get-graph-bindings bindings s)
+  (nested-alist-ref bindings s 'predicates))
+
 (define (get-graph-binding bindings s pred)
   (nested-alist-ref bindings s 'predicates pred))
 
@@ -298,16 +302,18 @@
 (define (rewrite-triples-queried triples stype bindings statements graph-statements #!key in-place?)
   (match (car triples)
     ((s p o)
-     (let* ((bound-graph (get-graph-binding bindings s p))
+     (let* ((new-stype? (get-graph-bindings bindings s))
+            (bound-graph (get-graph-binding bindings s p))
             (graph (or bound-graph (new-sparql-variable "graph")))
             (new-graph-statement (and (not bound-graph) 
-                                      (graph-match-statements graph s stype p))))
+                                      (graph-match-statements graph s stype p new-stype?))))
        (rewrite-triples (cdr triples)
                         (update-bindings bindings s stype p graph)
                         (cons
                          `(*GRAPH* ((GRAPH ,graph (,s ,p ,o))
                                     ,@(splice-when
-                                       (and in-place? new-graph-statement))))
+                                       (and in-place? (not bound-graph)
+                                            new-graph-statement))))
                          statements)
                         (if bound-graph graph-statements
                             (append new-graph-statement
