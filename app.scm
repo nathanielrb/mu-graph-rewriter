@@ -447,8 +447,8 @@
                                 (pair? (join graph-statements)))
                             `((@Query (|SELECT DISTINCT| *)
                                       (WHERE
-                                       ,@(append where-statements
-                                                 joined-graph-statements))))
+                                       ,@(append joined-graph-statements
+                                                 where-statements))))
                             '())
                             (filter pair? parts)))))))
 
