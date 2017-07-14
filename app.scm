@@ -358,21 +358,21 @@
                                                    statements graph-statements 
                                                    in-place?: in-place?))))))))
 
-(define (rewrite-triplesblock triples #!optional (bindings '()) #!key in-place?)
+(define (rewrite-triples-block triples #!optional (bindings '()) #!key in-place?)
   (let ((triples (flatten-graphs (expand-triples triples))))
     (let ((new-bindings (assign-type-defs triples bindings)))
       (rewrite-triples triples new-bindings '() '() in-place?: in-place?))))
 
 (define (rewrite-special-block group bindings in-place?)
   (let-values (((rewritten-quads graph-statements new-bindings)
-                (rewrite-triplesblock (cdr group) bindings in-place?: in-place?)))
+                (rewrite-triples-block (cdr group) bindings in-place?: in-place?)))
     (values (list (cons (car group) rewritten-quads))
             graph-statements
             new-bindings)))
 
 (define (rewrite-special-union group bindings in-place?)
   (let-values (((rewritten-quads graph-statements new-bindings)
-                (map-values/3 (cute rewrite-triplesblock <> bindings in-place?: in-place?)
+                (map-values/3 (cute rewrite-triples-block <> bindings in-place?: in-place?)
                               (cdr group))))
     (values (list (cons (car group) rewritten-quads))
             graph-statements
@@ -387,7 +387,7 @@
     ((UNION) (rewrite-special-union group bindings in-place?))
     ((FILTER BIND) (values (list group) '() '()))
     ((GRAPH) (if (*rewrite-graph-statements?*)
-                 (rewrite-triplesblock (cddr group))
+                 (rewrite-triples-block (cddr group))
                  (values (list group) '() '())))
     (else #f)))
 
@@ -399,7 +399,7 @@
 
 (define (rewrite-update-query part bindings)
   (let-values (((rewritten-quads graph-statements type-bindings)
-                (rewrite-triplesblock (cdr part) bindings)))
+                (rewrite-triples-block (cdr part) bindings)))
     (values (cons (rewrite-part-name (car part) (pair? graph-statements))
                   rewritten-quads)
             graph-statements
@@ -426,7 +426,7 @@
   (let ((where-clause (alist-ref 'WHERE (cdr unit))))
     (let-values (((where-statements _ bindings)
                   (if where-clause
-                      (rewrite-triplesblock where-clause '() in-place?: #t)
+                      (rewrite-triples-block where-clause '() in-place?: #t)
                       (values '() '() '()))))
       (let-values (((parts graph-statements _)
                     (let loop ((parts (cdr unit))
@@ -513,22 +513,24 @@
                           (get-realm ($ 'graph-realm-id))
                           ($ 'graph-realm)
                           ($body 'graph-realm)
-                          (get-realm (hash-table-ref/default *session-realm-ids* mu-session-id #f))))
-         (rewritten-query (parameterize ((*realm* graph-realm)
-                                         (*rewrite-graph-statements?* 
-                                          (not (or (header-value
-                                                    'preserve-graph-statements req-headers)
-                                                   ($ 'preserve-graph-statements))))
-                                         (*rewrite-select-queries?* 
-                                          (or (equal? "true" (header-value
-                                                              'rewrite-select-queries req-headers))
-                                              (equal? "true" ($ 'rewrite-select-queries))
-                                              (*rewrite-select-queries?*))))
-                            (rewrite query))))
+                          (get-realm (hash-table-ref/default *session-realm-ids* mu-session-id #f)))))
+    (log-message "~%==Received Headers==~%~A~%" req-headers)
+    (log-message "~%==Graph Realm==~%~A~%" graph-realm)
+    (log-message "~%==Rewriting Query==~%~A~%" query-string)
+    (log-message "REWRITE? ~A" (*rewrite-select-queries?*))
 
-      (log-message "~%==Received Headers==~%~A~%" req-headers)
-      (log-message "~%==Graph Realm==~%~A~%" graph-realm)
-      (log-message "~%==Rewriting Query==~%~A~%" query-string)
+    (let ((rewritten-query (parameterize ((*realm* graph-realm)
+                                          (*rewrite-graph-statements?* 
+                                           (not (or (header-value
+                                                     'preserve-graph-statements req-headers)
+                                                    ($ 'preserve-graph-statements))))
+                                          (*rewrite-select-queries?* 
+                                           (or (equal? "true" (header-value
+                                                               'rewrite-select-queries req-headers))
+                                               (equal? "true" ($ 'rewrite-select-queries))
+                                               (*rewrite-select-queries?*))))
+                             (rewrite query))))
+
       (log-message "~%==Parsed As==~%~A~%" (write-sparql query))
       (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
 
@@ -554,7 +556,7 @@
               (log-message "~%==Results==~%~A~%" 
                            (substring result 0 (min 1000 (string-length result))))
               (mu-headers headers)
-              (format #f "~A~" result)))))))
+              (format #f "~A~" result))))))))
 
 (define change-session-realm-call 
   (rest-call
@@ -583,7 +585,10 @@
          (graph (read-uri (alist-ref 'graph body))))
     (log-message "~%Adding graph-realm ~A for ~A  ~%"
             realm graph)
-    (add-realm realm graph graph-type)))
+    (add-realm realm graph graph-type)
+    (hash-table-delete! *cache* '(graphs #f))
+    `((status . "success")
+      (realm . ,(write-uri realm)))))
 
 (define (delete-realm-call _)
   (let* ((req-headers (request-headers (current-request)))
@@ -593,10 +598,13 @@
          (graph (read-uri (alist-ref 'graph body))))
     (log-message "~%Deleting graph-realm for ~A or ~A  ~%"
             realm graph)
+    (hash-table-delete! *cache* '(graphs #f))
     (delete-realm realm graph)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specifications                 
+(define-rest-call 'GET '("test") (lambda (_) (test)))
+
 (define-rest-call 'GET '("sparql") rewrite-call)
 (define-rest-call 'POST '("sparql") rewrite-call)
 
