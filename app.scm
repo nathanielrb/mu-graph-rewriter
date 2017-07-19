@@ -31,7 +31,10 @@
    *cache* (list 'Type subject)
    (query-unique-with-vars
     (type)
-    (s-select '?type (s-triples `((,subject a ?type)))
+    (s-select '?type
+              (s-triples
+               `((GRAPH ,(*default-graph*) (?graph a rewriter:Graph))
+                 (GRAPH ?graph (,subject a ?type))))
               from-graph: #f)
     type)))
 
@@ -94,7 +97,8 @@
        ,@(splice-when
           (and (not (iri? stype))
                new-stype?
-               `((,s a ,stype))))
+               `((GRAPH ?AllGraphs (,s a ,stype))
+                 (GRAPH ,(*default-graph*) (?AllGraps a rewriter:Graph)))))
        (GRAPH ,(*default-graph*) 
               (,rule a rewriter:GraphRule)
               (,graph a rewriter:Graph)
@@ -409,11 +413,19 @@
   (case (car part)
     ((WHERE) (values '(WHERE) '() '()))
     ((@Dataset) 
-     (values (replace-dataset where-clause 'from) '() '()))
+     (if (*rewrite-select-queries?*)
+         (values '() '() '())
+         (values (replace-dataset where-clause 'from) '() '())))
     ((@Using)
-     (values (replace-dataset where-clause 'using) '() '()))
+     (values '() '() '()))
+     ;; (values (replace-dataset where-clause 'using) '() '()))
     ((DELETE INSERT |INSERT DATA| |DELETE DATA| |DELETE WHERE|)
-     (rewrite-update-query part bindings))
+     ;(let-values (((statements graph-statements bindings)
+                   (rewrite-update-query part bindings))
+      ; (print "PARTS") 
+       ;(print (car part))
+       ;(print (construct-statements (cdr statements)))
+       ;(values statements graph-statements bindings)))
     ((SELECT |SELECT DISTINCT| |SELECT REDUCED|)
      (values `(,(car part)
                ,@(if (equal? (cdr part) '(*))
@@ -453,11 +465,12 @@
                             (filter pair? parts)))))))
 
 (define (rewrite QueryUnit #!optional realm)
-  (cons '@Unit
-        (parameterize ((query-namespaces (query-prefixes QueryUnit)))
-          (map (lambda (Query)
-                 (map (lambda (part)
-                        (case (car part)
+  (list
+   (cons '@Unit
+         (parameterize ((query-namespaces (query-prefixes QueryUnit)))
+           (map (lambda (Query)
+                  (map (lambda (part)
+                         (case (car part)
                           ((@Query)
                            (if (*rewrite-select-queries?*)
                                (cons (car part) (rewrite-query-part part))
@@ -466,7 +479,7 @@
                                       'WHERE 
                                       (flatten-graphs-recursive
                                        (alist-ref 'WHERE (cdr part)))
-                                      (alist-update '@Dataset (replace-dataset '() 'from)
+                                      (alist-update '@Dataset '() ; (replace-dataset '() 'from)
                                                     (cdr part))))))
                           ((@Update)
                            (cons '@Update
@@ -483,10 +496,132 @@
                              ,@(cdr part)))
                           (else part)))
                       Query))
-               (alist-ref '@Unit QueryUnit)))))
+               (alist-ref '@Unit QueryUnit))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Call Implentations
+;; Deltas
+(define (update-query? query)
+  ((list-of? update-unit?)
+   (alist-ref '@Unit query)))
+
+(define (update-unit? unit)
+  (alist-ref '@Update unit))
+
+(define (construct-statements statements)
+  (and statements
+       `(CONSTRUCT
+         ,@(join
+            (map (lambda (statement)
+                   (match statement
+                     ((`GRAPH graph (s p o))
+                      `((,s ,p ,o)
+                        (,s ,p ,graph)
+                        (rewriter:Graphs rewriter:include ,graph)))))
+                 statements)))))
+
+(define (const query)
+  (and (update-query? query)
+       (let loop ((queryunits (alist-ref '@Unit query))
+                  (prologues '(@Prologue))
+                  (constructs '()))
+         (if (null? queryunits)
+             constructs
+             (let* ((queryunit (car queryunits))
+                    (unit (alist-ref '@Update queryunit))
+                    (prologue (append prologues (or (alist-ref '@Prologue queryunit) '())))
+                    (where (assoc 'WHERE unit))
+                    (delete-construct (construct-statements (nested-alist-ref unit 'DELETE)))
+                    (insert-construct (construct-statements (nested-alist-ref unit 'INSERT))))
+               (loop (cdr queryunits)
+                     prologue
+                     (cons (list 
+                              (and delete-construct 
+                                     `(,prologue
+                                       ,delete-construct
+                                       ,(or where '(NOWHERE))))
+                              (and insert-construct 
+                                     `(,prologue
+                                       ,insert-construct
+                                       ,(or where '(NOWHERE)))))
+                             constructs)))))))
+
+(define (merge-by-graph label quads)
+  (map (lambda (group)
+         `((graph . ,(caar group))
+           (deltas . ((,label 
+                       . ,(list->vector
+                           (map cdr group)))))))
+       (group/key car
+                  (sort
+                   quads
+                   (lambda (a b)
+                     (string< (->string (car a))
+                              (->string (car b))))))))
+
+;; or:
+;; (define (run-diff insert-query delete-query label)
+;;  (let* ((results
+;;           (append
+;;             (map (lambda (result) (cons 'delete result))
+;;                (sparql/select (write-sparql query) raw?: #t))
+;;     ...    
+(define (run-diff query label)
+  (let* ((results (sparql/select (write-sparql query) raw?: #t))
+         (graphs
+          (map (lambda (x)
+                 (alist-ref 'value x))
+               (vector->list
+                (nested-alist-ref
+                 results
+                 'http://mu.semte.ch/graphs/Graphs 
+                 'http://mu.semte.ch/graphs/include)))))
+    (merge-by-graph
+     label
+     (join
+      (filter values
+              (map (lambda (tripleset)
+                     (let ((s (car tripleset))
+                           (properties (cdr tripleset)))
+                       (and (not (equal? s 'http://mu.semte.ch/graphs/Graphs))
+                            (join
+                             (map (lambda (propertyset)
+                                    (let* ((p (car propertyset))
+                                           (objects (vector->list (cdr propertyset)))
+                                           (graph (alist-ref 
+                                                   'value
+                                                   (car
+                                                    (filter (lambda (object) 
+                                                              (member (alist-ref 'value object) graphs))
+                                                            objects)))))
+                                      (filter values
+                                              (map (lambda (object)
+                                                     (let ((o (alist-ref 'value object)))
+                                                       (and (not (member o graphs))
+                                                            (begin
+                                                              (print "GRAPH " graph)
+                                                              (print "SUBJECT " s)
+                                                              (print "PRED " p)
+                                                              (print "VAL " o)
+                                                              `(,graph
+                                                                . ((s . ,(symbol->string s))
+                                                                   (p . ,(symbol->string p))
+                                                                   (o . ,o)))))))
+                                                   objects))))
+                                  properties)))))
+                   results))))))
+
+;; needs to merge graphs again
+;; or give both d and i to run-diff
+(define (run-diffs query)
+  (let ((constructs (const query)))
+    (map (match-lambda ((d i) 
+                      (filter values
+                              (list (and d (list->vector (run-diff d 'deletes)))
+                                    (and i (list->vector (run-diff i 'inserts)))))))
+         constructs)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Call Implentation
 (define (virtuoso-error exn)
   (let ((response (or ((condition-property-accessor 'client-error 'response) exn)
                       ((condition-property-accessor 'server-error 'response) exn)))

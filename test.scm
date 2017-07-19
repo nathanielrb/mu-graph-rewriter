@@ -642,18 +642,18 @@ PREFIX app: <http://mu.semte.ch/app/>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 DELETE {
     GRAPH <http://data.europa.eu/eurostat/temp> {
-        <http://data.europa.eu/eurostat/id/offer/08a84fd32d941cc224b871a52385be0e> schema:category ?s.
+        <http://data.europa.eu/eurostat/id/offer/7fc0214e3427c3eefeb2a26493bcb375> schema:category ?s.
 }
 } WHERE {
     GRAPH <http://data.europa.eu/eurostat/temp> {
-        OPTIONAL {     <http://data.europa.eu/eurostat/id/offer/08a84fd32d941cc224b871a52385be0e> schema:category ?s.
+        OPTIONAL {     <http://data.europa.eu/eurostat/id/offer/7fc0214e3427c3eefeb2a26493bcb375> schema:category ?s.
  }
 }
 }; 
 INSERT DATA 
 {
     GRAPH <http://data.europa.eu/eurostat/temp> {
-        <http://data.europa.eu/eurostat/id/offer/08a84fd32d941cc224b871a52385be0e> schema:category <http://data.europa.eu/eurostat/id/taxonomy/ECOICOP/concept/012220701>.
+        <http://data.europa.eu/eurostat/id/offer/7fc0214e3427c3eefeb2a26493bcb375> schema:category <http://data.europa.eu/eurostat/id/taxonomy/ECOICOP/concept/012220701>.
 }
 }
 "))
