@@ -146,11 +146,16 @@
        (equal? (car quad) 'GRAPH)))
 
 (define (special? quad)
-  (member (car quad)
-          '(WHERE
-            DELETE |DELETE WHERE| |DELETE DATA|
-            INSERT |INSERT WHERE| |INSERT DATA|
-            |@()| |@[]| MINUS OPTIONAL UNION FILTER BIND GRAPH)))
+  (or (match (car quad)
+        (((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . _) #t)
+        (else #f))
+      (case (car quad)
+        ((WHERE
+          SELECT |SELECT DISTINCT| |SELECT REDUCED| 
+          DELETE |DELETE WHERE| |DELETE DATA|
+          INSERT |INSERT WHERE| |INSERT DATA|
+          |@()| |@[]| MINUS OPTIONAL UNION FILTER BIND GRAPH) #t)
+        (else #f))))
 
 (define (remove-trailing-char sym #!optional (len 1))
   (let ((s (symbol->string sym)))
@@ -374,6 +379,39 @@
             graph-statements
             new-bindings)))
 
+(define (extract-subselect-vars vars)
+  (filter values
+          (map (lambda (var)
+                 (if (symbol? var) var
+                     (match var
+                       ((`AS _ v) v)
+                       (else #f))))
+               vars)))
+
+(define (project-bindings bindings vars)
+  (let loop ((new-bindings '()) (vars vars))
+    (if (null? vars) new-bindings
+        (let ((var (car vars)))
+        (loop (alist-update var (alist-ref var bindings) bindings)
+              (cdr vars))))))
+
+;; for now, does not update received bindings at all;
+;; but it should...
+(define (rewrite-special-subselect group bindings in-place?)
+  (match group
+    ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars)
+      block)
+     (let* ((subselect-vars (extract-subselect-vars vars))
+            (bindings (if (equal? subselect-vars '(*))
+                          bindings
+                          (project-bindings bindings subselect-vars))))
+       (let-values (((rewritten-quads graph-statements new-bindings)
+                     ;;(rewrite-triples-block block bindings in-place?: in-place?)))
+                     (rewrite-special block bindings in-place?: in-place?)))
+         (values (list (cons (car group) rewritten-quads))
+                 graph-statements
+                 bindings))))))
+
 (define (rewrite-special-union group bindings in-place?)
   (let-values (((rewritten-quads graph-statements new-bindings)
                 (map-values/3 (cute rewrite-triples-block <> bindings in-place?: in-place?)
@@ -382,18 +420,25 @@
             graph-statements
             (join new-bindings))))
 
+(define (subselect? group)
+  (and (pair? (car group))
+       (member (caar group) `(SELECT |SELECT DISTINCT| |SELECT REDUCED|))))
+
 (define (rewrite-special group bindings #!key in-place?)
-  (case (car group)
-    ((WHERE |@()| |@[]| MINUS OPTIONAL
-      DELETE |DELETE WHERE| |DELETE DATA|
-      INSERT |INSERT WHERE| |INSERT DATA|) 
-     (rewrite-special-block group bindings in-place?))
-    ((UNION) (rewrite-special-union group bindings in-place?))
-    ((FILTER BIND) (values (list group) '() '()))
-    ((GRAPH) (if (*rewrite-graph-statements?*)
-                 (rewrite-triples-block (cddr group))
-                 (values (list group) '() '())))
-    (else #f)))
+  (if (subselect? group)
+      (rewrite-special-subselect group bindings in-place?)
+      (case (car group)
+        ((WHERE |@()| |@[]| MINUS OPTIONAL
+                SELECT |SELECT DISTINCT| |SELECT REDUCED| 
+                DELETE |DELETE WHERE| |DELETE DATA|
+                INSERT |INSERT WHERE| |INSERT DATA|) 
+         (rewrite-special-block group bindings in-place?))
+        ((UNION) (rewrite-special-union group bindings in-place?))
+        ((FILTER BIND) (values (list group) '() '()))
+        ((GRAPH) (if (*rewrite-graph-statements?*)
+                     (rewrite-triples-block (cddr group))
+                     (values (list group) '() '())))
+        (else #f))))
 
 (define (rewrite-part-name part-name where-statements?)
   (case part-name
@@ -418,14 +463,8 @@
          (values (replace-dataset where-clause 'from) '() '())))
     ((@Using)
      (values '() '() '()))
-     ;; (values (replace-dataset where-clause 'using) '() '()))
     ((DELETE INSERT |INSERT DATA| |DELETE DATA| |DELETE WHERE|)
-     ;(let-values (((statements graph-statements bindings)
                    (rewrite-update-query part bindings))
-      ; (print "PARTS") 
-       ;(print (car part))
-       ;(print (construct-statements (cdr statements)))
-       ;(values statements graph-statements bindings)))
     ((SELECT |SELECT DISTINCT| |SELECT REDUCED|)
      (values `(,(car part)
                ,@(if (equal? (cdr part) '(*))
@@ -545,12 +584,12 @@
                                        ,(or where '(NOWHERE)))))
                              constructs)))))))
 
-(define (merge-by-graph label quads)
+(define (merge-triples-by-graph label quads)
   (map (lambda (group)
-         `((graph . ,(caar group))
-           (deltas . ((,label 
-                       . ,(list->vector
-                           (map cdr group)))))))
+         `(,(string->symbol (caar group))
+           . ((,label 
+               . ,(list->vector
+                   (map cdr group))))))
        (group/key car
                   (sort
                    quads
@@ -558,24 +597,15 @@
                      (string< (->string (car a))
                               (->string (car b))))))))
 
-;; or:
-;; (define (run-diff insert-query delete-query label)
-;;  (let* ((results
-;;           (append
-;;             (map (lambda (result) (cons 'delete result))
-;;                (sparql/select (write-sparql query) raw?: #t))
-;;     ...    
 (define (run-diff query label)
   (let* ((results (sparql/select (write-sparql query) raw?: #t))
          (graphs
           (map (lambda (x)
                  (alist-ref 'value x))
                (vector->list
-                (nested-alist-ref
-                 results
-                 'http://mu.semte.ch/graphs/Graphs 
-                 'http://mu.semte.ch/graphs/include)))))
-    (merge-by-graph
+                (nested-alist-ref 
+                 results 'http://mu.semte.ch/graphs/Graphs 'http://mu.semte.ch/graphs/include)))))
+    (merge-triples-by-graph
      label
      (join
       (filter values
@@ -597,27 +627,37 @@
                                               (map (lambda (object)
                                                      (let ((o (alist-ref 'value object)))
                                                        (and (not (member o graphs))
-                                                            (begin
-                                                              (print "GRAPH " graph)
-                                                              (print "SUBJECT " s)
-                                                              (print "PRED " p)
-                                                              (print "VAL " o)
-                                                              `(,graph
+                                                            `(,graph
                                                                 . ((s . ,(symbol->string s))
                                                                    (p . ,(symbol->string p))
-                                                                   (o . ,o)))))))
+                                                                   (o . ,o))))))
                                                    objects))))
                                   properties)))))
                    results))))))
 
-;; needs to merge graphs again
-;; or give both d and i to run-diff
+(define (merge-diffs-by-graph delete-diffs insert-diffs)
+  (list->vector
+   (map (match-lambda
+          ((graph . deltas)
+          `((graph . ,(symbol->string graph))
+            (deltas . ,deltas))))
+       (let loop ((ds delete-diffs)
+                  (diffs insert-diffs))
+         (if (null? ds) diffs
+             (let ((graph (caar ds)))
+               (print "ds ")(print ds)(print (car ds))(newline)(print (cdar ds))(newline)
+               (loop (cdr ds)
+                     (alist-update graph
+                                   (append (or  (alist-ref graph diffs) '())
+                                           (cdar ds))
+                                   diffs))))))))
+
 (define (run-diffs query)
   (let ((constructs (const query)))
     (map (match-lambda ((d i) 
-                      (filter values
-                              (list (and d (list->vector (run-diff d 'deletes)))
-                                    (and i (list->vector (run-diff i 'inserts)))))))
+                        (merge-diffs-by-graph
+                         (or (and d (run-diff d 'deletes)) '())
+                         (or (and i (run-diff i 'inserts)) '()))))
          constructs)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -672,6 +712,10 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
+
+        ;; (when (update-query? rewritten-query)
+        ;;  (run-diffs rewritten-query))
+
         (parameterize ((tcp-read-timeout #f)
                        (tcp-write-timeout #f)
                        (tcp-connect-timeout #f))
