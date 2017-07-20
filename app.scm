@@ -20,6 +20,16 @@
 (define *realm-id-graph*
   (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 
+(define *subscribers-file*
+  (config-param "SUBSCRIBERSFILE" "subscribers.json"))
+
+(define *subscribers*
+  (handle-exceptions exn '()
+    (vector->list
+     (alist-ref 'potentials
+                (with-input-from-file (*subscribers-file*)
+                  (lambda () (read-json)))))))
+  
 (define *cache* (make-hash-table))
 
 (define *session-realm-ids* (make-hash-table))
@@ -428,7 +438,6 @@
   (if (subselect? group)
       (rewrite-special-subselect group bindings in-place?)
       (case (car group)
-        
         ((WHERE |@()| |@[]| MINUS OPTIONAL                
                 DELETE |DELETE WHERE| |DELETE DATA|
                 INSERT |INSERT WHERE| |INSERT DATA|) 
@@ -480,10 +489,8 @@
                       (rewrite-triples-block where-clause '() in-place?: #t)
                       (values '() '() '()))))
       (let-values (((parts graph-statements _)
-                    (let loop ((parts (cdr unit))
-                               (rewritten-parts '())
-                               (g-statements '())
-                               (t-bindings bindings))
+                    (let loop ((parts (cdr unit)) (rewritten-parts '())
+                               (g-statements '()) (t-bindings bindings))
                       (if (null? parts)
                           (values rewritten-parts g-statements t-bindings)
                           (let-values (((rw gs tbs)
@@ -597,7 +604,7 @@
                      (string< (->string (car a))
                               (->string (car b))))))))
 
-(define (run-diff query label)
+(define (run-delta query label)
   (let* ((results (sparql/select (write-sparql query) raw?: #t))
          (graphs
           (map (lambda (x)
@@ -635,14 +642,14 @@
                                   properties)))))
                    results))))))
 
-(define (merge-diffs-by-graph delete-diffs insert-diffs)
+(define (merge-deltas-by-graph delete-deltas insert-deltas)
   (list->vector
    (map (match-lambda
           ((graph . deltas)
           `((graph . ,(symbol->string graph))
             (deltas . ,deltas))))
-       (let loop ((ds delete-diffs)
-                  (diffs insert-diffs))
+       (let loop ((ds delete-deltas)
+                  (diffs insert-deltas))
          (if (null? ds) diffs
              (let ((graph (caar ds)))
                (print "ds ")(print ds)(print (car ds))(newline)(print (cdar ds))(newline)
@@ -652,13 +659,24 @@
                                            (cdar ds))
                                    diffs))))))))
 
-(define (run-diffs query)
+(define (run-deltas query)
   (let ((constructs (const query)))
     (map (match-lambda ((d i) 
-                        (merge-diffs-by-graph
-                         (or (and d (run-diff d 'deletes)) '())
-                         (or (and i (run-diff i 'inserts)) '()))))
+                        (merge-deltas-by-graph
+                         (or (and d (run-delta d 'deletes)) '())
+                         (or (and i (run-delta i 'inserts)) '()))))
          constructs)))
+
+(define (notify-subscriber subscriber deltastr)
+  (let-values (((result uri response)
+                (with-input-from-request 
+                 (make-request method: 'POST
+                               uri: (uri-reference subscriber)
+                               headers: (headers '((content-type application/json))))
+                 deltastr
+                 read-string)))
+    (close-connection! uri)
+    result))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Implentation
@@ -692,7 +710,6 @@
     (log-message "~%==Received Headers==~%~A~%" req-headers)
     (log-message "~%==Graph Realm==~%~A~%" graph-realm)
     (log-message "~%==Rewriting Query==~%~A~%" query-string)
-    (log-message "REWRITE? ~A" (*rewrite-select-queries?*))
 
     (let ((rewritten-query (parameterize ((*realm* graph-realm)
                                           (*rewrite-graph-statements?* 
@@ -713,8 +730,14 @@
           (virtuoso-error exn)
         
         (when (update-query? rewritten-query)
-          (print "RUNNING DELTAS")
-          (print (run-diffs rewritten-query)))
+          (let ((queries-deltas (run-deltas rewritten-query)))
+            (for-each (lambda (query-deltas)
+                        (let ((deltastr (json->string query-deltas)))
+                          (format (current-error-port) "~%==Deltas==~%~A" deltastr)
+                          (for-each (lambda (subscriber)
+                                      (notify-subscriber subscriber deltastr))
+                                    *subscribers*)))
+            queries-deltas)))
 
         (parameterize ((tcp-read-timeout #f)
                        (tcp-write-timeout #f)
