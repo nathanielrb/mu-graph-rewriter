@@ -795,3 +795,21 @@ DELETE {
   }
   ?s ?pp ?oo.
  }"))
+
+(define subs (read-sparql "PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX dc: <http://purl.org/dc/elements/1.1/>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+
+DELETE {
+  ?s ?pp ?oo.
+ } WHERE {
+   SELECT DISTINCT ?s
+   WHERE {
+     GRAPH <http://data.europa.eu/eurostat/temp> {
+       ?s ?p ?o.
+      }  
+    }
+ }"))

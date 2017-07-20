@@ -224,7 +224,6 @@
                      (else (list triple)))))
              quads)))
 
-    
 (define (extract-graphs quads #!optional (graphs '()))
   (if (null? quads)
       graphs
@@ -261,9 +260,6 @@
                 `(,label-named ,graph))
               graphs)))))
 
-(define (unify-bindings new-bindings old-bindings)
-  (append new-bindings old-bindings)) 
-
 (define (map-values/3 proc lst)
   (if (null? lst)
       (values '() '() '())
@@ -272,6 +268,16 @@
         (values (cons car-a cdr-a)
                 (cons car-b cdr-b)
                 (cons car-c cdr-c)))))
+
+(define (unify-bindings new-bindings old-bindings)
+  (append new-bindings old-bindings)) 
+
+(define (project-bindings bindings vars)
+  (let loop ((new-bindings '()) (vars vars))
+    (if (null? vars) new-bindings
+        (let ((var (car vars)))
+        (loop (alist-update var (alist-ref var bindings) bindings)
+              (cdr vars))))))
 
 (define (update-bindings bindings s #!optional stype pred graph)
   (let ((binding (or (alist-ref s bindings) '())))
@@ -388,19 +394,13 @@
                        (else #f))))
                vars)))
 
-(define (project-bindings bindings vars)
-  (let loop ((new-bindings '()) (vars vars))
-    (if (null? vars) new-bindings
-        (let ((var (car vars)))
-        (loop (alist-update var (alist-ref var bindings) bindings)
-              (cdr vars))))))
-
 ;; for now, does not update received bindings at all;
 ;; but it should...
 (define (rewrite-special-subselect group bindings in-place?)
   (match group
     ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars)
       block)
+     (print "subs " group)
      (let* ((subselect-vars (extract-subselect-vars vars))
             (bindings (if (equal? subselect-vars '(*))
                           bindings
@@ -428,13 +428,13 @@
   (if (subselect? group)
       (rewrite-special-subselect group bindings in-place?)
       (case (car group)
-        ((WHERE |@()| |@[]| MINUS OPTIONAL
-                SELECT |SELECT DISTINCT| |SELECT REDUCED| 
+        
+        ((WHERE |@()| |@[]| MINUS OPTIONAL                
                 DELETE |DELETE WHERE| |DELETE DATA|
                 INSERT |INSERT WHERE| |INSERT DATA|) 
          (rewrite-special-block group bindings in-place?))
         ((UNION) (rewrite-special-union group bindings in-place?))
-        ((FILTER BIND) (values (list group) '() '()))
+        ((FILTER BIND SELECT |SELECT DISTINCT| |SELECT REDUCED|) (values (list group) '() '()))
         ((GRAPH) (if (*rewrite-graph-statements?*)
                      (rewrite-triples-block (cddr group))
                      (values (list group) '() '())))
@@ -712,9 +712,9 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-
-        ;; (when (update-query? rewritten-query)
-        ;;  (run-diffs rewritten-query))
+        (when (update-query? rewritten-query)
+          (print "RUNNING DELTAS")
+          (print (run-diffs rewritten-query)))
 
         (parameterize ((tcp-read-timeout #f)
                        (tcp-write-timeout #f)
