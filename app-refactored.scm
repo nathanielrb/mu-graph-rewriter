@@ -181,6 +181,8 @@
 	    INSERT |INSERT WHERE| |INSERT DATA|
 	    MINUS OPTIONAL UNION FILTER BIND GRAPH)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Rules		      
 
 (define expand-triples-rules
   `((,triple? . ,(lambda (block bindings rules)
@@ -202,32 +204,38 @@
 					  (list s) 'stype stype bindings)))))))))))
     (,quads-block? . ,rew/copy)))
 					    
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;
-		      
 (define triples-rules
   `((,triple? . ,(lambda (triple bindings rules)
 		   (match triple
 		     ; (s 'a t)
 		     ((s p o)
 		      (values `((*REWRITTEN* (GRAPH ?gr123 ,triple)))
-			      '((GRAPH <graphs> (?gr123 a <Graph>)))
+			      (if (get-binding (list s p) 'graph bindings) '()
+				  '((GRAPH <graphs> (?gr123 a <Graph>))))
 			      (update-binding (list s p) 'graph '?gr123 bindings))))))
 	      
     (,quads-block? .,rew/copy)))
 
 (rules
  `(((@Unit) . ,rew/continue)
-   ((@Query) . ,rew/continue) ;; *rewrite-select-queries?*
    ((@Prologue) . ,(lambda (block bindings rules)
 		     (values `((@Prologue
 			       (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
 			       ,@(cdr block)))
 			     '()
 			     bindings)))
+   ((@Query) . ,rew/continue) ;; *rewrite-select-queries?*
+   ((@Update) . ,(lambda (block bindings rules)
+		   (let-values (((rw graph-statements _)
+				 (rewrite (reverse (cdr block)) bindings rules)))
+		     (let ((where-block (alist-ref 'WHERE rw)))
+		       (values `((@Update . ,(alist-update
+					      'WHERE (append graph-statements where-block)
+					      (reverse rw))))
+			       '() '())))))
    (,select? . ,rew/copy)
    ((@Dataset) . ,rew/copy)
+   ((@Using) . ,rew/copy)
    (,quads-block? . ,(lambda (block bindings rules)
 		       (let-values (((first-pass _ first-bindings)
 				     (rewrite (cdr block) bindings expand-triples-rules)))
@@ -235,7 +243,7 @@
 				     (rewrite first-pass first-bindings triples-rules)))
 			   (let-values (((third-pass quads-constraints third-bindings)
 					 (rewrite second-pass second-bindings rules)))
-			     (values `((WHERE ,@third-pass))
+			     (values `((,(car block) ,@third-pass))
 				     (append triples-constraints quads-constraints)
 				     third-bindings))))))
    ((*REWRITTEN*) . ,(lambda (block bindings rules)
