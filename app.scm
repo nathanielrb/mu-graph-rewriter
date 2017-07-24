@@ -525,7 +525,7 @@
                                       'WHERE 
                                       (flatten-graphs-recursive
                                        (alist-ref 'WHERE (cdr part)))
-                                      (alist-update '@Dataset '() ; (replace-dataset '() 'from)
+                                      (alist-update '@Dataset (replace-dataset '() 'from)
                                                     (cdr part))))))
                           ((@Update)
                            (cons '@Update
