@@ -878,3 +878,38 @@ WHERE {
                 ?dataset dct:issued \"2017-07-24\"^^xsd:dateTime.
                 ?obs eurostat:training ?training.
             }"))
+
+(define hier (parse-query "PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX dc: <http://purl.org/dc/elements/1.1/>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+
+SELECT ?child1 ?uuid1 ?description1 ?notation1 ?child2 ?uuid2 ?description2 ?notation2 ?child3 ?uuid3 ?description3 ?notation3 ?child4 ?uuid4 ?description4 ?notation4 ?child5 ?uuid5 ?description5 ?notation5
+FROM <http://data.europa.eu/eurostat/ECOICOP3>
+WHERE {
+ ?parent mu:uuid \"379436c4-08c3-459a-9b75-b094bdfdbaf4\".
+?child1 skos:broader ?parent.
+?child1 mu:uuid ?uuid1.
+?child1 skos:prefLabel ?description1. FILTER (LANG(?description1) = 'en' || LANG(?description1) = '')
+?child1 skos:notation ?notation1. FILTER (LANG(?notation1) = 'en' || LANG(?notation1) = '')
+OPTIONAL { ?child2 skos:broader ?child1.
+?child2 mu:uuid ?uuid2.
+?child2 skos:prefLabel ?description2. FILTER (LANG(?description2) = 'en' || LANG(?description2) = '')
+?child2 skos:notation ?notation2. FILTER (LANG(?notation2) = 'en' || LANG(?notation2) = '')
+OPTIONAL { ?child3 skos:broader ?child2.
+?child3 mu:uuid ?uuid3.
+?child3 skos:prefLabel ?description3. FILTER (LANG(?description3) = 'en' || LANG(?description3) = '')
+?child3 skos:notation ?notation3. FILTER (LANG(?notation3) = 'en' || LANG(?notation3) = '')
+OPTIONAL { ?child4 skos:broader ?child3.
+?child4 mu:uuid ?uuid4.
+?child4 skos:prefLabel ?description4. FILTER (LANG(?description4) = 'en' || LANG(?description4) = '')
+?child4 skos:notation ?notation4. FILTER (LANG(?notation4) = 'en' || LANG(?notation4) = '')
+OPTIONAL { ?child5 skos:broader ?child4.
+?child5 mu:uuid ?uuid5.
+?child5 skos:prefLabel ?description5. FILTER (LANG(?description5) = 'en' || LANG(?description5) = '')
+?child5 skos:notation ?notation5. FILTER (LANG(?notation5) = 'en' || LANG(?notation5) = '') } } } } 
+} 
+ORDER BY ?child1 ?child2 ?child3 ?child4 ?child5
+"))

@@ -1,7 +1,23 @@
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; limbo
+;; Graph Rewriter
+
+(define-namespace mu "http://mu.semte.ch/vocabularies/core/") 
+(define-namespace rewriter "http://mu.semte.ch/graphs/")
+
+(define *realm* (make-parameter #f))
+
+(define *rewrite-graph-statements?*
+  (config-param "REWRITE_GRAPH_STATEMENTS" #t))
+
+(define *rewrite-select-queries?* 
+  (config-param "REWRITE_SELECT_QUERIES" #f))
+
+(define *realm-id-graph*
+  (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
+
+(define *cache* (make-hash-table))
+
+(define *session-realm-ids* (make-hash-table))
 
 (define (get-realm realm-id)
   (and realm-id
@@ -54,47 +70,6 @@
         (s-triples (get-graph-query stype p))
         from-graph: #f)
        graph)))))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Graph Rewriter
-
-(define-namespace mu "http://mu.semte.ch/vocabularies/core/") 
-(define-namespace rewriter "http://mu.semte.ch/graphs/")
-
-(define *realm* (make-parameter #f))
-
-(define *rewrite-graph-statements?*
-  (config-param "REWRITE_GRAPH_STATEMENTS" #t))
-
-(define *rewrite-select-queries?* 
-  (config-param "REWRITE_SELECT_QUERIES" #f))
-
-(define *realm-id-graph*
-  (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
-
-(define *cache* (make-hash-table))
-
-(define *session-realm-ids* (make-hash-table))
 
 (define (get-graph-query stype p)
   `((GRAPH ,(*default-graph*)
@@ -296,7 +271,8 @@
 
     ((GRAPH) . ,(lambda (block rules bindings context)
                   (values (cddr block) bindings)))
-    ((FILTER BIND) . ,rw/copy)
+    ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+    ((@Dataset) . ,rw/copy)
     (,select? . ,rw/copy)
     (,subselect? . ,rw/copy)
     (,pair? . ,rw/continue)))
@@ -342,6 +318,7 @@
                                      ,@(cdr block)))
                                   bindings)))
         ((@Query) . ,(lambda (block rules bindings context)
+                       (format (current-error-port) "rewrite select??? ~A "  (*rewrite-select-queries?*))
                        (if (*rewrite-select-queries?*)
                            (with-rewrite-values ((new-statements (rewrite (cdr block) rules bindings context)))
                                                 `((,(car block) ,new-statements)))
