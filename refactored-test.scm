@@ -19,7 +19,7 @@ PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
 DELETE { ?s ?p ?o }
 INSERT { ?s ?p <ABC> }
  WHERE {
-  ?s ?p ?o .
+OPTIONAL {  ?s ?p ?o . }
   <s> <p> ?o2.
   GRAPH <g3> { ?a ?b ?c, ?d }
   } 

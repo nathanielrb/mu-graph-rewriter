@@ -2,6 +2,21 @@
      matchable intarweb spiffy spiffy-request-vars
      uri-common intarweb medea irregex srfi-13 http-client)
 
+(require-extension sort-combinators)
+
+(define *subscribers-file*
+  (config-param "SUBSCRIBERSFILE" "subscribers.json"))
+
+(define *subscribers*
+  (handle-exceptions exn '()
+    (vector->list
+     (alist-ref 'potentials
+                (with-input-from-file (*subscribers-file*)
+                  (lambda () (read-json)))))))
+  
+(define *plugin*
+  (config-param "PLUGIN_PATH" #f))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Expand triples
 
@@ -18,14 +33,6 @@
                   (append (expand-triple (list s (car ps) object))
                           (loop object (cdr ps))))))))))
 
-(define (expand-expanded-triple s p o)
-  (cond  ((blank-node-path? o)
-          (expand-special (list s p o)))
-         ((sequence-path? p)
-          (expand-sequence-path-triple (list s p o)))
-         (else
-          (list (list s p o)))))
-
 (define (expand-blank-node-path triple)
   (cond ((blank-node-path? (car triple))
          (let ((subject (new-blank-node)))
@@ -39,6 +46,14 @@
                (append (expand-triple (list s p object))
                        (expand-triple (cons object rest)))))))        
         (else #f)))
+
+(define (expand-expanded-triple s p o)
+  (cond  ((blank-node-path? o)
+          (expand-blank-node-path (list s p o)))
+         ((sequence-path? p)
+          (expand-sequence-path-triple (list s p o)))
+         (else
+          (list (list s p o)))))
 
 (define (expand-triple triple)
   (or (expand-blank-node-path triple)
@@ -70,31 +85,35 @@
 
 (define default-rules (make-parameter (lambda () '())))
 
-(define (nested-alist-ref keys alist)
+(define (nested-alist-ref* keys alist)
   (if (null? keys)
       alist
       (let ((nested (alist-ref (car keys) alist)))
 	(and nested
-	     (nested-alist-ref (cdr keys) nested)))))
+	     (nested-alist-ref* (cdr keys) nested)))))
 
-(define (nested-alist-update keys val alist)
+(define (nested-alist-update* keys val alist)
   (let ((key (car keys)))
     (if (null? (cdr keys))
         (alist-update key val alist)
         (alist-update 
          key
-         (nested-alist-update
+         (nested-alist-update*
           (cdr keys) val (or (alist-ref key alist) '()))
           alist))))
 
-(define (nested-alist-replace keys proc alist)
-  (nested-alist-update keys (proc (nested-alist-ref keys alist)) alist))
+(define (nested-alist-replace* keys proc alist)
+  (nested-alist-update* keys (proc (nested-alist-ref* keys alist)) alist))
 
-(define (update-binding vars key val bindings)
-  (nested-alist-update (append vars (list '@bindings key)) val bindings))
+(define (update-binding* vars key val bindings)
+  (nested-alist-update* (append vars (list '@bindings key)) val bindings))
 
-(define (get-binding vars key bindings)
-  (nested-alist-ref (append vars (list '@bindings key)) bindings))
+;; define-syntax (_ vars ... key val bindings)
+
+(define (get-binding* vars key bindings)
+  (nested-alist-ref* (append vars (list '@bindings key)) bindings))
+
+;; define-syntax (_ vars ... key bindings)
 
 (define (project-bindings vars bindings)
     (let loop ((bindings bindings) (projected-bindings '()))
@@ -111,23 +130,55 @@
 		  (else
 		   (loop (cdr bindings) projected-bindings)))))))
 
-;; ** !!
-(define merge-bindings append)
+(define (merge-bindings new-bindings bindings)
+  (if (and (pair? new-bindings) (pair? bindings))
+      (let loop ((new-bindings new-bindings) (merged-bindings bindings))
+        (if (null? new-bindings) merged-bindings
+            (let* ((new-binding (car new-bindings)))
+              (loop (cdr new-bindings)
+                    (alist-update (car new-binding)
+                                  (merge-bindings (cdr new-binding)
+                                                  (or (alist-ref (car new-binding) bindings) '()))
+                                  merged-bindings)))))
+      new-bindings))
 
-(define (rewrite blocks bindings rules)
+(define query-namespaces (make-parameter (*namespaces*)))
+
+(define (remove-trailing-char sym #!optional (len 1))
+  (let ((s (symbol->string sym)))
+    (string->symbol
+     (substring s 0 (- (string-length s) len)))))
+
+(define (PrefixDecl? decl) (equal? (car decl) 'PREFIX))
+
+(define (BaseDecl? decl) (equal? (car decl) 'BASE))
+
+(define (graph? quad)
+  (and (list? quad)
+       (equal? (car quad) 'GRAPH)))
+
+(define (query-prefixes QueryUnit)
+  (map (lambda (decl)
+         (list (remove-trailing-char (cadr decl)) (write-uri (caddr decl))))
+       (filter PrefixDecl? (unit-prologue QueryUnit))))
+
+(define (rewrite-query Query #!optional (rules ((default-rules))))
+  (parameterize ((query-namespaces (query-prefixes Query)))
+    (rewrite Query rules)))
+
+(define (rewrite blocks #!optional (rules ((default-rules))) (bindings '()) (context '()))
   (let loop ((blocks blocks)
-	     (statements '()) (constraints '())
+	     (statements '())
 	     (bindings bindings))
     (if (null? blocks)
-	(values statements constraints bindings)
-	(let-values (((new-statements new-constraints updated-bindings)
-		      (apply-rules (car blocks) bindings rules)))
+	(values statements bindings)
+	(let-values (((new-statements updated-bindings)
+		      (apply-rules (car blocks) rules bindings context)))
 	  (loop (cdr blocks)
 		(append statements new-statements)
-		(append constraints new-constraints)
 		updated-bindings)))))
 
-(define (apply-rules block bindings rules)
+(define (apply-rules block rules bindings context)
   (let ((rule-match? (lambda (rule)
 		      (or (and (symbol? rule) (equal? rule block))
 			  (and (pair? rule) (member (car block) rule))
@@ -137,266 +188,265 @@
 	  (match (car remaining-rules)
 	    ((rule . proc) 
 	     (if (rule-match? rule)
-		 (proc block bindings rules)
+		 (proc block rules bindings context)
 		 (loop (cdr remaining-rules)))))))))
 
 (define-syntax with-rewrite-values
   (syntax-rules ()
     ((_ ((var expr)) body)
-     (let-values (((var new-constraints updated-bindings) expr))
-       (values body new-constraints updated-bindings)))))
+     (let-values (((var updated-bindings) expr))
+       (values body updated-bindings)))))
 
 ;; (define-syntax rw/lambda
 ;;   (syntax-rules ()
 ;;     ((_ ...
 
-(define (rw/continue block bindings rules)
-  (with-rewrite-values ((new-statements (rewrite (cdr block) bindings rules)))
-    `((,(car block) ,new-statements))))
+(define (rw/continue block rules bindings context)
+  (with-rewrite-values ((new-statements (rewrite (cdr block) rules bindings context)))
+    `((,(car block) ,@new-statements))))
 
-(define (rw/copy block bindings rules)
-  (values (list block) '() bindings))
-
-;;;;;;;;;;;;;;;;
-;;; -> s-sparql
-
-(define (triple? expr)
-  (and (pair? expr)
-       (or (iri? (car expr))
-	   (sparql-variable? (car expr))
-	   (blank-node? (car expr)))))
-
-(define (select? expr)
-  (and (pair? expr)
-       (member (car expr)
-	       `(SELECT |SELECT DISTINCT| |SELECT REDUCED|))))
-
-(define (subselect? group)
-  (and (pair? block)
-       (select? (car block))))
-
-;; |@()| |@[]|
-
-(define (quads-block? expr)
-  (member (car expr)
-	  '(WHERE
-	    DELETE |DELETE WHERE| |DELETE DATA|
-	    INSERT |INSERT WHERE| |INSERT DATA|
-	    MINUS OPTIONAL UNION GRAPH)))
+(define (rw/copy block rules bindings context)
+  (values (list block) bindings))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Graph Rewriter
+;; Deltas
+(define (update-query? query)
+  ((list-of? update-unit?)
+   (alist-ref '@Unit query)))
 
-(define-namespace mu "http://mu.semte.ch/vocabularies/core/") 
-(define-namespace rewriter "http://mu.semte.ch/graphs/")
+(define (update-unit? unit)
+  (alist-ref '@Update unit))
 
-(define *realm* (make-parameter #f))
+(define (construct-statements statements)
+  (and statements
+       `(CONSTRUCT
+         ,@(join
+            (map (lambda (statement)
+                   (match statement
+                     ((`GRAPH graph (s p o))
+                      `((,s ,p ,o)
+                        (,s ,p ,graph)
+                        (rewriter:Graphs rewriter:include ,graph)))))
+                 statements)))))
 
-(define *rewrite-graph-statements?*
-  (config-param "REWRITE_GRAPH_STATEMENTS" #t))
+(define (const query)
+  (and (update-query? query)
+       (let loop ((queryunits (alist-ref '@Unit query))
+                  (prologues '(@Prologue))
+                  (constructs '()))
+         (if (null? queryunits)
+             constructs
+             (let* ((queryunit (car queryunits))
+                    (unit (alist-ref '@Update queryunit))
+                    (prologue (append prologues (or (alist-ref '@Prologue queryunit) '())))
+                    (where (assoc 'WHERE unit))
+                    (delete-construct (construct-statements (nested-alist-ref unit 'DELETE)))
+                    (insert-construct (construct-statements (nested-alist-ref unit 'INSERT))))
+               (loop (cdr queryunits)
+                     prologue
+                     (cons (list 
+                              (and delete-construct 
+                                     `(,prologue
+                                       ,delete-construct
+                                       ,(or where '(NOWHERE))))
+                              (and insert-construct 
+                                     `(,prologue
+                                       ,insert-construct
+                                       ,(or where '(NOWHERE)))))
+                             constructs)))))))
 
-(define *rewrite-select-queries?* 
-  (config-param "REWRITE_SELECT_QUERIES" #f))
+(define (merge-triples-by-graph label quads)
+  (map (lambda (group)
+         `(,(string->symbol (caar group))
+           . ((,label 
+               . ,(list->vector
+                   (map cdr group))))))
+       (group/key car
+                  (sort
+                   quads
+                   (lambda (a b)
+                     (string< (->string (car a))
+                              (->string (car b))))))))
 
-(define *realm-id-graph*
-  (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
+(define (run-delta query label)
+  (let* ((results (sparql/select (write-sparql query) raw?: #t))
+         (graphs
+          (map (lambda (x)
+                 (alist-ref 'value x))
+               (vector->list
+                (nested-alist-ref 
+                 results 'http://mu.semte.ch/graphs/Graphs 'http://mu.semte.ch/graphs/include)))))    
+    (merge-triples-by-graph
+     label
+     (join
+      (filter values
+              (map (lambda (tripleset)
+                     (let ((s (car tripleset))
+                           (properties (cdr tripleset)))
+                       (and (not (equal? s 'http://mu.semte.ch/graphs/Graphs))
+                            (join
+                             (map (lambda (propertyset)
+                                    (let* ((p (car propertyset))
+                                           (objects (vector->list (cdr propertyset)))
+                                           (graph (alist-ref 
+                                                   'value
+                                                   (car
+                                                    (filter (lambda (object) 
+                                                              (member (alist-ref 'value object) graphs))
+                                                            objects)))))
+                                      (filter values
+                                              (map (lambda (object)
+                                                     (let ((o (alist-ref 'value object)))
+                                                       (and (not (member o graphs))
+                                                            `(,graph
+                                                                . ((s . ,(symbol->string s))
+                                                                   (p . ,(symbol->string p))
+                                                                   (o . ,o))))))
+                                                   objects))))
+                                  properties)))))
+                   results))))))
 
-(define *subscribers-file*
-  (config-param "SUBSCRIBERSFILE" "subscribers.json"))
+(define (merge-deltas-by-graph delete-deltas insert-deltas)
+  (list->vector
+   (map (match-lambda
+          ((graph . deltas)
+          `((graph . ,(symbol->string graph))
+            (deltas . ,deltas))))
+       (let loop ((ds delete-deltas)
+                  (diffs insert-deltas))
+         (if (null? ds) diffs
+             (let ((graph (caar ds)))
+               (loop (cdr ds)
+                     (alist-update graph
+                                   (append (or  (alist-ref graph diffs) '())
+                                           (cdar ds))
+                                   diffs))))))))
 
-(define *subscribers*
-  (handle-exceptions exn '()
-    (vector->list
-     (alist-ref 'potentials
-                (with-input-from-file (*subscribers-file*)
-                  (lambda () (read-json)))))))
-  
-(define *cache* (make-hash-table))
+(define (run-deltas query)
+  (let ((constructs (const query)))
+    (map (match-lambda ((d i) 
+                        (merge-deltas-by-graph
+                         (or (and d (run-delta d 'deletes)) '())
+                         (or (and i (run-delta i 'inserts)) '()))))
+         constructs)))
 
-(define *session-realm-ids* (make-hash-table))
-
-(define (get-graph-query stype p)
-  `((GRAPH ,(*default-graph*)
-          (?graph a rewriter:Graph)
-          (?rule rewriter:predicate ,p)
-          (?rule rewriter:subjectType ,stype)
-          ,(if (*realm*)
-               `(UNION ((?rule rewriter:graphType ?type)
-                        (?graph rewriter:type ?type)
-                        (?graph rewriter:realm ,(*realm*)))
-                       ((?rule rewriter:graph ?graph)))
-                `(?rule rewriter:graph ?graph)))))
-
-(define (get-graph stype p)
-  (parameterize ((*namespaces* (append (*namespaces*) (query-namespaces))))
-    (car-when
-     (hit-hashed-cache
-      *cache* (list stype p (*realm*))
-      (query-with-vars 
-       (graph)
-       (s-select 
-        '?graph
-        (s-triples (get-graph-query stype p))
-        from-graph: #f)
-       graph)))))
-
-(define (get-graph stype p) '<graph>)
-
-(define (graph-match-statements graph s stype p new-stype?)
-  (let ((rule (new-sparql-variable "rule"))
-	(gtype (new-sparql-variable "gtype")))
-    `(,@(splice-when
-	 (and (not (iri? stype))
-	      new-stype?
-	      `((GRAPH ?AllGraphs (,s a ,stype))
-		(GRAPH ,(*default-graph*) (?AllGraps a rewriter:Graph)))))
-      (GRAPH ,(*default-graph*) 
-	     (,rule a rewriter:GraphRule)
-	     (,graph a rewriter:Graph)
-	     ,(if (*realm*)
-		  `(UNION ((,rule rewriter:graph ,graph))
-			  ((,rule rewriter:graphType ,gtype)
-			   (,graph rewriter:type ,gtype)
-			   (,graph rewriter:realm ,(*realm*))))
-		  `(,rule rewriter:graph ,graph))
-	     ,(if (equal? p 'a)
-		  `(,rule rewriter:predicate rdf:type)
-		  `(,rule rewriter:predicate ,p))
-	     (,rule rewriter:subjectType ,stype)))))
-
-(define (get-type subject)
-  (hit-hashed-cache
-   *cache* (list 'Type subject)
-   (query-unique-with-vars
-    (type)
-    (s-select '?type
-              (s-triples
-               `((GRAPH ,(*default-graph*) (?graph a rewriter:Graph))
-                 (GRAPH ?graph (,subject a ?type))))
-              from-graph: #f)
-    type)))
-
-(define (get-type s)
-  '<TT>)
-
-(define expand-triples-rules
-  `((,triple? . ,(lambda (block bindings rules)
-		  (let ((triples (expand-triple block)))
-		    (let loop ((ts triples) (bindings bindings))
-		      (if (null? ts)
-			  (values triples  '() bindings)
-			  (match (car ts)
-			    ((s `a o)
-			     (loop (cdr ts)
-				   (update-binding (list s) 'stype o bindings)))
-			    ((s p o)
-			     (if (get-binding (list s) 'stype bindings)
-				 (loop (cdr ts) bindings)
-				 (let ((stype (or
-					       ;; (expand-namespace s (query-namespaces))))
-					       (and (iri? s) (get-type s))
-					       (new-sparql-variable "stype"))))
-				   ;;(or (and (iri? s) (get-type (expand-namespace s (query-namespaces))))
-				   (loop (cdr ts)
-					 (update-binding
-					  (list s) 'stype stype bindings)))))))))))
-    ((GRAPH) . ,(lambda (block bindings rules)
-		  (if (*rewrite-graph-statements?*)
-		      (let-values (((rw c b) (rewrite (cddr block) bindings expand-triples-rules)))
-			(values rw '() bindings))
-		      (values (list block) '() bindings))))
-    ((FILTER BIND MINUS OPTIONAL UNION) . ,rw/copy)))
-
-(define rewrite-triples-rules
-  `((,triple? . ,(lambda (triple bindings rules)
-		   (match triple
-		     ;; actually maybe not a good idea...
-		     ;; what if we want to restrict this statement as well?
-		     ((s 'a t)
-		      (values `((*REWRITTEN* (GRAPH ?allGraphs ,triple))) '() bindings))
-		     ((s p o)
-		      (let* ((stype (get-binding (list s) 'stype bindings))
-			     (bound-graph (get-binding (list s p) 'graph bindings))
-			     (solved-graph (and (iri? stype) (iri? p) (get-graph stype p)))
-			     (graph (or bound-graph solved-graph
-					(new-sparql-variable "graph"))))
-		
-			(if solved-graph
-			    (values `((*REWRITTEN* (GRAPH ,graph ,triple)))
-				    '() bindings)
-			    (values `((*REWRITTEN* (GRAPH ,graph ,triple)))
-				    (if bound-graph '()
-					(graph-match-statements graph s stype p bound-graph)) ;; **
-				    (update-binding (list s p) 'graph graph bindings))))))))
-    ((FILTER BIND MINUS OPTIONAL UNION GRAPH) . ,rw/copy)))
-
-(define (extract-all-variables where-clause)
-  (delete-duplicates (filter sparql-variable? (flatten where-clause))))
-
-(define (extract-subselect-vars vars)
-  (filter values
-          (map (lambda (var)
-                 (if (symbol? var) var
-                     (match var
-                       ((`AS _ v) v)
-                       (else #f))))
-               vars)))
-
-(define (graph-rewriter-rules)
- `(((@Unit) . ,rw/continue)
-   ((@Prologue) . ,(lambda (block bindings rules)
-		     (values `((@Prologue
-			       (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
-			       ,@(cdr block)))
-			     '()
-			     bindings)))
-   ((@Query) . ,rw/continue) ;; *rewrite-select-queries?*
-   ((@Update) . ,(lambda (block bindings rules)
-		   (let-values (((rw graph-statements _)
-				 (rewrite (reverse (cdr block)) bindings rules)))
-		     (let ((where-block (alist-ref 'WHERE rw)))
-		       (values `((@Update . ,(alist-update
-					      'WHERE (append
-						      `((GRAPH ,(*default-graph*)
-							       (?allGraphs a rewriter:Graph)))
-						      graph-statements where-block)
-					      (reverse rw))))
-			       '() '())))))
-   (,select? . ,rw/copy) ;;  '* => (extract-all-variables)
-   ((@Dataset) . ,rw/copy)
-   ((@Using) . ,rw/copy)
-   ((GRAPH) . ,rw/copy)
-   (,subselect? . ,(lambda (block bindings rules)
-		     (match block
-		       ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) quads)
-			(let* ((subselect-vars (extract-subselect-vars vars))
-			       (bindings (if (or (equal? subselect-vars '(*))
-						 (equal? subselect-vars '*))
-					     bindings
-					     (project-bindings subselect-vars bindings))))
-			  (let-values (((rw c b) (rewrite quads bindings rules)))
-			    (values rw c (merge-bindings b bindings))))))))
-					     
-   (,quads-block? . ,(lambda (block bindings rules)
-		       (let-values (((qds1 _ b1)
-				     (rewrite (cdr block) bindings expand-triples-rules)))
-			 (let-values (((qds2 c2 b2)
-				     (rewrite qds1 b1 rewrite-triples-rules)))
-			   (let-values (((qds3 c3 b3)
-					 (rewrite qds2 b2 rules)))
-			     (values `((,(car block) ,@qds3))
-				     (append c2 c3)
-				     b3))))))
-   ((*REWRITTEN*) . ,(lambda (block bindings rules)
-		       (values (cdr block) '() bindings)))
-   (,pair? . ,(lambda (block bindings rules)
-		(with-rewrite-values ((rw (rewrite block bindings rules)))
-				     (list rw))))))
-
-(default-rules graph-rewriter-rules)
-	       
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; deltas
+(define (notify-subscriber subscriber deltastr)
+  (let-values (((result uri response)
+                (with-input-from-request 
+                 (make-request method: 'POST
+                               uri: (uri-reference subscriber)
+                               headers: (headers '((content-type application/json))))
+                 deltastr
+                 read-string)))
+    (close-connection! uri)
+    result))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; endpoints
+;; Call Implentation
+(define (virtuoso-error exn)
+  (let ((response (or ((condition-property-accessor 'client-error 'response) exn)
+                      ((condition-property-accessor 'server-error 'response) exn)))
+        (body (or ((condition-property-accessor 'client-error 'body) exn)
+                  ((condition-property-accessor 'server-error 'body) exn))))
+    (when body
+      (log-message "~%==Virtuoso Error==~% ~A ~%" body))
+    (when response
+      (log-message "~%==Reason==:~%~A~%" (response-reason response)))
+    (abort exn)))
+
+;; better : parameterize body and req-headers, and define functions...
+(define $query (make-parameter (lambda (q) #f)))
+(define $body (make-parameter (lambda (q) #f)))
+(define $headers (make-parameter (lambda (h) #f)))
+(define $mu-session-id (make-parameter #f))
+(define $mu-call-id (make-parameter #f))
+
+(define (rewrite-call _)
+  (let* (($$query (request-vars source: 'query-string))
+         (body (read-request-body))
+         ($$body (let ((parsed-body (form-urldecode body)))
+                   (lambda (key)
+                     (and parsed-body (alist-ref key parsed-body)))))
+         (query-string (or ($$query 'query) ($$body 'query) body))
+         (query (parse-query query-string))
+         (req-headers (request-headers (current-request)))
+         (mu-session-id (header-value 'mu-session-id req-headers)))
+    
+    (log-message "~%==Received Headers==~%~A~%" req-headers)
+    (log-message "~%==Rewriting Query==~%~A~%" query-string)
+
+    (let ((rewritten-query (parameterize (($query $$query)
+                                          ($body $$body)
+                                          ($headers (lambda (h)
+                                                      (header-value h req-headers)))
+                                          ($mu-session-id (header-value 'mu-session-id req-headers))
+                                          ($mu-call-id (header-value 'mu-call-id req-headers)))
+                             (rewrite-query query))))
+
+      (log-message "~%==Parsed As==~%~A~%" (write-sparql query))
+      (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
+
+      (handle-exceptions exn 
+          (virtuoso-error exn)
+        
+         ;; (when (update-query? rewritten-query)
+         ;;   (let ((queries-deltas (run-deltas rewritten-query)))
+         ;;     (for-each (lambda (query-deltas)
+         ;;                 (let ((deltastr (json->string query-deltas)))
+         ;;                   (format (current-error-port) "~%==Deltas==~%~A" deltastr)
+         ;;                   (for-each (lambda (subscriber)
+         ;;                               (notify-subscriber subscriber deltastr))
+         ;;                             *subscribers*)))
+         ;;               queries-deltas)))
+
+        (parameterize ((tcp-read-timeout #f)
+                       (tcp-write-timeout #f)
+                       (tcp-connect-timeout #f))
+          (let-values (((result uri response)
+                        (with-input-from-request 
+                         (make-request method: 'POST
+                                       uri: (uri-reference (*sparql-endpoint*))
+                                     headers: (headers
+                                                '((Content-Type application/x-www-form-urlencoded)
+                                                  (Accept application/sparql-results+json)))) 
+                         ;;(append (headers->list (request-headers (current-request)))
+                         `((query . , (format #f "~A" (write-sparql rewritten-query))))
+                         read-string)))
+            (close-connection! uri)
+            (let ((headers (headers->list (response-headers response))))
+
+              (log-message "~%==Results==~%~A~%" 
+                           (substring result 0 (min 1000 (string-length result))))
+              (mu-headers headers)
+              (format #f "~A~" result))))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Call Specification
+
+(define-rest-call 'GET '("sparql") rewrite-call)
+(define-rest-call 'POST '("sparql") rewrite-call)
+
+(when (*plugin*) (load (*plugin*)))
+
+(*port* 8890)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

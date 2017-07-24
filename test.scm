@@ -1,6 +1,7 @@
 (use s-sparql s-sparql-parser mu-chicken-support matchable)
 
-(load "app.scm")
+(load "app-refactored.scm")
+(load "plugins/graph-rewriter.scm")
 
 (access-log "access.log")
 (debug-log "debug.log")
@@ -11,6 +12,8 @@
 
 (vhost-map `((".*" . ,handle-app)))
 
+
+(*subscribers-file* "../config/rewriter/subscribers.json")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
 
@@ -542,8 +545,6 @@ WHERE {
    }  
  }
 "))
-(print sync)
-
 
 (define muclr-query (parse-query "
 PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
@@ -813,3 +814,67 @@ DELETE {
       }  
     }
  }"))
+
+(define sync2 (parse-query " PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX dc: <http://purl.org/dc/elements/1.1/>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+ DELETE {
+  ?s ?pp ?oo.
+ }
+
+WHERE {
+{
+   SELECT DISTINCT ?s
+   WHERE {
+     GRAPH <http://data.europa.eu/eurostat/temp> {
+       ?s ?p ?o.
+      }  
+    }
+  }
+  ?s ?pp ?oo.
+ }
+"))
+
+(define class (parse-query "
+    PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+    PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+    PREFIX qb: <http://purl.org/linked-data/cube#>
+    PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+    PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+    PREFIX dct: <http://purl.org/dc/terms/>
+    PREFIX schema: <http://schema.org/>
+    PREFIX sdmx-subject: <http://purl.org/linked-data/sdmx/2009/subject#>
+    PREFIX sdmx-concept: <http://purl.org/linked-data/sdmx/2009/concept#>
+    PREFIX sdmx-measure: <http://purl.org/linked-data/sdmx/2009/measure#>
+    PREFIX interval: <http://reference.data.gov.uk/def/intervals/>
+    PREFIX offer: <http://data.europa.eu/eurostat/id/offer/>
+    PREFIX semtech: <http://mu.semte.ch/vocabularies/core/>
+            SELECT DISTINCT ?GTINdesc ?GTIN ?ISBA ?ISBAUUID ?ESBA ?ESBAdesc ?UUID ?quantity ?unit ?training
+	        FROM <http://data.europa.eu/eurostat/temp>
+            FROM <http://data.europa.eu/eurostat/ECOICOP>
+	        WHERE {
+                ?obs eurostat:product ?offer.
+                ?offer a schema:Offer;
+                    semtech:uuid ?UUID;
+                    schema:description ?GTINdesc;
+                    schema:gtin13 ?GTIN.
+                OPTIONAL {
+                    ?offer schema:includesObject [
+                        a schema:TypeAndQuantityNode;
+                        schema:amountOfThisGood ?quantity;
+                        schema:unitCode ?unit
+                    ].}
+                OPTIONAL {
+                    ?offer schema:category ?ISBA.
+                    ?ISBA semtech:uuid ?ISBAUUID.
+                    }
+                ?obs eurostat:classification ?ESBA.
+                ?ESBA skos:prefLabel ?ESBAdesc.
+                ?obs qb:dataSet ?dataset.
+                ?dataset dct:publisher <http://data.europa.eu/eurostat/id/organization/5975E7011006433913000001>.
+                ?dataset dct:issued \"2017-07-24\"^^xsd:dateTime.
+                ?obs eurostat:training ?training.
+            }"))
