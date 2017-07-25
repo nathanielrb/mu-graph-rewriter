@@ -207,7 +207,7 @@
 
 (define (%rewrite-triple-rule realm)
   (lambda (triple rules bindings)
-    (let ((in-where? ((parent-axis (lambda (context) (equal? (car (context-here context)) 'WHERE))) (*context*))))
+    (let ((in-where? ((parent-axis (lambda (context) (equal? (context-here context) 'WHERE))) (*context*))))
       (match triple
         ((s p o)
          (if (and (equal? p 'a) in-where?)

@@ -116,7 +116,7 @@
   (first context))
 
 (define (context-previous context)
-  (secound context))
+  (second context))
 
 (define (context-next context)
   (third context))
@@ -227,7 +227,8 @@
 	(values statements bindings)
 	(let-values (((new-statements updated-bindings)
 		      (apply-rules (car blocks) rules bindings
-                                   (make-context (car blocks) left-blocks (cdr blocks) (*context*)))))
+                                   (make-context (car-when (car blocks)) left-blocks
+                                                 (cdr blocks) (*context*)))))
 	  (loop (cdr blocks)
 		(append statements new-statements)
 		updated-bindings
