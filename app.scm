@@ -285,19 +285,25 @@
 (define (update-unit? unit)
   (alist-ref '@Update unit))
 
-;; This only matches single quad statements like GRAPH ?g { ?a ?b ?c } 
-;; It should be extended to triples, and quads with 2+ triples and paths
-;; GRAPH ?g { ?a ?b ?c . ?s ?p ?o, ?v } etc.
+(define (construct-statement triple #!optional graph)
+  (match triple
+    ((s p o)
+     `((,s ,p ,o)
+       ,@(splice-when
+          (and graph
+               `((,s ,p ,graph)
+                 (rewriter:Graphs rewriter:include ,graph))))))))
+
 (define (construct-statements statements)
   (and statements
        `(CONSTRUCT
          ,@(join
             (map (lambda (statement)
                    (match statement
-                     ((`GRAPH graph (s p o))
-                      `((,s ,p ,o)
-                        (,s ,p ,graph)
-                        (rewriter:Graphs rewriter:include ,graph)))))
+                     ((`GRAPH graph . triples)
+                      (join (map (cut construct-statement <> graph)
+                                 (join (map expand-triple triples)))))
+                     (else (join (map (cut construct-statement <>) (expand-triple statement))))))
                  statements)))))
 
 ;; better to do this with rewrite rules?
@@ -317,7 +323,7 @@
                      (cons (list (S delete-construct) (S insert-construct))
                            constructs)))))))
 
-(define (merge-triples-by-graph label quads)
+(define (merge-delta-triples-by-graph label quads)
   (let ((car< (lambda (a b) (string< (car a) (car b)))))
     (map (lambda (group)
            `(,(string->symbol (caar group))
@@ -326,7 +332,7 @@
                      (map cdr group))))))
          (group/key car (sort quads car<)))))
                    
-(define (run-delta-expand-properties s propertyset graphs)
+(define (expand-delta-properties s propertyset graphs)
   (let* ((p (car propertyset))
          (objects (vector->list (cdr propertyset)))
          (G? (lambda (object) (member (alist-ref 'value object) graphs)))
@@ -341,19 +347,6 @@
                                (o . ,o))))))
                  objects))))
 
-(define (run-delta query label)
-  (let* ((gkeys '(http://mu.semte.ch/graphs/Graphs http://mu.semte.ch/graphs/include))
-         (results (sparql/select (write-sparql query) raw?: #t))
-         (graphs (map (cut alist-ref 'value <>)
-                      (vector->list
-                       (or (nested-alist-ref* gkeys results) (vector)))))
-         (D (lambda (tripleset)
-              (let ((s (car tripleset))
-                    (properties (cdr tripleset)))
-                (and (not (equal? s (car gkeys)))
-                     (join (map (cut run-delta-expand-properties s <> graphs) properties)))))))
-    (merge-triples-by-graph label (join (filter values (map D results))))))
-
 (define (merge-deltas-by-graph delete-deltas insert-deltas)
   (list->vector
    (map (match-lambda
@@ -367,6 +360,20 @@
                      (alist-update 
                       graph (append (or (alist-ref graph diffs) '()) (cdar ds))
                       diffs))))))))
+
+(define (run-delta query label)
+  (let* ((gkeys '(http://mu.semte.ch/graphs/Graphs http://mu.semte.ch/graphs/include))
+         (results (sparql/select (write-sparql query) raw?: #t))
+         (graphs (map (cut alist-ref 'value <>)
+                      (vector->list
+                       (or (nested-alist-ref* gkeys results) (vector)))))
+         (D (lambda (tripleset)
+              (let ((s (car tripleset))
+                    (properties (cdr tripleset)))
+                (and (not (equal? s (car gkeys)))
+                     (join (map (cut expand-delta-properties s <> graphs) properties)))))))
+    (merge-delta-triples-by-graph
+     label (join (filter values (map D results))))))
 
 (define (run-deltas query)
   (let ((constructs (query-constructs query))
