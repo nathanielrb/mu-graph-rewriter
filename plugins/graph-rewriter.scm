@@ -46,75 +46,51 @@
         where: (s-triples `((?graph rewriter:realm ,realm)
                             (?graph ?p ?o)))))))
          
-(define (get-graph-query stype p)
+(define (get-graph-query realm stype p)
   `((GRAPH ,(*default-graph*)
           (?graph a rewriter:Graph)
           (?rule rewriter:predicate ,p)
           (?rule rewriter:subjectType ,stype)
-          ,(if (*realm*)
+          ,(if realm
                `(UNION ((?rule rewriter:graphType ?type)
                         (?graph rewriter:type ?type)
-                        (?graph rewriter:realm ,(*realm*)))
+                        (?graph rewriter:realm ,realm))
                        ((?rule rewriter:graph ?graph)))
                 `(?rule rewriter:graph ?graph)))))
 
-(define (get-graph stype p)
+(define (get-graph realm stype p)
   (parameterize ((*namespaces* (append (*namespaces*) (query-namespaces))))
     (car-when
      (hit-hashed-cache
-      *cache* (list stype p (*realm*))
+      *cache* (list stype p realm)
       (query-with-vars 
        (graph)
        (s-select 
         '?graph
-        (s-triples (get-graph-query stype p))
-        from-graph: #f)
-       graph)))))
-
-(define (get-graph-query stype p)
-  `((GRAPH ,(*default-graph*)
-          (?graph a rewriter:Graph)
-          (?rule rewriter:predicate ,p)
-          (?rule rewriter:subjectType ,stype)
-          ,(if (*realm*)
-               `(UNION ((?rule rewriter:graphType ?type)
-                        (?graph rewriter:type ?type)
-                        (?graph rewriter:realm ,(*realm*)))
-                       ((?rule rewriter:graph ?graph)))
-                `(?rule rewriter:graph ?graph)))))
-
-(define (get-graph stype p)
-  (parameterize ((*namespaces* (append (*namespaces*) (query-namespaces))))
-    (car-when
-     (hit-hashed-cache
-      *cache* (list stype p (*realm*))
-      (query-with-vars 
-       (graph)
-       (s-select 
-        '?graph
-        (s-triples (get-graph-query stype p))
+        (s-triples (get-graph-query realm stype p))
         from-graph: #f)
        graph)))))
 
 ;; (define (get-graph stype p) '<graph>)
 
-(define (graph-match-statements graph s stype p new-stype?)
+(define (graph-match-statements realm graph s stype p new-stype?)
   (let ((rule (new-sparql-variable "rule"))
 	(gtype (new-sparql-variable "gtype")))
     `(,@(splice-when
 	 (and (not (iri? stype))
               new-stype?
+              ;; and what about types in un-rewritten named-graph? 
 	      `((GRAPH ?AllGraphs (,s a ,stype)) ;; only once!!
                 )))
 		;;(GRAPH ,(*default-graph*) (?AllGraphs a rewriter:Graph)))))
       (GRAPH ,(*default-graph*) 
 	     (,rule a rewriter:GraphRule)
 	     (,graph a rewriter:Graph)
-	     ,(if (*realm*)
+	     ,(if realm
 		  `(UNION ((,rule rewriter:graph ,graph))
 			  ((,rule rewriter:graphType ,gtype)
 			   (,graph rewriter:type ,gtype)
-			   (,graph rewriter:realm ,(*realm*))))
+			   (,graph rewriter:realm ,realm)))
 		  `(,rule rewriter:graph ,graph))
 	     ,(if (equal? p 'a)
 		  `(,rule rewriter:predicate rdf:type)
@@ -135,9 +111,9 @@
 
 ;;(define (get-type s)  '<TT>)
 
-(define (all-graphs)
+(define (all-graphs realm)
   (hit-hashed-cache
-   *cache* (list 'graphs (*realm*))
+   *cache* (list 'graphs realm)
    (query-with-vars 
     (graph)
     (s-select 
@@ -147,19 +123,19 @@
          ,(*default-graph*)
          (?graph a rewriter:Graph)
          ,@(splice-when
-            (and (*realm*)
+            (and realm
                  `((UNION ((?rule rewriter:graphType ?type)
                            (?graph rewriter:type ?type)
-                           (?graph rewriter:realm ,(*realm*)))
+                           (?graph rewriter:realm ,realm))
                           ((?rule rewriter:graph ?graph)))))))))
      from-graph: #f)
      graph)))
 
-(define (replace-dataset where-clause label)
+(define (replace-dataset realm where-clause label)
   (let ((graphs ;; (append (if (*rewrite-graph-statements?*)
                 ;;        '()
                 ;;        (extract-graphs where-clause))
-         (all-graphs))
+         (all-graphs realm))
         (type  (case label ((FROM) '@Dataset) ((USING) '@Using)))
         (label-named (case label
                        ((FROM) '|FROM NAMED|)
@@ -202,7 +178,8 @@
 			  (match (car ts)
 			    ((s `a o)
 			     (loop (cdr ts)
-				   (update-binding* (list s) 'stype o bindings)))
+				   (update-binding* (list s) 'stype o 
+                                                    (update-binding* (list s) 'new-stype? #f bindings))))
 			    ((s p o)
 			     (if (get-binding* (list s) 'stype bindings)
 				 (loop (cdr ts) bindings)
@@ -215,49 +192,49 @@
 					  (list s) 'stype stype
                                           (update-binding* (list s) 'new-stype? #t bindings))))))))))))
     ((GRAPH) . ,(lambda (block rules bindings context)
-                  (print "rewrite this graph???")
-                  (print rewrite-graph-statements?)(print block)(newline)
-		  (if rewrite-graph-statements?
-		      (let-values (((rw b) (rewrite (cddr block) (expand-triples-rules rewrite-graph-statements?) bindings context)))
-			(values rw b))
-		      (values (list block) bindings))))
+                  (let-values (((rw b) (rewrite (cddr block) (expand-triples-rules rewrite-graph-statements?) bindings context)))
+                    (if rewrite-graph-statements?
+			(values rw b)
+                        (values (list block) 
+                                (update-binding* '() 'named-graphs 
+                                                 (cons (second block)
+                                                        (get-binding*/default '() 'named-graphs b '()))
+                                                 b))))))
     ((FILTER BIND MINUS OPTIONAL UNION) . ,rw/copy)
     (,select? . ,rw/copy)
     (,subselect? . ,rw/copy)))
 
-(define rewrite-triples-rules
+(define (rewrite-triples-rules realm)
   `((,triple? . ,(lambda (triple rules bindings context)
 		   (match triple
-		     ;; is this a good idea?...
-		     ;; what if we want to restrict this statement as well?
-		     ((s 'a t)
-		      (values `((*REWRITTEN* (GRAPH ?AllGraphs ,triple))) bindings))
 		     ((s p o)
-		      (let* ((stype (get-binding* (list s) 'stype bindings))
-                             (new-stype? (get-binding* (list s) 'new-stype? bindings))
-			     (bound-graph (get-binding* (list s p) 'graph bindings))
-			     (solved-graph (and (iri? stype) (iri? p) (get-graph stype p)))
-			     (graph (or bound-graph solved-graph
-					(new-sparql-variable "graph")))
-                             (gmatch (and (not bound-graph)
-                                          ;; new-type? not accurate...
-                                          (graph-match-statements graph s stype p new-stype?)))
-                             (in-place? (alist-ref 'in-place? context)))
-			(if solved-graph
-			    (values `((*REWRITTEN* (GRAPH ,graph ,triple)))
-				    bindings)
-			    (values `((*REWRITTEN* 
-                                       ,@(splice-when (and in-place?
-                                                           gmatch)))
-                                      (GRAPH ,graph ,triple))
-                                    (update-binding* (list s) 'new-stype? #f
-                                                     (update-binding* (list s p) 'graph graph 
-                                                                      (update-binding* '() 'graph-statements
-                                                                                       (append 
-                                                                                        (or (get-binding* '() 'graph-statements bindings) '())
-                                                                                        (if in-place? '()
-                                                                                            (or gmatch '())))
-                                                                                       bindings))))))))))
+                      (if (and (equal? p 'a) (alist-ref 'in-place? context))
+                          (values `((*REWRITTEN* (GRAPH ?AllGraphs ,triple))) bindings)
+                          (let* ((stype (get-binding* (list s) 'stype bindings))
+                                 (new-stype? (get-binding* (list s) 'new-stype? bindings))
+                                 (bound-graph (get-binding* (list s p) 'graph bindings))
+                                 (solved-graph (and (iri? stype) (iri? p) (get-graph realm stype p)))
+                                 (graph (or bound-graph solved-graph
+                                            (new-sparql-variable "graph")))
+                                 (in-place? (alist-ref 'in-place? context))
+                                 (gmatch (and (not bound-graph)
+                                              (graph-match-statements realm graph s stype p (and new-stype? in-place?)))))
+                            
+                            (if solved-graph
+                                (values `((*REWRITTEN* (GRAPH ,graph ,triple)))
+                                        bindings)
+                                (values `((*REWRITTEN* 
+                                           ,@(splice-when (and in-place?
+                                                               gmatch)))
+                                          (GRAPH ,graph ,triple))
+                                        (update-binding* (list s) 'new-stype? #f
+                                                         (update-binding* (list s p) 'graph graph 
+                                                                          (update-binding* '() 'graph-statements
+                                                                                           (append 
+                                                                                            (or (get-binding* '() 'graph-statements bindings) '())
+                                                                                            (if in-place? '()
+                                                                                                (or gmatch '())))
+                                                                                           bindings)))))))))))
     ((FILTER BIND MINUS OPTIONAL UNION GRAPH) . ,rw/copy)
     (,select? . ,rw/copy)
     (,subselect? . ,rw/copy)))
@@ -288,11 +265,10 @@
        (let-values (((rw b) (rewrite quads rules bindings context)))
          (values (list (cons (car block) rw)) (merge-bindings b bindings)))))))
 
-(define (graph-rewriter-rules)
-  (print "session id " ($mu-session-id))
-
+(define (graph-rewriter-rules #!key preserve-graph-statements? rewrite-select-queries? realm)
   (let* (;;(mu-session-id (($headers) 'mu-session-id))
-         (graph-realm (or (($headers) 'mu-graph-realm)
+         (graph-realm (or realm
+                          (($headers) 'mu-graph-realm)
                           (get-realm (($headers) 'mu-graph-realm-id))
                           (get-realm (($query) 'graph-realm-id))
                           (($query) 'graph-realm)
@@ -301,15 +277,18 @@
     
     (log-message "~%==Graph Realm==~%~A~%" graph-realm)
 
-(let ((rewrite-graph-statements?
-                    (not (or (($headers) 'preserve-graph-statements)
-                             (($query) 'preserve-graph-statements)))))
     (parameterize ((*realm* graph-realm)
-                   
                    (*rewrite-select-queries?* 
-                    (or (equal? "true" (($headers)'rewrite-select-queries))
+                    (or rewrite-select-queries?
+                        (equal? "true" (($headers)'rewrite-select-queries))
                         (equal? "true" (($query) 'rewrite-select-queries))
                         (*rewrite-select-queries?*))))
+(let ((rewrite-graph-statements?
+       (not (or preserve-graph-statements?
+                (($headers) 'preserve-graph-statements)
+                (($query) 'preserve-graph-statements))))
+      (rewrite rewrite))
+      
       (print "REWRITE??? " rewrite-graph-statements?)
       `(((@Unit) . ,rw/continue)
         ((@Prologue) . ,(lambda (block rules bindings context)
@@ -326,7 +305,7 @@
                                     (cons '@Query
                                           (alist-update
                                            '@Dataset 
-                                           (replace-dataset '() 'FROM)
+                                           (replace-dataset realm '() 'FROM)
                                            (let-values (((bl _) (rewrite (cdr block) flatten-graph-rules))) bl))))
                                    bindings))))
 
@@ -363,7 +342,7 @@
                               (let-values (((bl1 b1)
                                             (rewrite (cdr block) (expand-triples-rules rewrite-graph-statements?) bindings new-context)))
                                 (let-values (((bl2 b2)
-                                              (rewrite bl1 rewrite-triples-rules b1 new-context)))
+                                              (rewrite bl1 (rewrite-triples-rules graph-realm) b1 new-context)))
                                   (let-values (((bl3 b3)
                                                 (rewrite bl2 rules b2 new-context)))
                                     (values `((,(rewrite-block-name (car block)) ,@bl3))

@@ -113,6 +113,9 @@
 (define (get-binding* vars key bindings)
   (nested-alist-ref* (append vars (list '@bindings key)) bindings))
 
+(define (get-binding*/default vars key bindings default)
+  (or (nested-alist-ref* (append vars (list '@bindings key)) bindings)) default)
+
 ;; define-syntax (_ vars ... key bindings)
 
 (define (project-bindings vars bindings)
