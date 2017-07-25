@@ -107,6 +107,35 @@
     ((_ key ... val alist) 
      (nested-alist-update* (list key ...) val alist))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Context
+(define (context-here context)
+  (first context))
+
+(define (context-previous context)
+  (secound context))
+
+(define (context-next context)
+  (third context))
+
+(define (context-parent context)
+  (fourth context))
+
+(define (parent-axis proc)
+  (lambda (context)
+    (call/cc
+     (lambda (out)
+       (let loop ((context context))
+         (if (null? context) #f
+             (let ((try (proc context)))
+               (if try (out #t)
+                   (loop (context-parent context))))))))))
+
+(define (has-ancestor? node)
+  (parent-axis
+   (lambda (context)
+     (equal? node (car (context-here context))))))
+     
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Sparql transformations
 (define default-rules (make-parameter (lambda () '())))
@@ -190,14 +219,16 @@
     (rewrite Query rules)))
 
 (define (rewrite blocks #!optional (rules ((default-rules))) (bindings '()) (context '()))
-  (let loop ((blocks blocks) (statements '()) (bindings bindings))
+  (let loop ((blocks blocks) (statements '()) (bindings bindings) (left-blocks '()))
     (if (null? blocks)
 	(values statements bindings)
 	(let-values (((new-statements updated-bindings)
-		      (apply-rules (car blocks) rules bindings context)))
+		      (apply-rules (car blocks) rules bindings 
+                                   (list (car blocks) left-blocks blocks context))))
 	  (loop (cdr blocks)
 		(append statements new-statements)
-		updated-bindings)))))
+		updated-bindings
+                (cons (car blocks) left-blocks))))))
 
 (define (apply-rules block rules bindings context)
   (let ((rule-match? (lambda (rule)
@@ -287,16 +318,13 @@
                            constructs)))))))
 
 (define (merge-triples-by-graph label quads)
-  (let ((symbol<
-         (lambda (a b)
-           (string< (symbol->string (car a))
-                    (symbol->string (car b))))))
-  (map (lambda (group)
-         `(,(string->symbol (caar group))
-           . ((,label 
-               . ,(list->vector
-                   (map cdr group))))))
-       (group/key car (sort quads symbol<)))))
+  (let ((car< (lambda (a b) (string< (car a) (car b)))))
+    (map (lambda (group)
+           `(,(string->symbol (caar group))
+             . ((,label 
+                 . ,(list->vector
+                     (map cdr group))))))
+         (group/key car (sort quads car<)))))
                    
 (define (run-delta-expand-properties s propertyset graphs)
   (let* ((p (car propertyset))
@@ -314,15 +342,15 @@
                  objects))))
 
 (define (run-delta query label)
-  (let* ((G '(http://mu.semte.ch/graphs/Graphs http://mu.semte.ch/graphs/include))
+  (let* ((gkeys '(http://mu.semte.ch/graphs/Graphs http://mu.semte.ch/graphs/include))
          (results (sparql/select (write-sparql query) raw?: #t))
          (graphs (map (cut alist-ref 'value <>)
                       (vector->list
-                       (or (nested-alist-ref* G results) (vector)))))
+                       (or (nested-alist-ref* gkeys results) (vector)))))
          (D (lambda (tripleset)
               (let ((s (car tripleset))
                     (properties (cdr tripleset)))
-                (and (not (equal? s (car G)))
+                (and (not (equal? s (car gkeys)))
                      (join (map (cut run-delta-expand-properties s <> graphs) properties)))))))
     (merge-triples-by-graph label (join (filter values (map D results))))))
 

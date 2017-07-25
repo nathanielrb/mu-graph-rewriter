@@ -1,6 +1,6 @@
 (use s-sparql s-sparql-parser mu-chicken-support matchable)
 
-(load "app-refactored.scm")
+(load "app.scm")
 (load "plugins/graph-rewriter.scm")
 
 (access-log "access.log")

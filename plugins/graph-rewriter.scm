@@ -207,9 +207,12 @@
 
 (define (%rewrite-triple-rule realm)
   (lambda (triple rules bindings context)
-    (match triple
-      ((s p o)
-       (if (and (equal? p 'a) (alist-ref 'in-place? context))
+;; ((has-ancestor? 'WHERE) context)))
+    (let ((in-where? ((parent-axis (lambda (context) (equal? (car (context-here context)) 'WHERE))) context)))
+      (print "IN WHERE??")(print (car triple))(print in-where?)(newline)
+      (match triple
+        ((s p o)
+         (if (and (equal? p 'a) in-where?) ; (alist-ref 'in-place? context))
            (values `((*REWRITTEN* (GRAPH ?AllGraphs ,triple))) bindings)
            (let* ((stype (get-binding* (list s) 'stype bindings))
                   (new-stype? (get-binding* (list s) 'new-stype? bindings))
@@ -217,14 +220,14 @@
                   (solved-graph (and (iri? stype) (iri? p) (get-graph realm stype p)))
                   (graph (or bound-graph solved-graph
                              (new-sparql-variable "graph")))
-                  (in-place? (alist-ref 'in-place? context))
+                  ;; (in-place? (alist-ref 'in-place? context))
                   (gmatch (and (not bound-graph)
-                               (graph-match-statements realm graph s stype p (and new-stype? in-place?)))))
+                               (graph-match-statements realm graph s stype p (and new-stype? in-where?)))))
              (if solved-graph
                  (values `((*REWRITTEN* (GRAPH ,graph ,triple)))
                          bindings)
                  (values `((*REWRITTEN* 
-                            ,@(splice-when (and in-place?
+                            ,@(splice-when (and in-where?
                                                 gmatch)))
                            (GRAPH ,graph ,triple))
                          (update-binding* (list s) 'new-stype? #f
@@ -234,9 +237,9 @@
                                             '() 'graph-statements
                                             (append 
                                              (or (get-binding* '() 'graph-statements bindings) '())
-                                             (if in-place? '()
+                                             (if in-where? '()
                                                  (or gmatch '())))
-                                            bindings)))))))))))
+                                            bindings))))))))))))
 
 (define (rewrite-triples-rules realm)
   `((,triple? . ,(%rewrite-triple-rule realm))
@@ -330,13 +333,13 @@
                       (merge-bindings b bindings)))))
       (,quads-block?
        . ,(lambda (block rules bindings context)
-            (let ((new-context (if (equal? (car block) 'WHERE) (alist-update 'in-place? #t context) context)))
+            ;; (let ((new-context (if (equal? (car block) 'WHERE) (alist-update 'in-place? #t context) context)))
               (let-values (((bl1 b1) (rewrite (cdr block) (expand-triples-rules rewrite-graph-statements?)
-                                              bindings new-context)))
-                (let-values (((bl2 b2) (rewrite bl1 (rewrite-triples-rules graph-realm) b1 new-context)))
-                  (let-values (((bl3 b3) (rewrite bl2 rules b2 new-context)))
+                                              bindings context)))
+                (let-values (((bl2 b2) (rewrite bl1 (rewrite-triples-rules graph-realm) b1 context)))
+                  (let-values (((bl3 b3) (rewrite bl2 rules b2 context)))
                     (values `((,(rewrite-block-name (car block)) ,@bl3))
-                            b3)))))))
+                            b3)))))) ;)
       ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
       ((*REWRITTEN*)
        . ,(lambda (block rules bindings context)
