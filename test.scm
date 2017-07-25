@@ -829,7 +829,8 @@ WHERE {
    SELECT DISTINCT ?s
    WHERE {
      GRAPH <http://data.europa.eu/eurostat/temp> {
-       ?s ?p ?o.
+       ?s2 ?p ?o.
+       ?s3 ?p ?o.
       }  
     }
   }

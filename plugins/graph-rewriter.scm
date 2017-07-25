@@ -163,7 +163,7 @@
     ((|DELETE DATA| |DELETE WHERE|) 'DELETE)
     (else part-name)))
 
-(define (expand-triple-rule block rules bindings context)
+(define (expand-triple-rule block rules bindings)
   (let ((triples (expand-triple block)))
     (let loop ((ts triples) (bindings bindings))
       (if (null? ts)
@@ -186,10 +186,10 @@
                           (update-binding* (list s) 'new-stype? #t bindings)))))))))))
 
 (define (%expand-graph-rule rewrite-graph-statements?)
-  (lambda (block rules bindings context)
+  (lambda (block rules bindings)
     (let-values (((rw b) (rewrite (cddr block)
                                   (expand-triples-rules rewrite-graph-statements?)
-                                  bindings context)))
+                                  bindings)))
       (if rewrite-graph-statements?
           (values rw b)
           (values (list block) 
@@ -206,13 +206,11 @@
     (,subselect? . ,rw/copy)))
 
 (define (%rewrite-triple-rule realm)
-  (lambda (triple rules bindings context)
-;; ((has-ancestor? 'WHERE) context)))
-    (let ((in-where? ((parent-axis (lambda (context) (equal? (car (context-here context)) 'WHERE))) context)))
-      (print "IN WHERE??")(print (car triple))(print in-where?)(newline)
+  (lambda (triple rules bindings)
+    (let ((in-where? ((parent-axis (lambda (context) (equal? (car (context-here context)) 'WHERE))) (*context*))))
       (match triple
         ((s p o)
-         (if (and (equal? p 'a) in-where?) ; (alist-ref 'in-place? context))
+         (if (and (equal? p 'a) in-where?)
            (values `((*REWRITTEN* (GRAPH ?AllGraphs ,triple))) bindings)
            (let* ((stype (get-binding* (list s) 'stype bindings))
                   (new-stype? (get-binding* (list s) 'new-stype? bindings))
@@ -220,7 +218,7 @@
                   (solved-graph (and (iri? stype) (iri? p) (get-graph realm stype p)))
                   (graph (or bound-graph solved-graph
                              (new-sparql-variable "graph")))
-                  ;; (in-place? (alist-ref 'in-place? context))
+                  ;; (in-place? (alist-ref 'in-place?))
                   (gmatch (and (not bound-graph)
                                (graph-match-statements realm graph s stype p (and new-stype? in-where?)))))
              (if solved-graph
@@ -242,14 +240,14 @@
                                             bindings))))))))))))
 
 (define (rewrite-triples-rules realm)
-  `((,triple? . ,(%rewrite-triple-rule realm))
-    ((FILTER BIND MINUS OPTIONAL UNION GRAPH) . ,rw/copy)
-    (,select? . ,rw/copy)
-    (,subselect? . ,rw/copy)))
+    `((,triple? . ,(%rewrite-triple-rule realm))
+      ((FILTER BIND MINUS OPTIONAL UNION GRAPH) . ,rw/copy)
+      (,select? . ,rw/copy)
+      (,subselect? . ,rw/copy)))
 
 (define flatten-graph-rules
   `((,triple? . ,rw/copy)
-    ((GRAPH) . ,(lambda (block rules bindings context)
+    ((GRAPH) . ,(lambda (block rules bindings)
                   (values (cddr block) bindings)))
     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
     ((@Dataset) . ,rw/copy)
@@ -257,7 +255,7 @@
     (,subselect? . ,rw/copy)
     (,pair? . ,rw/continue)))
 
-(define (rewrite-subselect block rules bindings context)
+(define (rewrite-subselect block rules bindings)
   (match block
     ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) . quads)
      (let* ((subselect-vars (extract-subselect-vars vars))
@@ -265,7 +263,7 @@
                               (equal? subselect-vars '*))
                           bindings
                           (project-bindings subselect-vars bindings))))
-       (let-values (((rw b) (rewrite quads rules bindings context)))
+       (let-values (((rw b) (rewrite quads rules bindings)))
          (values (list (cons (car block) rw)) (merge-bindings b bindings)))))))
 
 (define (where-subselect? block)
@@ -292,15 +290,15 @@
 
     `(((@Unit) . ,rw/continue)
       ((@Prologue)
-       . ,(lambda (block rules bindings context)
+       . ,(lambda (block rules bindings)
             (values `((@Prologue
                        (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
                        ,@(cdr block)))
                     bindings)))
       ((@Query)
-       . ,(lambda (block rules bindings context)
+       . ,(lambda (block rules bindings)
             (if rewrite-select-queries?
-                (with-rewrite ((new-statements (rewrite (cdr block) rules bindings context)))
+                (with-rewrite ((new-statements (rewrite (cdr block) rules bindings)))
                   `((,(car block) ,new-statements)))
                 ;; what about rewrite-graph-rules = #f??
                 ;; (extract-graphs (alist-ref 'WHERE rw)))
@@ -310,8 +308,8 @@
                        '@Dataset (replace-dataset graph-realm 'FROM #f)
                        rw)))))))
       ((@Update)
-       . ,(lambda (block rules bindings context)
-            (let-values (((rw nbs) (rewrite (reverse (cdr block)) rules bindings context)))
+       . ,(lambda (block rules bindings)
+            (let-values (((rw nbs) (rewrite (reverse (cdr block)) rules bindings)))
               (let ((where-block (alist-ref 'WHERE rw))
                     (graph-statements (or (get-binding* '() 'graph-statements nbs) '())))
                 (values `((@Update . ,(alist-update
@@ -327,25 +325,25 @@
       (,select? . ,rw/copy) ;;  '* => (extract-all-variables)
       (,subselect? . ,rewrite-subselect)        
       (,where-subselect?
-       . ,(lambda (block rules bindings context)
-            (let-values (((rw b) (rewrite-subselect (cdr block) rules bindings context)))
+       . ,(lambda (block rules bindings)
+            (let-values (((rw b) (rewrite-subselect (cdr block) rules bindings)))
               (values `((WHERE ,@rw))
                       (merge-bindings b bindings)))))
       (,quads-block?
-       . ,(lambda (block rules bindings context)
-            ;; (let ((new-context (if (equal? (car block) 'WHERE) (alist-update 'in-place? #t context) context)))
+       . ,(lambda (block rules bindings)
+            ;; (let ((new-context (if (equal? (car block) 'WHERE) (alist-update 'in-place? #t))))
               (let-values (((bl1 b1) (rewrite (cdr block) (expand-triples-rules rewrite-graph-statements?)
-                                              bindings context)))
-                (let-values (((bl2 b2) (rewrite bl1 (rewrite-triples-rules graph-realm) b1 context)))
-                  (let-values (((bl3 b3) (rewrite bl2 rules b2 context)))
+                                              bindings)))
+                (let-values (((bl2 b2) (rewrite bl1 (rewrite-triples-rules graph-realm) b1)))
+                  (let-values (((bl3 b3) (rewrite bl2 rules b2)))
                     (values `((,(rewrite-block-name (car block)) ,@bl3))
                             b3)))))) ;)
       ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
       ((*REWRITTEN*)
-       . ,(lambda (block rules bindings context)
+       . ,(lambda (block rules bindings)
             (values (cdr block) bindings)))
-      (,pair? . ,(lambda (block rules bindings context)
-                   (with-rewrite ((rw (rewrite block rules bindings context)))
+      (,pair? . ,(lambda (block rules bindings)
+                   (with-rewrite ((rw (rewrite block rules bindings)))
                                  (list rw)))))))
 
 (default-rules graph-rewriter-rules)

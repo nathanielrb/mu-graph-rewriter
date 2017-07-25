@@ -109,6 +109,9 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Context
+(define (make-context here previous-siblings next-siblings parent)
+  (list here previous-siblings next-siblings parent))
+
 (define (context-here context)
   (first context))
 
@@ -218,30 +221,33 @@
   (parameterize ((query-namespaces (query-prefixes Query)))
     (rewrite Query rules)))
 
-(define (rewrite blocks #!optional (rules ((default-rules))) (bindings '()) (context '()))
+(define (rewrite blocks #!optional (rules ((default-rules))) (bindings '()))
   (let loop ((blocks blocks) (statements '()) (bindings bindings) (left-blocks '()))
     (if (null? blocks)
 	(values statements bindings)
 	(let-values (((new-statements updated-bindings)
-		      (apply-rules (car blocks) rules bindings 
-                                   (list (car blocks) left-blocks blocks context))))
+		      (apply-rules (car blocks) rules bindings
+                                   (make-context (car blocks) left-blocks (cdr blocks) (*context*)))))
 	  (loop (cdr blocks)
 		(append statements new-statements)
 		updated-bindings
                 (cons (car blocks) left-blocks))))))
 
+(define *context* (make-parameter '()))
+
 (define (apply-rules block rules bindings context)
-  (let ((rule-match? (lambda (rule)
-		      (or (and (symbol? rule) (equal? rule block))
-			  (and (pair? rule) (member (car block) rule))
-			  (and (procedure? rule) (rule block))))))
-    (let loop ((remaining-rules rules))
-      (if (null? remaining-rules) (abort (format #f "No matching rule for ~A" block))
-	  (match (car remaining-rules)
-	    ((rule . proc) 
-	     (if (rule-match? rule)
-		 (proc block rules bindings context)
-		 (loop (cdr remaining-rules)))))))))
+    (let ((rule-match? (lambda (rule)
+                         (or (and (symbol? rule) (equal? rule block))
+                             (and (pair? rule) (member (car block) rule))
+                             (and (procedure? rule) (rule block))))))
+      (let loop ((remaining-rules rules))
+        (if (null? remaining-rules) (abort (format #f "No matching rule for ~A" block))
+            (match (car remaining-rules)
+              ((rule . proc) 
+               (if (rule-match? rule)
+                   (parameterize ((*context* context))
+                     (proc block rules bindings))
+                   (loop (cdr remaining-rules)))))))))
 
 (define-syntax with-rewrite
   (syntax-rules ()
@@ -256,24 +262,24 @@
 ;;  (with-rewrite ((rw (rewrite block)))
 ;;    body)) 
 ;; =>
-;; (lambda (block rules bindings context)
-;;  (let-values (((rw new-bindings) (rewrite exp rules bindings context)))
+;; (lambda (block rules bindings)
+;;  (let-values (((rw new-bindings) (rewrite exp rules bindings)))
 ;;    (values body new-bindings))))
 (define-syntax rw/lambda
   (syntax-rules (with-rewrite rewrite)
     ((_ (var) (with-rewrite ((rw (rewrite exp))) body))
-     (lambda (var rules bindings context)
-       (let-values (((rw new-bindings) (rewrite exp rules bindings context)))
+     (lambda (var rules bindings)
+       (let-values (((rw new-bindings) (rewrite exp rules bindings)))
          (values body new-bindings))))
     ((_ (var) body)
-     (lambda (var rules bindings context)
+     (lambda (var rules bindings)
        (values body bindings)))))
 
-(define (rw/continue block rules bindings context)
-  (with-rewrite ((new-statements (rewrite (cdr block) rules bindings context)))
+(define (rw/continue block rules bindings)
+  (with-rewrite ((new-statements (rewrite (cdr block) rules bindings)))
     `((,(car block) ,@new-statements))))
 
-(define (rw/copy block rules bindings context)
+(define (rw/copy block rules bindings)
   (values (list block) bindings))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -307,6 +313,7 @@
                  statements)))))
 
 ;; better to do this with rewrite rules?
+;; and for goodness sake clean this up a little
 (define (query-constructs query)
   (and (update-query? query)
        (let loop ((queryunits (alist-ref '@Unit query))
