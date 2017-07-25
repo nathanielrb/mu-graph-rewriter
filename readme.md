@@ -1,4 +1,6 @@
-# mu-graph-rewriter
+# mu-query-rewriter
+
+**note** these docs refer to an earlier version, before refactoring into a plugin-based system.
 
 Rewrites SPARQL queries for dispatching on multiple named graphs.
 
