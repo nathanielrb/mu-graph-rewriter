@@ -108,37 +108,69 @@
      (nested-alist-update* (list key ...) val alist))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Context
-(define (make-context here previous-siblings next-siblings parent)
-  (list here previous-siblings next-siblings parent))
+;; Transformation context
+;; Inverted trees
+;;
+;; needs refactoring...
+(define-record context head next previous parent)
 
-(define (context-here context)
-  (first context))
+(define empty-context (make-context #f #f #f #f))
 
-(define (context-previous context)
-  (second context))
+(define (->parent-context context)
+  (if (not context) empty-context
+      (make-context (and (context-head context) (car (context-head context)))
+                    (context-previous context)
+                    (context-next context)
+                    (context-parent context))))
 
-(define (context-next context)
-  (third context))
+(define (parent-context context)
+  (and (context? context)
+       (let ((parent (context-parent context)))
+         (and parent
+             (make-context 
+              (filter (lambda (x) (not (null? x)))
+                      (list (context-head parent)
+                            (context-previous context)
+                            (context-head context)
+                            (context-next context)))
+              (context-previous parent)
+              (context-next parent)
+              (context-parent parent))))))
 
-(define (context-parent context)
-  (fourth context))
+;; also (context-child n), (context-child filter-proc)
+(define (context-children context #!optional (filtr values))
+  (let ((parent (make-context (car (context-head context))
+                              (context-previous context)
+                              (context-next context)
+                              (context-parent context))))
+    (let loop ((cc '()) (prevc '()) (nextc (cdr (context-head context))))
+      (if (null? nextc) (filter filtr (reverse cc))
+          (let ((child (car nextc)))
+            (loop (cons (make-context child prevc (cdr nextc) parent) cc)
+                  (cons child prevc)
+                  (cdr nextc)))))))
 
 (define (parent-axis proc)
   (lambda (context)
     (call/cc
      (lambda (out)
        (let loop ((context context))
-         (if (null? context) #f
+         (if (not context) (out #f)
              (let ((try (proc context)))
-               (if try (out #t)
-                   (loop (context-parent context))))))))))
+               (if try (out try)
+                   (loop (parent-context context))))))))))
 
-(define (has-ancestor? node)
-  (parent-axis
-   (lambda (context)
-     (equal? node (car (context-here context))))))
-     
+(define (axis next)
+  (lambda (proc)
+    (lambda (context)
+      (call/cc
+       (lambda (out)
+         (let loop ((context context))
+           (if (not (context? context)) #f
+               (let ((try (proc context)))
+                 (if try (out #t)
+                     (loop (next context)))))))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Sparql transformations
 (define default-rules (make-parameter (lambda () '())))
@@ -227,28 +259,30 @@
 	(values statements bindings)
 	(let-values (((new-statements updated-bindings)
 		      (apply-rules (car blocks) rules bindings
-                                   (make-context (car-when (car blocks)) left-blocks
-                                                 (cdr blocks) (*context*)))))
+                                   (make-context ;(car-when
+                                    (car blocks) left-blocks
+                                    (cdr blocks) 
+                                    (->parent-context (*context*))))))
 	  (loop (cdr blocks)
 		(append statements new-statements)
 		updated-bindings
                 (cons (car blocks) left-blocks))))))
 
-(define *context* (make-parameter '()))
+(define *context* (make-parameter empty-context))
 
 (define (apply-rules block rules bindings context)
-    (let ((rule-match? (lambda (rule)
-                         (or (and (symbol? rule) (equal? rule block))
-                             (and (pair? rule) (member (car block) rule))
-                             (and (procedure? rule) (rule block))))))
-      (let loop ((remaining-rules rules))
-        (if (null? remaining-rules) (abort (format #f "No matching rule for ~A" block))
-            (match (car remaining-rules)
-              ((rule . proc) 
-               (if (rule-match? rule)
-                   (parameterize ((*context* context))
-                     (proc block rules bindings))
-                   (loop (cdr remaining-rules)))))))))
+  (let ((rule-match? (lambda (rule)
+                       (or (and (symbol? rule) (equal? rule block))
+                           (and (pair? rule) (member (car block) rule))
+                           (and (procedure? rule) (rule block))))))
+    (let loop ((remaining-rules rules))
+      (if (null? remaining-rules) (abort (format #f "No matching rule for ~A" block))
+          (match (car remaining-rules)
+            ((rule . proc) 
+             (if (rule-match? rule)
+                 (parameterize ((*context* context))
+                   (proc block rules bindings))
+                 (loop (cdr remaining-rules)))))))))
 
 (define-syntax with-rewrite
   (syntax-rules ()
@@ -458,8 +492,10 @@
                 (for-each (lambda (query-deltas)
                             (let ((deltastr (json->string query-deltas)))
                               (format (current-error-port) "~%==Deltas==~%~A" deltastr)
+                              (print "\nSubscribers\n")(print *subscribers*)(newline)
                               (for-each (lambda (subscriber)
-                                          (notify-subscriber subscriber deltastr))
+                                          (print "notifying " subscriber)
+                                          (print (notify-subscriber subscriber deltastr)))
                                         *subscribers*)))
                           queries-deltas))))))
 

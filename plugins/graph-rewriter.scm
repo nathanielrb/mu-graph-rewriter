@@ -207,7 +207,9 @@
 
 (define (%rewrite-triple-rule realm)
   (lambda (triple rules bindings)
-    (let ((in-where? ((parent-axis (lambda (context) (equal? (context-here context) 'WHERE))) (*context*))))
+    (let ((in-where? ((parent-axis (lambda (context) 
+                                     (let ((head (context-head context)))
+                                       (and head (equal? (car head) 'WHERE))))) (*context*))))
       (match triple
         ((s p o)
          (if (and (equal? p 'a) in-where?)
@@ -216,17 +218,13 @@
                   (new-stype? (get-binding* (list s) 'new-stype? bindings))
                   (bound-graph (get-binding* (list s p) 'graph bindings))
                   (solved-graph (and (iri? stype) (iri? p) (get-graph realm stype p)))
-                  (graph (or bound-graph solved-graph
-                             (new-sparql-variable "graph")))
-                  ;; (in-place? (alist-ref 'in-place?))
+                  (graph (or bound-graph solved-graph (new-sparql-variable "graph")))
                   (gmatch (and (not bound-graph)
                                (graph-match-statements realm graph s stype p (and new-stype? in-where?)))))
              (if solved-graph
-                 (values `((*REWRITTEN* (GRAPH ,graph ,triple)))
-                         bindings)
+                 (values `((*REWRITTEN* (GRAPH ,graph ,triple))) bindings)
                  (values `((*REWRITTEN* 
-                            ,@(splice-when (and in-where?
-                                                gmatch)))
+                            ,@(splice-when (and in-where? gmatch)))
                            (GRAPH ,graph ,triple))
                          (update-binding* (list s) 'new-stype? #f
                                           (update-binding*
@@ -270,24 +268,29 @@
   (and (equal? (car block) 'WHERE)
        (subselect? (cdr block))))
 
+(define (get-graph-realm)
+  (or
+   (($headers) 'mu-graph-realm)
+   (get-realm (($headers) 'mu-graph-realm-id))
+   (get-realm (($query) 'graph-realm-id))
+   (($query) 'graph-realm)
+   (($body) 'graph-realm)
+   (get-realm (hash-table-ref/default *session-realm-ids* ($mu-session-id) #f))))
+
+(define (rewrite-graphs?)
+  (or (($headers) 'preserve-graph-statements) (($query) 'preserve-graph-statements)))
+
+(define (rewrite-select?)
+  (or
+   (equal? "true" (($headers) 'rewrite-select-queries))
+   (equal? "true" (($query) 'rewrite-select-queries))
+   (*rewrite-select-queries?*)))
+
 (define (graph-rewriter-rules #!key preserve-graph-statements? rewrite-select-queries? realm)
-  (let* ((graph-realm (or realm
-                          (($headers) 'mu-graph-realm)
-                          (get-realm (($headers) 'mu-graph-realm-id))
-                          (get-realm (($query) 'graph-realm-id))
-                          (($query) 'graph-realm)
-                          (($body) 'graph-realm)
-                          (get-realm (hash-table-ref/default *session-realm-ids* ($mu-session-id) #f))))
-         (rewrite-graph-statements? (not (or preserve-graph-statements?
-                                             (($headers) 'preserve-graph-statements)
-                                             (($query) 'preserve-graph-statements))))
-         (rewrite-select-queries? (or rewrite-select-queries?
-                                      (equal? "true" (($headers) 'rewrite-select-queries))
-                                      (equal? "true" (($query) 'rewrite-select-queries))
-                                      (*rewrite-select-queries?*))))
-
+  (let* ((graph-realm (or realm (get-graph-realm)))
+         (rewrite-graph-statements? (not (or preserve-graph-statements? (rewrite-graphs?))))
+         (rewrite-select-queries? (or rewrite-select-queries? (rewrite-select?))))
     (log-message "~%==Graph Realm==~%~A~%" graph-realm)
-
     `(((@Unit) . ,rw/continue)
       ((@Prologue)
        . ,(lambda (block rules bindings)
@@ -331,7 +334,6 @@
                       (merge-bindings b bindings)))))
       (,quads-block?
        . ,(lambda (block rules bindings)
-            ;; (let ((new-context (if (equal? (car block) 'WHERE) (alist-update 'in-place? #t))))
               (let-values (((bl1 b1) (rewrite (cdr block) (expand-triples-rules rewrite-graph-statements?)
                                               bindings)))
                 (let-values (((bl2 b2) (rewrite bl1 (rewrite-triples-rules graph-realm) b1)))
@@ -404,4 +406,31 @@
 (define-rest-call 'DELETE '("realm") delete-realm-call)
 (define-rest-call 'DELETE '("realm" realm-id) delete-realm-call)
 
-	       
+(define-rest-call 'POST '("deltas") (lambda (_) 
+                                      (print "received deltas (rewriter)")
+                                      (let* ((deltaobj (read-request-json))
+                                             (deltas (and deltaobj  (vector->list deltaobj)))
+                                             (retailers (and deltas (alist-ref
+                                                                     'deltas
+                                                                     (car-when
+                                                                     (filter
+                                                                      (lambda (ds)
+                                                                        (equal? (alist-ref 'graph ds)
+                                                                                "http://data.europa.eu/eurostat/retailers"))
+                                                                      deltas))))))
+                                        (print "Retailers ")(print retailers)
+                                        (when retailers
+                                          (map (lambda (delta)
+                                                 (when (and (equal?
+                                                             (alist-ref 'p delta)
+                                                             "http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
+                                                            (equal? (alist-ref 'o delta)
+                                                                    "http://purl.org/dc/terms/Agent"))
+                                                   (print "Retailer" (alist-ref 's delta)))
+                                                 
+                                                 (when (equal? (alist-ref 'p delta)
+                                                               "http://purl.org/dc/terms/title")
+                                                   (print "name" (alist-ref 'o delta))))
+
+                                               (vector->list (alist-ref 'inserts retailers))))
+                                      "thanks")))
