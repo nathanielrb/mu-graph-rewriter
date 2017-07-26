@@ -450,15 +450,18 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-        (when (update-query? rewritten-query)
-           (let ((queries-deltas (run-deltas rewritten-query)))
-             (for-each (lambda (query-deltas)
-                         (let ((deltastr (json->string query-deltas)))
-                           (format (current-error-port) "~%==Deltas==~%~A" deltastr)
-                           (for-each (lambda (subscriber)
-                                       (notify-subscriber subscriber deltastr))
-                                     *subscribers*)))
-                       queries-deltas)))
+        (thread-start!
+         (make-thread
+          (lambda ()
+            (when (update-query? rewritten-query)
+              (let ((queries-deltas (run-deltas rewritten-query)))
+                (for-each (lambda (query-deltas)
+                            (let ((deltastr (json->string query-deltas)))
+                              (format (current-error-port) "~%==Deltas==~%~A" deltastr)
+                              (for-each (lambda (subscriber)
+                                          (notify-subscriber subscriber deltastr))
+                                        *subscribers*)))
+                          queries-deltas))))))
 
         ;; (parameterize ((tcp-read-timeout #f) (tcp-write-timeout #f) (tcp-connect-timeout #f))
         (let-values (((result uri response)
