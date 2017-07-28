@@ -946,3 +946,39 @@ ORDER BY ?child1 ?child2 ?child3 ?child4 ?child5
               ?obs eurostat:training false.
              
            }"))
+(define vincent (parse-query "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+   PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+   PREFIX qb: <http://purl.org/linked-data/cube#>
+   PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+   PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+   PREFIX dct: <http://purl.org/dc/terms/>
+   PREFIX schema: <http://schema.org/>
+   PREFIX sdmx-subject: <http://purl.org/linked-data/sdmx/2009/subject#>
+   PREFIX sdmx-concept: <http://purl.org/linked-data/sdmx/2009/concept#>
+   PREFIX sdmx-measure: <http://purl.org/linked-data/sdmx/2009/measure#>
+   PREFIX interval: <http://reference.data.gov.uk/def/intervals/>
+   PREFIX offer: <http://data.europa.eu/eurostat/id/offer/>
+   PREFIX semtech: <http://mu.semte.ch/vocabularies/core/>
+           SELECT DISTINCT ?GTINdesc ?GTIN ?ISBA ?ISBAUUID ?ESBA ?ESBAdesc ?UUID ?quantity ?unit ?training
+            FROM <http://data.europa.eu/eurostat/temp>
+           FROM <http://data.europa.eu/eurostat/ECOICOP>
+            WHERE {
+               ?obs eurostat:product ?offer.
+               ?offer a schema:Offer;
+                   semtech:uuid ?UUID;
+                   schema:description ?GTINdesc;
+                   schema:gtin13 ?GTIN.
+               OPTIONAL {
+                   ?offer schema:includesObject [
+                       a schema:TypeAndQuantityNode;
+                       schema:amountOfThisGood ?quantity;
+                       schema:unitCode ?unit
+                   ].}                ?offer schema:category ?ISBA.
+               ?ISBA semtech:uuid ?ISBAUUID.                ?obs eurostat:classification ?ESBA.
+               ?ESBA skos:prefLabel ?ESBAdesc.
+               ?obs qb:dataSet ?dataset.
+               ?dataset dct:publisher <http://data.europa.eu/eurostat/id/organization/596E26C85E3E9B01E2000003>.
+               ?dataset dct:issued ?date.
+               FILTER ( ?date >= \"2016-07-18\"^^xsd:dateTime)
+               ?obs eurostat:training ?training.
+           }"))

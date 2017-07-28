@@ -18,7 +18,7 @@
   (config-param "PLUGIN_PATH" #f))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Expand triples
+;; Expanding triples
 (define (expand-sequence-path-triple triple)
   (and (= (length triple) 3)
        (sequence-path? (cadr triple))
@@ -108,13 +108,14 @@
      (nested-alist-update* (list key ...) val alist))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Transformation context
+;; Context
 ;; Inverted trees
-;;
-;; needs refactoring...
+;; needs refactoring and extending...
 (define-record context head next previous parent)
 
 (define empty-context (make-context #f #f #f #f))
+
+(define *context* (make-parameter empty-context))
 
 (define (->parent-context context)
   (if (not context) empty-context
@@ -172,7 +173,7 @@
                      (loop (next context)))))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Sparql transformations
+;; Bindings
 (define default-rules (make-parameter (lambda () '())))
 
 (define (nested-alist-replace* keys proc alist)
@@ -229,6 +230,8 @@
                                   merged-bindings)))))
       new-bindings))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Transformations
 (define query-namespaces (make-parameter (*namespaces*)))
 
 (define (remove-trailing-char sym #!optional (len 1))
@@ -268,8 +271,6 @@
 		updated-bindings
                 (cons (car blocks) left-blocks))))))
 
-(define *context* (make-parameter empty-context))
-
 (define (apply-rules block rules bindings context)
   (let ((rule-match? (lambda (rule)
                        (or (and (symbol? rule) (equal? rule block))
@@ -284,13 +285,7 @@
                    (proc block rules bindings))
                  (loop (cdr remaining-rules)))))))))
 
-(define-syntax with-rewrite
-  (syntax-rules ()
-    ((_ ((var expr)) body)
-     (let-values (((var updated-bindings) expr))
-       (values body updated-bindings)))))
-
-;; macro for when neither the bindings nor the context matter
+;; macros for when the bindings don't matter
 ;; limited support for second-passes using the same rules and context,
 ;; but it'd be nice if this playing-nice with with-rewrite could be more general.
 ;; (rw/lambda (block)
@@ -300,6 +295,12 @@
 ;; (lambda (block rules bindings)
 ;;  (let-values (((rw new-bindings) (rewrite exp rules bindings)))
 ;;    (values body new-bindings))))
+(define-syntax with-rewrite
+  (syntax-rules ()
+    ((_ ((var expr)) body)
+     (let-values (((var updated-bindings) expr))
+       (values body updated-bindings)))))
+
 (define-syntax rw/lambda
   (syntax-rules (with-rewrite rewrite)
     ((_ (var) (with-rewrite ((rw (rewrite exp))) body))
@@ -439,6 +440,21 @@
     (close-connection! uri)
     result))
 
+(define (notify-deltas query)
+  (let ((queries-deltas (run-deltas query)))
+    (thread-start!
+     (make-thread
+      (lambda ()
+        (for-each (lambda (query-deltas)
+                    (let ((deltastr (json->string query-deltas)))
+                      (format (current-error-port) "~%==Deltas==~%~A" deltastr)
+                      (print "\nSubscribers\n")(print *subscribers*)(newline)
+                      (for-each (lambda (subscriber)
+                                  (print "notifying " subscriber)
+                                  (print (notify-subscriber subscriber deltastr)))
+                                *subscribers*)))
+                  queries-deltas))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Implentation
 (define (virtuoso-error exn)
@@ -468,21 +484,12 @@
          (query-string (or ($$query 'query) ($$body 'query) body))
          (query (parse-query query-string)))
          
-         ;;(mu-session-id (header-value 'mu-session-id req-headers)))
-    
-    ;; (log-message "~%==Received Headers==~%~A~%" req-headers)
+    (log-message "~%==Received Headers==~%~A~%" (*request-headers*))
     (log-message "~%==Rewriting Query==~%~A~%" query-string)
 
-    (let ((rewritten-query (parameterize (($query $$query)
-                                          ($body $$body))
-                                          ;;($headers (lambda (h)
-                                          ;;            (header-value h req-headers)))
-                                          ;;($mu-session-id (header 'mu-session-id))
-                                          ;; (header-value 'mu-session-id req-headers))
-                                          ;; (header-value 'mu-call-id req-headers)))
-                                          ;;($mu-call-id (header 'mu-session-id))) 
-                             
-                             (rewrite-query query))))
+    (let ((rewritten-query 
+           (parameterize (($query $$query) ($body $$body))
+             (rewrite-query query))))
 
       (log-message "~%==Parsed As==~%~A~%" (write-sparql query))
       (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
@@ -491,22 +498,8 @@
           (virtuoso-error exn)
         
         (when (update-query? rewritten-query)
-          (let ((queries-deltas (run-deltas rewritten-query)))
-            (thread-start!
-             (make-thread
-              (lambda ()
-                
-                (for-each (lambda (query-deltas)
-                            (let ((deltastr (json->string query-deltas)))
-                              (format (current-error-port) "~%==Deltas==~%~A" deltastr)
-                              (print "\nSubscribers\n")(print *subscribers*)(newline)
-                              (for-each (lambda (subscriber)
-                                          (print "notifying " subscriber)
-                                          (print (notify-subscriber subscriber deltastr)))
-                                        *subscribers*)))
-                          queries-deltas))))))
+          (notify-deltas rewritten-query))
 
-        ;; (parameterize ((tcp-read-timeout #f) (tcp-write-timeout #f) (tcp-connect-timeout #f))
         (let-values (((result uri response)
                       (with-input-from-request 
                        (make-request method: 'POST
@@ -514,14 +507,13 @@
                                      headers: (headers
                                                '((Content-Type application/x-www-form-urlencoded)
                                                  (Accept application/sparql-results+json)))) 
-                       ;;(append (headers->list (request-headers (current-request)))
                        `((query . , (format #f "~A" (write-sparql rewritten-query))))
                        read-string)))
           (close-connection! uri)
+
           (let ((headers (headers->list (response-headers response))))
-            
             (log-message "~%==Results==~%~A~%" 
-                         (substring result 0 (min 1000 (string-length result))))
+                         (substring result 0 (min 1500 (string-length result))))
             (mu-headers headers)
             (format #f "~A~" result)))))))
 
