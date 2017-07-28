@@ -913,3 +913,36 @@ OPTIONAL { ?child5 skos:broader ?child4.
 } 
 ORDER BY ?child1 ?child2 ?child3 ?child4 ?child5
 "))
+
+(define martin (parse-query "PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+   PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+   PREFIX qb: <http://purl.org/linked-data/cube#>
+   PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+   PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+   PREFIX dct: <http://purl.org/dc/terms/>
+   PREFIX schema: <http://schema.org/>
+   PREFIX sdmx-subject: <http://purl.org/linked-data/sdmx/2009/subject#>
+   PREFIX sdmx-concept: <http://purl.org/linked-data/sdmx/2009/concept#>
+   PREFIX sdmx-measure: <http://purl.org/linked-data/sdmx/2009/measure#>
+   PREFIX interval: <http://reference.data.gov.uk/def/intervals/>
+   PREFIX offer: <http://data.europa.eu/eurostat/id/offer/>
+   PREFIX semtech: <http://mu.semte.ch/vocabularies/core/>
+   
+           SELECT (COUNT (?offer) AS ?C)
+           FROM <http://data.europa.eu/eurostat/temp>
+           FROM <http://data.europa.eu/eurostat/ECOICOP>
+           WHERE {
+               ?obs eurostat:product ?offer.
+               OPTIONAL {
+                   ?offer schema:includesObject [ a schema:TypeAndQuantityNode;  schema:amountOfThisGood ?quantity;  schema:unitCode ?unit ].
+               }
+               OPTIONAL {
+                   ?offer schema:category ?ISBA.
+                   ?ISBA semtech:uuid ?ISBAUUID.
+                   }
+               ?obs eurostat:classification ?ESBA.
+               ?ESBA skos:prefLabel ?ESBAdesc.
+               ?obs qb:dataSet ?dataset.
+              ?obs eurostat:training false.
+             
+           }"))

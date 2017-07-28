@@ -1,6 +1,6 @@
 (use s-sparql s-sparql-parser mu-chicken-support
      matchable intarweb spiffy spiffy-request-vars
-     uri-common intarweb medea irregex srfi-13 http-client)
+     uri-common intarweb medea irregex srfi-13 http-client cjson)
 
 (require-extension sort-combinators)
 
@@ -13,7 +13,7 @@
      (alist-ref 'potentials
                 (with-input-from-file (*subscribers-file*)
                   (lambda () (read-json)))))))
-  
+
 (define *plugin*
   (config-param "PLUGIN_PATH" #f))
 
@@ -42,8 +42,8 @@
          (let ((object (new-blank-node)))
            (match triple
              ((s p (_ . rest))
-               (append (expand-triple (list s p object))
-                       (expand-triple (cons object rest)))))))        
+              (append (expand-triple (list s p object))
+                      (expand-triple (cons object rest)))))))        
         (else #f)))
 
 (define (expand-expanded-triple s p o)
@@ -100,7 +100,7 @@
          key
          (nested-alist-update*
           (cdr keys) val (or (alist-ref key alist) '()))
-          alist))))
+         alist))))
 
 (define-syntax nested-alist-update
   (syntax-rules ()
@@ -127,15 +127,15 @@
   (and (context? context)
        (let ((parent (context-parent context)))
          (and parent
-             (make-context 
-              (filter (lambda (x) (not (null? x)))
-                      (list (context-head parent)
-                            (context-previous context)
-                            (context-head context)
-                            (context-next context)))
-              (context-previous parent)
-              (context-next parent)
-              (context-parent parent))))))
+              (make-context 
+               (filter (lambda (x) (not (null? x)))
+                       (list (context-head parent)
+                             (context-previous context)
+                             (context-head context)
+                             (context-next context)))
+               (context-previous parent)
+               (context-next parent)
+               (context-parent parent))))))
 
 ;; also (context-child n), (context-child filter-proc)
 (define (context-children context #!optional (filtr values))
@@ -203,19 +203,19 @@
      (update-binding* (list var ...) key val bindings))))
 
 (define (project-bindings vars bindings)
-    (let loop ((bindings bindings) (projected-bindings '()))
-      (if (null? bindings) projected-bindings
-	  (let ((binding (car bindings)))
-	    (cond ((member (car binding) vars)
-		   (loop (cdr bindings)
-			 (append projected-bindings
-				 (list (cons (car binding)
-					     (project-bindings vars (cdr binding)))))))
-		  ((equal? (car binding) '@bindings)
-		   (loop (cdr bindings)
-			 (append projected-bindings (list binding))))
-		  (else
-		   (loop (cdr bindings) projected-bindings)))))))
+  (let loop ((bindings bindings) (projected-bindings '()))
+    (if (null? bindings) projected-bindings
+        (let ((binding (car bindings)))
+          (cond ((member (car binding) vars)
+                 (loop (cdr bindings)
+                       (append projected-bindings
+                               (list (cons (car binding)
+                                           (project-bindings vars (cdr binding)))))))
+                ((equal? (car binding) '@bindings)
+                 (loop (cdr bindings)
+                       (append projected-bindings (list binding))))
+                (else
+                 (loop (cdr bindings) projected-bindings)))))))
 
 (define (merge-bindings new-bindings bindings)
   (if (and (pair? new-bindings) (pair? bindings))
@@ -312,10 +312,13 @@
 
 (define (rw/continue block rules bindings)
   (with-rewrite ((new-statements (rewrite (cdr block) rules bindings)))
-    `((,(car block) ,@new-statements))))
+                `((,(car block) ,@new-statements))))
 
 (define (rw/copy block rules bindings)
   (values (list block) bindings))
+
+(define (rw/remove block rules bindings)
+  (values (list) bindings))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Deltas
@@ -373,7 +376,7 @@
                  . ,(list->vector
                      (map cdr group))))))
          (group/key car (sort quads car<)))))
-                   
+
 (define (expand-delta-properties s propertyset graphs)
   (let* ((p (car propertyset))
          (objects (vector->list (cdr propertyset)))
@@ -393,19 +396,19 @@
   (list->vector
    (map (match-lambda
           ((graph . deltas)
-          `((graph . ,(symbol->string graph))
-            (deltas . ,deltas))))
-       (let loop ((ds delete-deltas) (diffs insert-deltas))
-         (if (null? ds) diffs
-             (let ((graph (caar ds)))
-               (loop (cdr ds)
-                     (alist-update 
-                      graph (append (or (alist-ref graph diffs) '()) (cdar ds))
-                      diffs))))))))
+           `((graph . ,(symbol->string graph))
+             (delta . ,deltas))))
+        (let loop ((ds delete-deltas) (diffs insert-deltas))
+          (if (null? ds) diffs
+              (let ((graph (caar ds)))
+                (loop (cdr ds)
+                      (alist-update 
+                       graph (append (or (alist-ref graph diffs) '()) (cdar ds))
+                       diffs))))))))
 
 (define (run-delta query label)
   (let* ((gkeys '(http://mu.semte.ch/graphs/Graphs http://mu.semte.ch/graphs/include))
-         (results (sparql/select (write-sparql query) raw?: #t))
+         (results (string->json (sparql/select (write-sparql query) raw?: #t)))
          (graphs (map (cut alist-ref 'value <>)
                       (vector->list
                        (or (nested-alist-ref* gkeys results) (vector)))))
@@ -456,6 +459,7 @@
 (define $mu-session-id (make-parameter #f))
 (define $mu-call-id (make-parameter #f))
 
+;; this is a beast. clean it up.
 (define (rewrite-call _)
   (let* (($$query (request-vars source: 'query-string))
          (body (read-request-body))
@@ -484,11 +488,12 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-        (thread-start!
-         (make-thread
-          (lambda ()
-            (when (update-query? rewritten-query)
-              (let ((queries-deltas (run-deltas rewritten-query)))
+        (when (update-query? rewritten-query)
+          (let ((queries-deltas (run-deltas rewritten-query)))
+            (thread-start!
+             (make-thread
+              (lambda ()
+                
                 (for-each (lambda (query-deltas)
                             (let ((deltastr (json->string query-deltas)))
                               (format (current-error-port) "~%==Deltas==~%~A" deltastr)
