@@ -58,10 +58,10 @@
                 ;; (extract-graphs (alist-ref 'WHERE rw)))
                 (with-rewrite ((rw (rewrite (cdr block) flatten-graph-rules)))
                               `((@Query
-                                 ,(alist-update
-                                   '@Dataset
-                                   (replace-dataset graph-realm 'FROM #f)
-                                   rw)))))))
+                                 . ,(alist-update
+                                     '@Dataset
+                                     (replace-dataset graph-realm 'FROM #f)
+                                     rw)))))))
       ((@Update)
        . ,(lambda (block rules bindings)
             (let-values (((rw nbs) (rewrite (reverse (cdr block)) rules bindings)))
