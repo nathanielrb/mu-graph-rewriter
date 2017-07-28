@@ -462,11 +462,11 @@
     (process-deltas)
     "thanks"))
 
-(use slime)
+;; (use slime)
 
-(when (not (feature? 'docker))
-  (define *swank*
-    (thread-start!
-     (make-thread
-      (lambda ()
-        (swank-server-start 4005))))))
+;; (when (not (feature? 'docker))
+;;   (define *swank*
+;;     (thread-start!
+;;      (make-thread
+;;       (lambda ()
+;;         (swank-server-start 4005))))))
