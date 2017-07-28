@@ -455,7 +455,6 @@
 ;; better : parameterize body and req-headers, and define functions...
 (define $query (make-parameter (lambda (q) #f)))
 (define $body (make-parameter (lambda (q) #f)))
-(define $headers (make-parameter (lambda (h) #f)))
 (define $mu-session-id (make-parameter #f))
 (define $mu-call-id (make-parameter #f))
 
@@ -467,19 +466,22 @@
                    (lambda (key)
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string (or ($$query 'query) ($$body 'query) body))
-         (query (parse-query query-string))
-         (req-headers (request-headers (current-request)))
-         (mu-session-id (header-value 'mu-session-id req-headers)))
+         (query (parse-query query-string)))
+         
+         ;;(mu-session-id (header-value 'mu-session-id req-headers)))
     
-    (log-message "~%==Received Headers==~%~A~%" req-headers)
+    ;; (log-message "~%==Received Headers==~%~A~%" req-headers)
     (log-message "~%==Rewriting Query==~%~A~%" query-string)
 
     (let ((rewritten-query (parameterize (($query $$query)
-                                          ($body $$body)
-                                          ($headers (lambda (h)
-                                                      (header-value h req-headers)))
-                                          ($mu-session-id (header-value 'mu-session-id req-headers))
-                                          ($mu-call-id (header-value 'mu-call-id req-headers)))
+                                          ($body $$body))
+                                          ;;($headers (lambda (h)
+                                          ;;            (header-value h req-headers)))
+                                          ;;($mu-session-id (header 'mu-session-id))
+                                          ;; (header-value 'mu-session-id req-headers))
+                                          ;; (header-value 'mu-call-id req-headers)))
+                                          ;;($mu-call-id (header 'mu-session-id))) 
+                             
                              (rewrite-query query))))
 
       (log-message "~%==Parsed As==~%~A~%" (write-sparql query))

@@ -21,19 +21,19 @@
 ;; Transformation Rules
 (define (query-graph-realm)
   (or
-   (($headers) 'mu-graph-realm)
-   (get-realm (($headers) 'mu-graph-realm-id))
+   (header 'mu-graph-realm)
+   (get-realm (header 'mu-graph-realm-id))
    (get-realm (($query) 'graph-realm-id))
    (($query) 'graph-realm)
    (($body) 'graph-realm)
-   (get-realm (hash-table-ref/default *session-realm-ids* ($mu-session-id) #f))))
+   (get-realm (hash-table-ref/default *session-realm-ids* (header 'mu-session-id) #f))))
 
 (define (rewrite-graphs?)
-  (or (($headers) 'preserve-graph-statements) (($query) 'preserve-graph-statements)))
+  (or (header 'preserve-graph-statements) (($query) 'preserve-graph-statements)))
 
 (define (rewrite-select?)
   (or
-   (equal? "true" (($headers) 'rewrite-select-queries))
+   (equal? "true" (header 'rewrite-select-queries))
    (equal? "true" (($query) 'rewrite-select-queries))
    (*rewrite-select-queries?*)))
 
