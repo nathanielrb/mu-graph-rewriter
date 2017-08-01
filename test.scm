@@ -1,4 +1,4 @@
-(use s-sparql s-sparql-parser mu-chicken-support matchable)
+;; (use s-sparql s-sparql-parser mu-chicken-support matchable)
 
 (load "app.scm")
 (load "plugins/graph-rewriter.scm")

@@ -1,8 +1,12 @@
+;; (use s-sparql s-sparql-parser s-sparql-transform)
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Graph Rewriter
 
 (define-namespace mu "http://mu.semte.ch/vocabularies/core/") 
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
+
+(*sparql-query-unpacker* unpack-sparql-bindings)
 
 (define *rewrite-graph-statements?*
   (config-param "REWRITE_GRAPH_STATEMENTS" #t))
@@ -29,7 +33,10 @@
    (get-realm (hash-table-ref/default *session-realm-ids* (header 'mu-session-id) #f))))
 
 (define (rewrite-graphs?)
-  (or (header 'preserve-graph-statements) (($query) 'preserve-graph-statements)))
+  (print "pres? " (header 'preserve-graph-statements))
+  (print "or " (($query) 'preserve-graph-statements))
+  (or (header 'preserve-graph-statements)
+      (($query) 'preserve-graph-statements)))
 
 (define (rewrite-select?)
   (or
@@ -44,27 +51,27 @@
     (log-message "~%==Graph Realm==~%~A~%" graph-realm)
     `(((@Unit) . ,rw/continue)
       ((@Prologue)
-       . ,(lambda (block rules bindings)
+       . ,(lambda (block bindings)
             (values `((@Prologue
                        (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
                        ,@(cdr block)))
                     bindings)))
       ((@Query)
-       . ,(lambda (block rules bindings)
+       . ,(lambda (block bindings)
             (if rewrite-select-queries?
-                (with-rewrite ((new-statements (rewrite (cdr block) rules bindings)))
+                (with-rewrite ((new-statements (rewrite (cdr block2) bindings)))
                               `((,(car block) ,new-statements)))
                 ;; what about rewrite-graph-rules = #f??
                 ;; (extract-graphs (alist-ref 'WHERE rw)))
-                (with-rewrite ((rw (rewrite (cdr block) flatten-graph-rules)))
+                (with-rewrite ((rw (rewrite (cdr block) bindings flatten-graph-rules)))
                               `((@Query
                                  . ,(alist-update
                                      '@Dataset
                                      (replace-dataset graph-realm 'FROM #f)
                                      rw)))))))
       ((@Update)
-       . ,(lambda (block rules bindings)
-            (let-values (((rw nbs) (rewrite (reverse (cdr block)) rules bindings)))
+       . ,(lambda (block bindings)
+            (let-values (((rw nbs) (rewrite (reverse (cdr block)) bindings)))
               (let ((where-block (alist-ref 'WHERE rw))
                     (graph-statements (or (get-binding* '() 'graph-statements nbs) '())))
                 (values `((@Update . ,(alist-update
@@ -80,33 +87,33 @@
       (,select? . ,rw/copy) ;;  '* => (extract-all-variables)
       (,subselect? . ,rewrite-subselect)        
       (,where-subselect?
-       . ,(lambda (block rules bindings)
-            (let-values (((rw b) (rewrite-subselect (cdr block) rules bindings)))
+       . ,(lambda (block bindings)
+            (let-values (((rw b) (rewrite-subselect (cdr block) bindings)))
               (values `((WHERE ,@rw))
                       (merge-bindings b bindings)))))
       (,quads-block?
-       . ,(lambda (block rules bindings)
+       . ,(lambda (block bindings)
             (let-values (((q1 b1) (rewrite (cdr block) 
-                                           (%expand-triples-rules rewrite-graph-statements?)
-                                           bindings)))
-              (let-values (((q2 b2) (rewrite q1 (%rewrite-triples-rules graph-realm) b1)))
-                (let-values (((q3 b3) (rewrite q2 rules b2)))
+                                           bindings
+                                           (%expand-triples-rules rewrite-graph-statements?))))
+              (let-values (((q2 b2) (rewrite q1 b1 (%rewrite-triples-rules graph-realm))))
+                (let-values (((q3 b3) (rewrite q2 b2)))
                   (values `((,(rewrite-block-name (car block)) ,@q3)) b3))))))
       ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
       ((*REWRITTEN*)
-       . ,(lambda (block rules bindings)
+       . ,(lambda (block bindings)
             (values (cdr block) bindings)))
       (,pair?
-       . ,(lambda (block rules bindings)
-            (with-rewrite ((rw (rewrite block rules bindings)))
-                          (list rw)))))))
+       . ,(lambda (block bindings)
+            (with-rewrite ((rw (rewrite block bindings)))
+              (list rw)))))))
 
 (default-rules graph-rewriter-rules)
 
 (define flatten-graph-rules
   `((,triple? . ,rw/copy)
     ((GRAPH)
-     . ,(lambda (block rules bindings)
+     . ,(lambda (block bindings)
           (values (cddr block) bindings)))
     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
     ((@Dataset) . ,rw/copy)
@@ -122,10 +129,10 @@
     (,subselect? . ,rw/copy)))
 
 (define (%expand-graph-rule rewrite-graph-statements?)
-  (lambda (block rules bindings)
+  (lambda (block bindings)
     (let-values (((rw b) (rewrite (cddr block)
-                                  (%expand-triples-rules rewrite-graph-statements?)
-                                  bindings)))
+                                  bindings
+                                  (%expand-triples-rules rewrite-graph-statements?))))
       (if rewrite-graph-statements?
           (values rw b)
           (values (list block) 
@@ -135,7 +142,7 @@
                                    b))))))
 
 ;; expands triple paths and collects bindings
-(define (expand-triple-rule block rules bindings)
+(define (expand-triple-rule block bindings)
   (let ((triples (expand-triple block)))
     (let loop ((ts triples) (bindings bindings))
       (if (null? ts)
@@ -158,7 +165,7 @@
                           (update-binding* (list s) 'new-stype? #t bindings)))))))))))
 
 (define (%rewrite-triple-rule realm)
-  (lambda (triple rules bindings)
+  (lambda (triple bindings)
     (let ((in-where? ((parent-axis (lambda (context) 
                                      (let ((head (context-head context)))
                                        (and head (equal? (car head) 'WHERE))))) (*context*))))
@@ -219,20 +226,7 @@
 	     (,rule rewriter:subjectType ,stype)))))
 
 (define (replace-dataset realm label #!optional named? (extra-graphs '()))
-  (let ((graphs (append (all-graphs realm) extra-graphs))
-        (label-named (case label
-                       ((FROM) '|FROM NAMED|)
-                       ((USING) '|USING NAMED|))))
-    `((,label ,(*default-graph*))
-      ,@(map (lambda (graph) 
-               `(,label ,graph))
-             graphs)
-      ,@(splice-when
-         (and named?
-              `((,label-named ,(*default-graph*))
-                ,@(map (lambda (graph) 
-                         `(,label-named ,graph))
-                       graphs)))))))
+  (dataset label (append (all-graphs realm) extra-graphs) named?))
 
 (define (extract-all-variables where-clause)
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
@@ -252,7 +246,7 @@
     ((|DELETE DATA| |DELETE WHERE|) 'DELETE)
     (else part-name)))
 
-(define (rewrite-subselect block rules bindings)
+(define (rewrite-subselect block bindings)
   (match block
     ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) . quads)
      (let* ((subselect-vars (extract-subselect-vars vars))
@@ -260,7 +254,7 @@
                               (equal? subselect-vars '*))
                           bindings
                           (project-bindings subselect-vars bindings))))
-       (let-values (((rw b) (rewrite quads rules bindings)))
+       (let-values (((rw b) (rewrite quads bindings)))
          (values (list (cons (car block) rw)) (merge-bindings b bindings)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -355,7 +349,7 @@
       (realm-id . #f))))
 
 (define (add-realm realm graph graph-type)
-  (sparql/update
+  (sparql-update
    (s-insert
     (write-triples
      `((,graph rewriter:realm ,realm)
@@ -377,7 +371,7 @@
       (realm . ,(write-uri realm)))))
 
 (define (delete-realm realm graph)
-  (sparql/update
+  (sparql-update
    (if graph
        (s-delete
         (write-triples `((,graph ?p ?o)))
@@ -433,11 +427,9 @@
            (retailers (or (deltas-graph "http://data.europa.eu/eurostat/retailers" deltas) '()))
            (ins (inserted-retailers retailers 'inserts))
            (dels (inserted-retailers retailers 'deletes)))
-      (print "***Inserted Retailers***")(print ins)
-      (print "***Deleted Retailers***")(print dels)
       (for-each (match-lambda 
                   ((retailer . name)
-                   (print "adding realm for "
+                   (print "Adding realm for "
                           (conc "http://data.europa.eu/eurostat/retailers/" name) " => " 
                           (read-uri retailer ))
                    (add-realm (read-uri retailer) 
