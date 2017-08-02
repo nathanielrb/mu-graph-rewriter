@@ -33,8 +33,6 @@
    (get-realm (hash-table-ref/default *session-realm-ids* (header 'mu-session-id) #f))))
 
 (define (rewrite-graphs?)
-  (print "pres? " (header 'preserve-graph-statements))
-  (print "or " (($query) 'preserve-graph-statements))
   (or (header 'preserve-graph-statements)
       (($query) 'preserve-graph-statements)))
 
@@ -76,9 +74,11 @@
                     (graph-statements (or (get-binding* '() 'graph-statements nbs) '())))
                 (values `((@Update . ,(alist-update
                                        'WHERE
-                                       `((GRAPH ,(*default-graph*) (?AllGraphs a rewriter:Graph))
-                                         ,@graph-statements
-                                         ,@where-block)
+                                       `((SELECT *)
+                                         (WHERE
+                                          (GRAPH ,(*default-graph*) (?AllGraphs a rewriter:Graph))
+                                          ,@graph-statements
+                                          ,@where-block))
                                        (reverse rw))))
                         nbs)))))
       ((@Dataset) . ,rw/remove)
@@ -178,8 +178,11 @@
                     (bound-graph (get-binding* (list s p) 'graph bindings))
                     (solved-graph (and (iri? stype) (iri? p) (get-graph realm stype p)))
                     (graph (or bound-graph solved-graph (new-sparql-variable "graph")))
+                    (named-graphs (get-binding 'named-graphs bindings))
                     (gmatch (and (not bound-graph)
-                                 (graph-match-statements realm graph s stype p (and new-stype? in-where?)))))
+                                 (graph-match-statements realm graph s stype p
+                                                         named-graphs new-stype?))))
+                                                         ;;(and new-stype? in-where?)))))
                (if solved-graph
                    (values `((*REWRITTEN* (GRAPH ,graph ,triple))) bindings)
                    (values `((*REWRITTEN* 
@@ -202,7 +205,7 @@
     (,select? . ,rw/copy)
     (,subselect? . ,rw/copy)))
 
-(define (graph-match-statements realm graph s stype p new-stype?)
+(define (graph-match-statements realm graph s stype p named-graphs new-stype?)
   (let ((rule (new-sparql-variable "rule"))
 	(gtype (new-sparql-variable "gtype")))
     `(,@(splice-when
@@ -210,7 +213,14 @@
               new-stype?
               ;; better to add this only once!!
               ;; and what about types in un-rewritten named-graph? 
-	      `((GRAPH ?AllGraphs (,s a ,stype)))))
+	      ;; `((GRAPH ?AllGraphs (,s a ,stype)))))
+              (if named-graphs
+                  `((UNION
+                    ((GRAPH ?AllGraphs (,s a ,stype)))
+                    ,@(map (lambda (graph)
+                             `((GRAPH ,graph (,s a ,stype))))
+                           named-graphs)))
+                  `((GRAPH ?AllGraphs (,s a ,stype))))))
       (GRAPH ,(*default-graph*) 
 	     (,rule a rewriter:GraphRule)
 	     (,graph a rewriter:Graph)
@@ -250,11 +260,11 @@
   (match block
     ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) . quads)
      (let* ((subselect-vars (extract-subselect-vars vars))
-            (bindings (if (or (equal? subselect-vars '(*))
+            (inner-bindings (if (or (equal? subselect-vars '(*))
                               (equal? subselect-vars '*))
                           bindings
                           (project-bindings subselect-vars bindings))))
-       (let-values (((rw b) (rewrite quads bindings)))
+       (let-values (((rw b) (rewrite quads inner-bindings)))
          (values (list (cons (car block) rw)) (merge-bindings b bindings)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

@@ -539,7 +539,6 @@ INSERT {
 WHERE {
   GRAPH <http://data.europa.eu/eurostat/temp> {
     ?s ?p ?o.
-    ?s a ?stype.
     BIND (IF(DATATYPE(?o) = <http://www.w3.org/2001/XMLSchema#string>, STR(?o), ?o) AS ?newo)
    }  
  }
