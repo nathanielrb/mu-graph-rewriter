@@ -6,8 +6,6 @@
 (define-namespace mu "http://mu.semte.ch/vocabularies/core/") 
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
 
-(*sparql-query-unpacker* unpack-sparql-bindings)
-
 (define *rewrite-graph-statements?*
   (config-param "REWRITE_GRAPH_STATEMENTS" #t))
 
@@ -76,7 +74,7 @@
                                        'WHERE
                                        `((SELECT *)
                                          (WHERE
-                                          (GRAPH ,(default-graph) (?AllGraphs a rewriter:Graph))
+                                          (GRAPH ,(*default-graph*) (?AllGraphs a rewriter:Graph))
                                           ,@graph-statements
                                           ,@where-block))
                                        (reverse rw))))
@@ -221,7 +219,7 @@
                              `((GRAPH ,graph (,s a ,stype))))
                            named-graphs)))
                   `((GRAPH ?AllGraphs (,s a ,stype))))))
-      (GRAPH ,(default-graph) 
+      (GRAPH ,(*default-graph*) 
 	     (,rule a rewriter:GraphRule)
 	     (,graph a rewriter:Graph)
 	     ,(if realm
@@ -278,7 +276,7 @@
         realm)))
 
 (define (get-graph-query realm stype p)
-  `((GRAPH ,(default-graph)
+  `((GRAPH ,(*default-graph*)
            (?graph a rewriter:Graph)
            (?rule rewriter:predicate ,p)
            (?rule rewriter:subjectType ,stype)
@@ -310,7 +308,7 @@
     (type)
     (s-select '?type
               (write-triples
-               `((GRAPH ,(default-graph) (?graph a rewriter:Graph))
+               `((GRAPH ,(*default-graph*) (?graph a rewriter:Graph))
                  (GRAPH ?graph (,subject a ?type))))
               from-graph: #f)
     type)))
@@ -327,7 +325,7 @@
      '?graph
      (write-triples
       `((GRAPH
-         ,(default-graph)
+         ,(*default-graph*)
          (?graph a rewriter:Graph)
          ,@(splice-when
             (and realm

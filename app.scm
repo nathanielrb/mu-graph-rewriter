@@ -20,13 +20,13 @@
 
 (define (dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
-    `((,label ,(default-graph))
+    `((,label ,(*default-graph*))
       ,@(map (lambda (graph) 
                `(,label ,graph))
              graphs)
       ,@(splice-when
          (and named?
-              `((,label-named ,(default-graph))
+              `((,label-named ,(*default-graph*))
                 ,@(map (lambda (graph) 
                          `(,label-named ,graph))
                        graphs)))))))
@@ -118,7 +118,7 @@
                        diffs))))))))
 
 (define (run-delta query label)
-  (parameterize ((*sparql-query-unpacker* string->json))
+  (parameterize ((*query-unpacker* string->json))
     (let* ((gkeys '(http://mu.semte.ch/graphs/Graphs http://mu.semte.ch/graphs/include))
            (results (sparql-select (write-sparql query)))
            (graphs (map (cut alist-ref 'value <>)
