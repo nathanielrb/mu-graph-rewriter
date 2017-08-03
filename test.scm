@@ -13,6 +13,8 @@
 (vhost-map `((".*" . ,handle-app)))
 
 
+(*sparql-endpoint* "http://localhost:8891/sparql")
+
 (*subscribers-file* "../config/rewriter/subscribers.json")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing

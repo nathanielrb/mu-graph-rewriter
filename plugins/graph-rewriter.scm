@@ -69,14 +69,14 @@
                                      rw)))))))
       ((@Update)
        . ,(lambda (block bindings)
-            (let-values (((rw nbs) (rewrite (reverse (cdr block)) bindings)))
+            (let-values (((rw nbs) (rewrite (reverse (cdr block)) '())))
               (let ((where-block (alist-ref 'WHERE rw))
                     (graph-statements (or (get-binding* '() 'graph-statements nbs) '())))
                 (values `((@Update . ,(alist-update
                                        'WHERE
                                        `((SELECT *)
                                          (WHERE
-                                          (GRAPH ,(*default-graph*) (?AllGraphs a rewriter:Graph))
+                                          (GRAPH ,(default-graph) (?AllGraphs a rewriter:Graph))
                                           ,@graph-statements
                                           ,@where-block))
                                        (reverse rw))))
@@ -221,7 +221,7 @@
                              `((GRAPH ,graph (,s a ,stype))))
                            named-graphs)))
                   `((GRAPH ?AllGraphs (,s a ,stype))))))
-      (GRAPH ,(*default-graph*) 
+      (GRAPH ,(default-graph) 
 	     (,rule a rewriter:GraphRule)
 	     (,graph a rewriter:Graph)
 	     ,(if realm
@@ -278,7 +278,7 @@
         realm)))
 
 (define (get-graph-query realm stype p)
-  `((GRAPH ,(*default-graph*)
+  `((GRAPH ,(default-graph)
            (?graph a rewriter:Graph)
            (?rule rewriter:predicate ,p)
            (?rule rewriter:subjectType ,stype)
@@ -310,7 +310,7 @@
     (type)
     (s-select '?type
               (write-triples
-               `((GRAPH ,(*default-graph*) (?graph a rewriter:Graph))
+               `((GRAPH ,(default-graph) (?graph a rewriter:Graph))
                  (GRAPH ?graph (,subject a ?type))))
               from-graph: #f)
     type)))
@@ -327,7 +327,7 @@
      '?graph
      (write-triples
       `((GRAPH
-         ,(*default-graph*)
+         ,(default-graph)
          (?graph a rewriter:Graph)
          ,@(splice-when
             (and realm
@@ -412,57 +412,6 @@
 (define-rest-call 'DELETE '("realm") delete-realm-call)
 (define-rest-call 'DELETE '("realm" realm-id) delete-realm-call)
 
-(define (deltas-graph graph deltas)
-  (let ((G? (lambda (ds)
-              (equal? (alist-ref 'graph ds) graph))))
-    (alist-ref 'delta (or (car-when (filter G? deltas)) '()))))
-
-;; abstract s p o without match
-(define (inserted-retailers retailers key)
-  (let loop ((triples (vector->list (or (alist-ref key retailers) (vector))))
-             (nodes '()) (names '()))
-    (if (null? triples) 
-        (filter (lambda (name) (member (car name) nodes)) names)
-        (let ((triple (car triples)))
-          (cond ((and (equal? (alist-ref 'p triple) "http://www.w3.org/1999/02/22-rdf-syntax-ns#type")
-                      (equal? (alist-ref 'o triple) "http://purl.org/dc/terms/Agent"))
-                 (loop (cdr triples) (cons (alist-ref 's triple) nodes) names))
-                ((equal? (alist-ref 'p triple) "http://purl.org/dc/terms/title")
-                 (loop (cdr triples) nodes (cons (cons (alist-ref 's triple) (alist-ref 'o triple)) names)))
-                (else (loop (cdr triples) nodes names)))))))
-
-(define (process-deltas)
-  (handle-exceptions exn (begin  (print-error-message exn) (print-call-chain))
-    (let* ((deltas (vector->list (or (read-request-json) (vector))))
-           (retailers (or (deltas-graph "http://data.europa.eu/eurostat/retailers" deltas) '()))
-           (ins (inserted-retailers retailers 'inserts))
-           (dels (inserted-retailers retailers 'deletes)))
-      (for-each (match-lambda 
-                  ((retailer . name)
-                   (print "Adding realm for "
-                          (conc "http://data.europa.eu/eurostat/retailers/" name) " => " 
-                          (read-uri retailer ))
-                   (add-realm (read-uri retailer) 
-                              (read-uri (conc "http://data.europa.eu/eurostat/retailers/" name))
-                              '<http://data.europa.eu/eurostat/graphs/types/ScannerData>)
-                   (hash-table-delete! *cache* '(graphs #f))))
-                ins)
-
-      (for-each (match-lambda 
-                  ((retailer . name)
-                   (print "deleting realm for "
-                          (conc "http://data.europa.eu/eurostat/retailers/" name) " => " 
-                          (read-uri retailer ))
-                   (delete-realm (read-uri retailer) 
-                                 (read-uri (conc "http://data.europa.eu/eurostat/retailers/" name)))
-                   (hash-table-delete! *cache* '(graphs #f))))
-                dels))))
-
-(define-rest-call 'POST '("deltas")
-  (lambda (_) 
-    (print "received deltas (rewriter)")
-    (process-deltas)
-    "thanks"))
 
 ;; (use slime)
 

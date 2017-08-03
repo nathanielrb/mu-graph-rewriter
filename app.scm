@@ -5,8 +5,6 @@
 
 (require-extension sort-combinators)
 
-(*sparql-query-unpacker* unpack-sparql-bindings)
-
 (define *subscribers-file*
   (config-param "SUBSCRIBERSFILE" "subscribers.json"))
 
@@ -22,13 +20,13 @@
 
 (define (dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
-    `((,label ,(*default-graph*))
+    `((,label ,(default-graph))
       ,@(map (lambda (graph) 
                `(,label ,graph))
              graphs)
       ,@(splice-when
          (and named?
-              `((,label-named ,(*default-graph*))
+              `((,label-named ,(default-graph))
                 ,@(map (lambda (graph) 
                          `(,label-named ,graph))
                        graphs)))))))
@@ -155,14 +153,17 @@
 
 (define (notify-deltas query)
   (let ((queries-deltas (run-deltas query)))
-    (for-each (lambda (query-deltas)
-                (let ((deltastr (json->string query-deltas)))
-                  ;; (format (current-error-port) "~%==Deltas==~%~A" deltastr)
-                  (for-each (lambda (subscriber)
-                              (print "Notifying " subscriber)
-                              (notify-subscriber subscriber deltastr))
-                            *subscribers*)))
-              queries-deltas)))
+    (thread-start!
+     (make-thread
+      (lambda ()
+        (for-each (lambda (query-deltas)
+                    (let ((deltastr (json->string query-deltas)))
+                      ;; (format (current-error-port) "~%==Deltas==~%~A" deltastr)
+                      (for-each (lambda (subscriber)
+                                  (print "Notifying " subscriber)
+                                  (notify-subscriber subscriber deltastr))
+                                *subscribers*)))
+                  queries-deltas))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Implentation
@@ -207,10 +208,7 @@
           (virtuoso-error exn)
         
         (when (update-query? rewritten-query)
-          (thread-start!
-           (make-thread
-            (lambda ()
-              (notify-deltas rewritten-query)))))
+          (notify-deltas rewritten-query))
 
         (let-values (((result uri response)
                       (with-input-from-request 
