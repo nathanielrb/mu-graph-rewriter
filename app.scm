@@ -32,6 +32,241 @@
                        graphs)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Graph Rewriter
+(define *rewrite-graph-statements?*
+  (config-param "REWRITE_GRAPH_STATEMENTS" #t))
+
+(define *rewrite-select-queries?* 
+  (config-param "REWRITE_SELECT_QUERIES" #f))
+
+(define *cache* (make-hash-table))
+
+(define triples-rules (make-parameter (lambda () '())))
+
+(define select-query-rules (make-parameter (lambda () '())))
+
+(define (rewrite-graphs?)
+  (or (header 'preserve-graph-statements)
+      (($query) 'preserve-graph-statements)))
+
+(define (rewrite-select?)
+  (or (equal? "true" (header 'rewrite-select-queries))
+      (equal? "true" (($query) 'rewrite-select-queries))
+      (*rewrite-select-queries?*)))
+
+(define (rewrite-quads-block block bindings)
+  (let ((rewrite-graph-statements? (not (rewrite-graphs?))))
+    (let-values (((q1 b1) (rewrite (cdr block) bindings
+                                   (%expand-triples-rules rewrite-graph-statements?))))
+      (let-values (((q2 b2) (rewrite q1 b1 ((triples-rules)))))
+        (let-values (((q3 b3) (rewrite q2 b2)))
+          (values `((,(rewrite-block-name (car block)) ,@q3)) b3))))))
+
+(define (%expand-triples-rules rewrite-graph-statements?)
+  `((,triple? . ,expand-triple-rule)
+    ((GRAPH) . ,(%expand-graph-rule rewrite-graph-statements?))
+    ((FILTER BIND MINUS OPTIONAL UNION) . ,rw/copy)
+    (,select? . ,rw/copy)
+    (,subselect? . ,rw/copy)))
+
+;; expands triple paths and collects bindings
+(define (expand-triple-rule block bindings)
+  (let ((triples (expand-triple block)))
+    (let loop ((ts triples) (bindings bindings))
+      (if (null? ts)
+          (values triples bindings)
+          (match (car ts)
+            ((s `a o)
+             (loop (cdr ts)
+                   (update-binding*
+                    (list s) 'stype o 
+                    (update-binding* (list s) 'new-stype? #f bindings))))
+            ((s p o)
+             (if (get-binding* (list s) 'stype bindings)
+                 (loop (cdr ts) bindings)
+                 (let ((stype (or
+                               (and (iri? s) (get-type (expand-namespace s (query-namespaces))))
+                               (new-sparql-variable "stype"))))
+                   (loop (cdr ts)
+                         (update-binding*
+                          (list s) 'stype stype
+                          (update-binding* (list s) 'new-stype? #t bindings)))))))))))
+
+(define (%expand-graph-rule rewrite-graph-statements?)
+  (lambda (block bindings)
+    (let-values (((rw b) (rewrite (cddr block)
+                                  bindings
+                                  (%expand-triples-rules rewrite-graph-statements?))))
+      (if rewrite-graph-statements?
+          (values rw b)
+          (values (list block) 
+                  (update-binding* '() 'named-graphs 
+                                   (cons (second block)
+                                         (get-binding/default* '() 'named-graphs b '()))
+                                   b))))))
+
+(define (extract-all-variables where-clause)
+  (delete-duplicates (filter sparql-variable? (flatten where-clause))))
+
+(define (extract-subselect-vars vars)
+  (filter values
+          (map (lambda (var)
+                 (if (symbol? var) var
+                     (match var
+                       ((`AS _ v) v)
+                       (else #f))))
+               vars)))
+
+(define (rewrite-block-name part-name)
+  (case part-name
+    ((|INSERT DATA|) 'INSERT)
+    ((|DELETE DATA| |DELETE WHERE|) 'DELETE)
+    (else part-name)))
+
+(define (rewrite-subselect block bindings)
+  (match block
+    ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) . quads)
+     (let* ((subselect-vars (extract-subselect-vars vars))
+            (inner-bindings (if (or (equal? subselect-vars '(*))
+                              (equal? subselect-vars '*))
+                          bindings
+                          (project-bindings subselect-vars bindings))))
+       (let-values (((rw b) (rewrite quads inner-bindings)))
+         (values (list (cons (car block) rw)) (merge-bindings b bindings)))))))
+
+(define rules
+  (make-parameter
+   `(((@Unit) . ,rw/continue)
+     ((@Prologue)
+      . ,(lambda (block bindings)
+           (values `((@Prologue
+                      (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
+                      ,@(cdr block)))
+                   bindings)))
+     ((@Query)
+      . ,(lambda (block bindings)
+           (let ((rewrite-select-queries? (rewrite-select?)))
+             (if rewrite-select-queries?
+                 (with-rewrite ((new-statements (rewrite (cdr block2) bindings)))
+                               `((,(car block) ,new-statements)))
+                 (with-rewrite ((rw (rewrite (cdr block) bindings (select-query-rules))))
+                               `((@Query ,rw)))))))
+     ((@Update)
+      . ,(lambda (block bindings)
+           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
+             (let ((where-block (alist-ref 'WHERE rw))
+                   (graph-statements (or (get-binding* '() 'graph-statements new-bindings) '())))
+               (values `((@Update . ,(alist-update
+                                      'WHERE
+                                      `((SELECT *)
+                                        (WHERE ,@graph-statements ,@where-block))
+                                      (reverse rw))))
+                       new-bindings)))))
+     ((@Dataset) . ,rw/remove)
+     ((@Using) . ,rw/remove)
+     ((GRAPH) . ,rw/copy)
+     (,select? . ,rw/copy)
+     (,subselect? . ,rewrite-subselect)        
+     (,quads-block? . ,rewrite-quads-block)
+     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+     `((,where-subselect?
+        . ,(lambda (block bindings)
+             (let-values (((rw b) (rewrite-subselect (cdr block) bindings)))
+               (values `((WHERE ,@rw))
+                       (merge-bindings b bindings))))))
+      (,pair?
+       . ,(lambda (block bindings)
+            (with-rewrite ((rw (rewrite block bindings)))
+              (list rw)))))))
+
+ ;; nested for backward compatibility
+(default-rules (lambda () (rules)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Additional Endpoints
+(define change-session-realm-call 
+  (rest-call
+   (realm-id)
+   (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
+     (log-message "~%Changing graph-realm-id for mu-session-id ~A to ~A~%"
+                  mu-session-id realm-id)
+     (hash-table-set! *session-realm-ids* mu-session-id realm-id)
+     `((mu-session-id . ,mu-session-id)
+       (realm-id . ,realm-id)))))
+
+(define (delete-session-realm-call _)
+  (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
+    (log-message "~%Removing graph-realm-id for mu-session-id ~A to ~A~%"
+                 mu-session-id realm-id)
+    (hash-table-delete! *session-realm-ids* mu-session-id)
+    `((mu-session-id . ,mu-session-id)
+      (realm-id . #f))))
+
+(define (add-realm realm graph graph-type)
+  (sparql-update
+   (s-insert
+    (write-triples
+     `((,graph rewriter:realm ,realm)
+       (,graph a rewriter:Graph)
+       (,graph rewriter:type ,graph-type))))))
+
+(define (add-realm-call _)
+  (let* ((req-headers (request-headers (current-request)))
+         (body (read-request-json))
+         (realm (or (read-uri (alist-ref 'graph-realm body))
+                    (get-realm (alist-ref 'graph-realm-id body))))
+         (graph-type (read-uri (alist-ref 'graph-type body)))
+         (graph (read-uri (alist-ref 'graph body))))
+    (log-message "~%Adding graph-realm ~A for ~A  ~%"
+                 realm graph)
+    (add-realm realm graph graph-type)
+    (hash-table-delete! *cache* '(graphs #f))
+    `((status . "success")
+      (realm . ,(write-uri realm)))))
+
+(define (delete-realm realm graph)
+  (sparql-update
+   (if graph
+       (s-delete
+        (write-triples `((,graph ?p ?o)))
+        where: (write-triples `((,graph ?p ?o))))
+       (s-delete
+        (write-triples `((?graph ?p ?o)))
+        where: (write-triples `((?graph rewriter:realm ,realm)
+                                (?graph ?p ?o)))))))
+
+(define (delete-realm-call _)
+  (let* ((req-headers (request-headers (current-request)))
+         (body (read-request-json))
+         (realm (or (read-uri (alist-ref 'graph-realm body))
+                    (get-realm (alist-ref 'graph-realm-id body))))
+         (graph (read-uri (alist-ref 'graph body))))
+    (log-message "~%Deleting graph-realm for ~A or ~A  ~%"
+                 realm graph)
+    (hash-table-delete! *cache* '(graphs #f))
+    (delete-realm realm graph)))
+
+(define-rest-call 'PATCH '("session" "realm" realm-id) change-session-realm-call)
+
+(define-rest-call 'DELETE '("session" "realm") delete-session-realm-call)
+
+(define-rest-call 'POST '("realm") add-realm-call)
+(define-rest-call 'POST '("realm" realm-id) add-realm-call)
+
+(define-rest-call 'DELETE '("realm") delete-realm-call)
+(define-rest-call 'DELETE '("realm" realm-id) delete-realm-call)
+
+
+;; (use slime)
+
+;; (when (not (feature? 'docker))
+;;   (define *swank*
+;;     (thread-start!
+;;      (make-thread
+;;       (lambda ()
+;;         (swank-server-start 4005))))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Deltas
 (define (update-query? query)
   ((list-of? update-unit?)

@@ -1,7 +1,7 @@
 ;; (use s-sparql s-sparql-parser mu-chicken-support matchable)
 
 (load "app.scm")
-(load "plugins/graph-rewriter.scm")
+(load "plugins/realms-plugin.scm")
 
 (access-log "access.log")
 (debug-log "debug.log")
@@ -13,7 +13,7 @@
 (vhost-map `((".*" . ,handle-app)))
 
 
-(*sparql-endpoint* "http://localhost:8891/sparql")
+(*sparql-endpoint* "http://localhost:8890/sparql")
 
 (*subscribers-file* "../config/rewriter/subscribers.json")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
