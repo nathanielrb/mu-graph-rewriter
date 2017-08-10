@@ -60,10 +60,12 @@
                                    (%expand-triples-rules rewrite-graph-statements?))))
       (let-values (((q2 b2) (rewrite q1 b1 ((triples-rules)))))
         (let-values (((q3 b3) (rewrite q2 b2)))
+          ;; => rules
           (values `((,(rewrite-block-name (car block)) ,@q3)) b3))))))
 
 (define (%expand-triples-rules rewrite-graph-statements?)
-  `((,triple? . ,expand-triple-rule)
+  `((,symbol? . ,rw/copy)
+    (,triple? . ,expand-triple-rule)
     ((GRAPH) . ,(%expand-graph-rule rewrite-graph-statements?))
     ((FILTER BIND MINUS OPTIONAL UNION) . ,rw/copy)
     (,select? . ,rw/copy)
@@ -72,25 +74,7 @@
 ;; expands triple paths and collects bindings
 (define (expand-triple-rule block bindings)
   (let ((triples (expand-triple block)))
-    (let loop ((ts triples) (bindings bindings))
-      (if (null? ts)
-          (values triples bindings)
-          (match (car ts)
-            ((s `a o)
-             (loop (cdr ts)
-                   (update-binding*
-                    (list s) 'stype o 
-                    (update-binding* (list s) 'new-stype? #f bindings))))
-            ((s p o)
-             (if (get-binding* (list s) 'stype bindings)
-                 (loop (cdr ts) bindings)
-                 (let ((stype (or
-                               (and (iri? s) (get-type (expand-namespace s (query-namespaces))))
-                               (new-sparql-variable "stype"))))
-                   (loop (cdr ts)
-                         (update-binding*
-                          (list s) 'stype stype
-                          (update-binding* (list s) 'new-stype? #t bindings)))))))))))
+    (values triples bindings)))
 
 (define (%expand-graph-rule rewrite-graph-statements?)
   (lambda (block bindings)
@@ -136,7 +120,8 @@
 
 (define rules
   (make-parameter
-   `(((@Unit) . ,rw/continue)
+   `((,symbol? . ,rw/copy)
+     ((@Unit) . ,rw/continue)
      ((@Prologue)
       . ,(lambda (block bindings)
            (values `((@Prologue
@@ -147,19 +132,22 @@
       . ,(lambda (block bindings)
            (let ((rewrite-select-queries? (rewrite-select?)))
              (if rewrite-select-queries?
-                 (with-rewrite ((new-statements (rewrite (cdr block2) bindings)))
-                               `((,(car block) ,new-statements)))
+                 (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+                   (let ((constraints (or (get-binding 'constraints new-bindings) '())))
+                     (values `((,(car block)
+                                ,@(alist-update 'WHERE (append constraints (alist-ref 'WHERE rw)) rw)))
+                             new-bindings)))
                  (with-rewrite ((rw (rewrite (cdr block) bindings (select-query-rules))))
                                `((@Query ,rw)))))))
      ((@Update)
       . ,(lambda (block bindings)
            (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
              (let ((where-block (alist-ref 'WHERE rw))
-                   (graph-statements (or (get-binding* '() 'graph-statements new-bindings) '())))
+                   (constraints (or (get-binding* '() 'constraints new-bindings) '())))
                (values `((@Update . ,(alist-update
                                       'WHERE
                                       `((SELECT *)
-                                        (WHERE ,@graph-statements ,@where-block))
+                                        (WHERE ,@constraints ,@where-block))
                                       (reverse rw))))
                        new-bindings)))))
      ((@Dataset) . ,rw/remove)
@@ -182,81 +170,236 @@
  ;; nested for backward compatibility
 (default-rules (lambda () (rules)))
 
+(triples-rules
+ (lambda ()
+   `((,triple? . ,rewrite-triple-rule)
+     ((FILTER BIND MINUS OPTIONAL UNION GRAPH) . ,rw/copy)
+     (,select? . ,rw/copy)
+     (,subselect? . ,rw/copy))))
 
+(define rewrite-triple-rule
+  (lambda (triple bindings)
+    (let ((in-where? ((parent-axis (lambda (context) 
+                                     (let ((head (context-head context)))
+                                       (and head (equal? (car head) 'WHERE))))) (*context*))))
+      (let-values (((rw b) (apply-constraint triple bindings)))
+        (values rw b)))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Additional Endpoints
-(define change-session-realm-call 
-  (rest-call
-   (realm-id)
-   (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
-     (log-message "~%Changing graph-realm-id for mu-session-id ~A to ~A~%"
-                  mu-session-id realm-id)
-     (hash-table-set! *session-realm-ids* mu-session-id realm-id)
-     `((mu-session-id . ,mu-session-id)
-       (realm-id . ,realm-id)))))
+(define *constraint*
+  (make-parameter
+   `((@Unit
+      (@Query
+       (CONSTRUCT (?s ?p ?o))
+       (WHERE
+        (GRAPH <http://data.europa.eu/eurostat/graphs>
+               (?rule a rewriter:GraphRule)
+               (?graph a rewriter:Graph)
+               (?rule rewriter:graph ?graph)
+               (?rule rewriter:predicate ?p)
+               (?rule rewriter:subjectType ?type)
+               (?allGraphs a rewriter:Graph))
+        (GRAPH ?allGraphs (?s a ?type))
+        (GRAPH ?graph (?s ?p ?o))))))))
 
-(define (delete-session-realm-call _)
-  (let ((mu-session-id (header-value 'mu-session-id (request-headers (current-request)))))
-    (log-message "~%Removing graph-realm-id for mu-session-id ~A to ~A~%"
-                 mu-session-id realm-id)
-    (hash-table-delete! *session-realm-ids* mu-session-id)
-    `((mu-session-id . ,mu-session-id)
-      (realm-id . #f))))
+(define apply-constraint
+  (let ((c (*constraint*)))
+    (cond ((pair? c)
+           (lambda (triple bindings)
+             (rewrite c bindings (apply constraint-query-rules triple))))
+           ((string? c)
+           (let ((constraint (parse-query c)))
+             (lambda (triple bindings)
+               (rewrite constraint bindings (apply constraint-query-rules triple)))))
+          ((procedure? c)
+           (lambda (triple bindings)
+             (rewrite (c) bindings (apply constraint-query-rules triple)))))))
 
-(define (add-realm realm graph graph-type)
-  (sparql-update
-   (s-insert
-    (write-triples
-     `((,graph rewriter:realm ,realm)
-       (,graph a rewriter:Graph)
-       (,graph rewriter:type ,graph-type))))))
+(define rw/value
+  (lambda (block bindings)
+    (let-values (((rw new-bindings) (rewrite block bindings)))
+      (values (cdr rw) new-bindings))))
 
-(define (add-realm-call _)
-  (let* ((req-headers (request-headers (current-request)))
-         (body (read-request-json))
-         (realm (or (read-uri (alist-ref 'graph-realm body))
-                    (get-realm (alist-ref 'graph-realm-id body))))
-         (graph-type (read-uri (alist-ref 'graph-type body)))
-         (graph (read-uri (alist-ref 'graph body))))
-    (log-message "~%Adding graph-realm ~A for ~A  ~%"
-                 realm graph)
-    (add-realm realm graph graph-type)
-    (hash-table-delete! *cache* '(graphs #f))
-    `((status . "success")
-      (realm . ,(write-uri realm)))))
+(define (rewrite-node node bindings)
+  (rewrite (cdr node) bindings))
 
-(define (delete-realm realm graph)
-  (sparql-update
-   (if graph
-       (s-delete
-        (write-triples `((,graph ?p ?o)))
-        where: (write-triples `((,graph ?p ?o))))
-       (s-delete
-        (write-triples `((?graph ?p ?o)))
-        where: (write-triples `((?graph rewriter:realm ,realm)
-                                (?graph ?p ?o)))))))
+(define (constraint-query-rules a b c)
+  `( (,symbol? . ,rw/copy)
+     ((@Unit) . ,rw/value)
+     ((@Query) 
+      . ,(lambda (block bindings)
+           (let ((where (list (assoc 'WHERE (cdr block)))))
+             (rewrite-node block (update-binding 'constraint-where where bindings)))))
+     ((CONSTRUCT) 
+      . ,(lambda (block bindings)
+           (let-values (((triples new-bindings) (rewrite (cdr block) '() (%expand-triples-rules #t))))
+             (rewrite triples bindings))))
+     (,triple? 
+      . ,(lambda (triple bindings)
+           (match triple
+             ((s p o)
+              ;; if there are multiple triples? ... UNION
+              ;; and this should match a b c, otherwise '()
+              ;; (if (and (or (sparql-variable? a) (equal? 
+              (let ((cbs `((,s . ,a) (,p . ,b) (,o . ,c))))
+                (let-values (((rw new-bindings)
+                              (rewrite (get-binding 'constraint-where bindings)
+                                       (update-bindings (('constraint-bindings cbs) ('constraint-triple (list s p o)))
+                                                        bindings)
+                                       constraint-rules)))
+                  (let ((graph (get-binding a b c 'graph new-bindings))) ;; = #f!
+                  (values (if graph `((GRAPH ,graph (,a ,b ,c)))
+                              (list triple))
+                          (update-bindings
+                           (('constraints (append rw (or (get-binding 'constraints bindings) '()))))
+                           (delete-bindings
+                            (('dependencies) ('constraint-bindings)
+                             ('constraint-triple) ('constraint-where))
+                           new-bindings))))))))))
+     (,pair? . ,rw/remove)))
 
-(define (delete-realm-call _)
-  (let* ((req-headers (request-headers (current-request)))
-         (body (read-request-json))
-         (realm (or (read-uri (alist-ref 'graph-realm body))
-                    (get-realm (alist-ref 'graph-realm-id body))))
-         (graph (read-uri (alist-ref 'graph body))))
-    (log-message "~%Deleting graph-realm for ~A or ~A  ~%"
-                 realm graph)
-    (hash-table-delete! *cache* '(graphs #f))
-    (delete-realm realm graph)))
+(define constraint-rules
+  `((,symbol? . ,rw/copy)
+    ((CONSTRUCT) . ,rw/remove)
+    ((WHERE)
+     . ,(lambda (block bindings)
+          (rewrite (cdr block)
+                   (update-binding
+                    'dependencies (get-dependencies (list block) bindings) bindings))))
+    ((GRAPH) 
+     . ,(lambda (block bindings)
+          (match block
+            ((`GRAPH graph . rest)
+             (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+               (values
+                `((GRAPH
+                   ,(if (sparql-variable? graph)
+                        (or (alist-ref graph (or (get-binding 'constraint-bindings new-bindings) '()))
+                            (alist-ref graph (or (get-binding (alist-ref graph (get-binding 'dependencies new-bindings)) 
+                                                              new-bindings) '())))
+                        graph)
+                   ,@(cdr rw)))
+                new-bindings))))))
+    (,triple? . ,(lambda (triple bindings)
+                   (let ((graph
+                          (if (equal? triple (get-binding 'constraint-triple bindings))
+                              (match (context-head
+                                      ((parent-axis (lambda (context) (equal? (car (context-head context)) 'GRAPH)))
+                                       (*context*)))
+                                ((`GRAPH graph . rest) graph)
+                                (else #f))
+                              #f)))
+                   (match triple
+                     ((s p o)
+                      (let* ((sv (and (not (sparql-variable? s)) s))
+                             (pv (and (not (sparql-variable? p)) p))
+                             (ov (and (not (sparql-variable? o)) o))
+                             (graphv (and graph (not (sparql-variable? graph)) graph))
+                             (constraint-bindings (get-binding 'constraint-bindings bindings))
+                             (name (lambda (x) (alist-ref x constraint-bindings)))
+                             (dependencies (get-binding 'dependencies bindings))
+                             (dep (lambda (x) (alist-ref x dependencies))))
+                      (let ((s* (and (not sv) (name s)))
+                            (p* (and (not pv) (name p)))
+                            (o* (and (not ov) (name o)))
+                            (graph* (and graph (not graphv) (name graph))))
+                        (let* ((keys (lambda (x) (map name (or (dep x) '()))))
+                               (lookup (lambda (x)
+                                         (alist-ref x (or (get-binding* (keys x) (dep x) bindings) '())))))
+                          (let ((s** (and (not sv) (or s* (lookup s))))
+                                (p**  (and (not pv) (or p* (lookup p))))
+                                (o**  (and (not ov) (or o* (lookup o))))
+                                (graph** (and graph (not graphv) (or graph* (lookup graph))))) ;; ** do this
+                            (let ((s*** (or s** (gensym s)))
+                                  (p*** (or p** (gensym p)))
+                                  (o*** (or o** (gensym o)))
+                                  (graph*** (and graph (or graph** (gensym graph)))))
+                              (values `((,(or sv s***) ,(or pv p***) ,(or ov o***)))
+                                      (update-binding
+                                       'constraint-bindings
+                                       (append
+                                        (filter values
+                                                (map (match-lambda
+                                                       ((x xv x* x** x***) 
+                                                        (and (not xv) (not x*) (not x**)
+                                                             `(,x . ,x*** ))))
+                                                     `((,s ,sv ,s* ,s** ,s***)
+                                                       (,p ,pv ,p* ,p** ,p***)
+                                                       (,o ,ov ,o* ,o** ,o***)
+                                                       (,graph ,graphv ,graph* ,graph** ,graph***))))
+                                        (get-binding 'constraint-bindings bindings))
+                                       (update-bindings*
+                                        (append
+                                         (filter values
+                                                 (map (match-lambda
+                                                        ((x xv x** x***) 
+                                                         (and (not xv) (not x**) x*** 
+                                                              `(,(keys x) ,(dep x)
+                                                                ,(alist-update
+                                                                  x x*** (or (get-binding* (keys x) (dep x) bindings) '()))))))
+                                                      `((,s ,sv ,s** ,s***)
+                                                        (,p ,pv ,p** ,p***)
+                                                        (,o ,ov ,o** ,o***)
+                                                        (,graph ,graphv ,graph** ,graph***)))))
+                                        (if graph
+                                            (update-binding* (map name (get-binding 'constraint-triple bindings)) 'graph graph*** bindings)
+                                            bindings))))))))))))))
+    (,pair? . ,rw/continue)))
 
-(define-rest-call 'PATCH '("session" "realm" realm-id) change-session-realm-call)
+(define (get-dependencies query bindings)
+  (rewrite query bindings dependency-rules))
 
-(define-rest-call 'DELETE '("session" "realm") delete-session-realm-call)
+(define dependency-rules
+  `((,triple? 
+     . ,(lambda (triple bindings)
+         (let* ((dependencies (or (get-binding 'dependencies bindings) '()))
+                (constraint-bindings (get-binding 'constraint-bindings bindings))
+                (bound? (lambda (x) (alist-ref x constraint-bindings)))
+                (vars (filter sparql-variable? triple)))
+           (let-values (((bound unbound) (partition bound? vars)))
+             (values
+              (list triple)
+              (update-binding
+               'dependencies
+              (fold
+               (lambda (v deps)
+                 (alist-update v
+                               (delete-duplicates
+                                (append (delete v vars) (or (alist-ref v deps) '())))
+                               deps))
+               dependencies
+               unbound)
+              bindings))))))
+     ((GRAPH) . ,(lambda (block bindings)
+                   (match block
+                     ((`GRAPH graph . rest)
+                      (rewrite rest bindings)))))
+    ((WHERE)
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+            (let* ((deps (get-binding 'dependencies new-bindings))
+                   (constraint-bindings (get-binding 'constraint-bindings bindings))
+                   (bs (map car constraint-bindings))
+                   (bound? (lambda (x) (alist-ref x constraint-bindings))))
+              (print "deps ")(print deps)
+              (values
+               (map (match-lambda 
+                      ((v . ds)
+                       (letrec ((all-deps (lambda (ds deps)
+                                            (let-values (((bound unbound) (partition bound? ds)))
+                                              ;;(print v ": " ds " == " bound " + " unbound " from " deps)
+                                              (if (null? unbound) bound
+                                                  (all-deps (delete-duplicates
+                                                             (append bound 
+                                                                     (delete v
+                                                                             (join (map (lambda (u) (or (alist-ref u deps) '())) 
+                                                                                        unbound)))))
+                                                            (remove (lambda (x) (member (car x) unbound)) deps)))))))
+                         (cons v (delete-duplicates
+                                  (filter values (map (lambda (b) (and (member b (all-deps ds deps)) b)) bs)))))))
+                    deps)
+              bindings)))))
+    (,pair? . ,rw/continue)))
 
-(define-rest-call 'POST '("realm") add-realm-call)
-(define-rest-call 'POST '("realm" realm-id) add-realm-call)
-
-(define-rest-call 'DELETE '("realm") delete-realm-call)
-(define-rest-call 'DELETE '("realm" realm-id) delete-realm-call)
 
 
 ;; (use slime)

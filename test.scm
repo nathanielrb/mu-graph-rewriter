@@ -1,7 +1,8 @@
 ;; (use s-sparql s-sparql-parser mu-chicken-support matchable)
 
 (load "app.scm")
-(load "plugins/realms-plugin.scm")
+(load "constraints.scm")
+(load "plugins/realms2.scm")
 
 (access-log "access.log")
 (debug-log "debug.log")
@@ -16,9 +17,9 @@
 (*sparql-endpoint* "http://localhost:8890/sparql")
 
 (*subscribers-file* "../config/rewriter/subscribers.json")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
-
 (use spiffy)
 
 (define-namespace skos "http://www.w3.org/2004/02/skos/core#")
@@ -983,3 +984,10 @@ ORDER BY ?child1 ?child2 ?child3 ?child4 ?child5
                FILTER ( ?date >= \"2016-07-18\"^^xsd:dateTime)
                ?obs eurostat:training ?training.
            }"))
+
+
+(define c1 (parse-query "
+SELECT ?s WHERE { ?a ?b ?c. ?d ?e ?f } "))
+
+(define c2 (parse-query "
+SELECT (COUNT(?a) AS ?count) WHERE { ?a ?b ?c } "))
