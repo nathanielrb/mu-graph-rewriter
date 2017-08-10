@@ -1,3 +1,5 @@
+(define-namespace rewriter "http://mu.semte.ch/graphs/")
+
 (define *realm-id-graph*
   (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
 
@@ -33,33 +35,33 @@
 
 (define (get-type x) #f)
 
-(define (get-realm realm-id) #f)
-  ;; (and realm-id
-  ;;      (query-unique-with-vars
-  ;;       (realm)
-  ;;       (s-select '?realm (write-triples `((?realm mu:uuid ,realm-id)))
-  ;;                 from-graph: (*realm-id-graph*))
-  ;;       realm)))
+(define (get-realm realm-id) 
+  (and realm-id
+       (query-unique-with-vars
+        (realm)
+        (s-select '?realm (write-triples `((?realm mu:uuid ,realm-id)))
+                  from-graph: (*realm-id-graph*))
+        realm)))
 
-(define (all-graphs realm) '())
-  ;; (hit-hashed-cache
-  ;;  *cache* (list 'graphs realm)
-  ;;  (query-with-vars 
-  ;;   (graph)
-  ;;   (s-select 
-  ;;    '?graph
-  ;;    (write-triples
-  ;;     `((GRAPH
-  ;;        ,(*default-graph*)
-  ;;        (?graph a rewriter:Graph)
-  ;;        ,@(splice-when
-  ;;           (and realm
-  ;;                `((UNION ((?rule rewriter:graphType ?type)
-  ;;                          (?graph rewriter:type ?type)
-  ;;                          (?graph rewriter:realm ,realm))
-  ;;                         ((?rule rewriter:graph ?graph)))))))))
-  ;;    from-graph: #f)
-  ;;   graph)))
+(define (all-graphs realm)
+  (hit-hashed-cache
+   *cache* (list 'graphs realm)
+   (query-with-vars 
+    (graph)
+    (s-select 
+     '?graph
+     (write-triples
+      `((GRAPH
+         ,(*default-graph*)
+         (?graph a rewriter:Graph)
+         ,@(splice-when
+            (and realm
+                 `((UNION ((?rule rewriter:graphType ?type)
+                           (?graph rewriter:type ?type)
+                           (?graph rewriter:realm ,realm))
+                          ((?rule rewriter:graph ?graph)))))))))
+     from-graph: #f)
+    graph)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
