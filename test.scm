@@ -1062,5 +1062,11 @@ INSERT {
 }
 }"))
 
-(define c1 (parse-query "
+(define c6 (parse-query "
 SELECT ?a WHERE { ?a ?b ?c. ?a ?b ?d } "))
+
+(define c7 (parse-query "
+SELECT ?a WHERE { ?a ?b ?c. ?a ?e ?d } "))
+
+(define c5 (parse-query "
+SELECT ?a WHERE { GRAPH <temp> { ?a ?b ?c. ?a ?b ?d } }"))
