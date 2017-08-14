@@ -1,15 +1,15 @@
 ;; (use s-sparql s-sparql-parser mu-chicken-support matchable)
 
 (load "app.scm")
-;;(load "constraints.scm")
-(load "plugins/realms-plugin.scm")
+;; (load "constraints.scm")
+;; (*plugin* "plugins/realms-plugin.scm")
 
 (access-log "access.log")
 (debug-log "debug.log")
 
 (*default-graph* '<http://data.europa.eu/eurostat/graphs>)
 
-(*realm-id-graph* '<http://data.europa.eu/eurostat/uuid>)
+;; (*realm-id-graph* '<http://data.europa.eu/eurostat/uuid>)
 
 (vhost-map `((".*" . ,handle-app)))
 
@@ -17,6 +17,8 @@
 (*sparql-endpoint* "http://localhost:8890/sparql")
 
 (*subscribers-file* "../config/rewriter/subscribers.json")
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
@@ -1070,3 +1072,6 @@ SELECT ?a WHERE { ?a ?b ?c. ?a ?e ?d } "))
 
 (define c5 (parse-query "
 SELECT ?a WHERE { GRAPH <temp> { ?a ?b ?c. ?a ?b ?d } }"))
+
+(define c0 (parse-query "
+SELECT ?s WHERE { ?s ?p ?o }"))

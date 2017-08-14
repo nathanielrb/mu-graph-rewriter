@@ -7,6 +7,57 @@
 
 (define *realm* (make-parameter #f))
 
+
+
+(*constraint*
+ `((@Unit
+    ((@Query
+      (CONSTRUCT (?s ?p ?o))
+      (WHERE
+       ((|SELECT DISTINCT| ?graph ?allGraphs)
+       (WHERE
+         (GRAPH <http://data.europa.eu/eurostat/graphs>
+                (?rule a rewriter:GraphRule)
+                (?graph a rewriter:Graph)
+                (?rule rewriter:graph ?graph)
+                (?rule rewriter:predicate ?p)
+                (?rule rewriter:subjectType ?type)
+                (?allGraphs a rewriter:Graph))  ))
+       (GRAPH ?allGraphs (?s a ?type))  
+       (GRAPH ?graph (?s ?p ?o))))))))
+
+;; (*constraint*
+;;   `((@Unit
+;;      ((@Query
+;;        (CONSTRUCT (?s ?p ?o) (?x ?y ?z))
+;;        (WHERE
+;;         (GRAPH <http://data.europa.eu/eurostat/graphs>
+;;                (?rule a rewriter:GraphRule)
+;;                (?graph a rewriter:Graph)
+;;                (?rule rewriter:graph ?graph)
+;;                (?rule rewriter:predicate ?p)
+;;                (?rule rewriter:subjectType ?type)
+;;                (?allGraphs a rewriter:Graph))
+;;         (GRAPH ?allGraphs
+;;                (?s a ?type)
+;;                (?x a rewriter:Graph))
+;;         (GRAPH ?graph (?s ?p ?o))))))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 (define (replace-dataset realm label #!optional named? (extra-graphs '()))
   (dataset label (append (all-graphs realm) extra-graphs) named?))
 
