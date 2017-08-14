@@ -22,6 +22,7 @@
                 (?rule rewriter:graph ?graph)
                 (?rule rewriter:predicate ?p)
                 (?rule rewriter:subjectType ?type)
+;;                (?o rewriter:likes ?graph)
                 (?allGraphs a rewriter:Graph))  ))
        (GRAPH ?allGraphs (?s a ?type))  
        (GRAPH ?graph (?s ?p ?o))))))))
@@ -42,18 +43,6 @@
 ;;                (?s a ?type)
 ;;                (?x a rewriter:Graph))
 ;;         (GRAPH ?graph (?s ?p ?o))))))))
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

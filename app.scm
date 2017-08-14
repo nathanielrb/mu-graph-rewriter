@@ -18,19 +18,6 @@
 (define *plugin*
   (config-param "PLUGIN_PATH" #f))
 
-(define (dataset label graphs #!optional named?)
-  (let ((label-named (symbol-append label '| NAMED|)))
-    `((,label ,(*default-graph*))
-      ,@(map (lambda (graph) 
-               `(,label ,graph))
-             graphs)
-      ,@(splice-when
-         (and named?
-              `((,label-named ,(*default-graph*))
-                ,@(map (lambda (graph) 
-                         `(,label-named ,graph))
-                       graphs)))))))
-
 (define *constraint*
   (make-parameter
    `((@Unit
@@ -149,8 +136,7 @@
                    (constraints (or (get-binding* '() 'constraints new-bindings) '())))
                (values `((@Update . ,(alist-update
                                       'WHERE
-                                      `((SELECT *)
-                                        (WHERE ,@constraints ,@where-block))
+                                      `((SELECT *) (WHERE ,@constraints ,@where-block))
                                       (reverse rw))))
                        new-bindings)))))
      ((@Dataset) . ,rw/remove)
@@ -172,6 +158,53 @@
 
  ;; nested for backward compatibility
 (default-rules (lambda () (rules)))
+
+(define (dataset label graphs #!optional named?)
+  (let ((label-named (symbol-append label '| NAMED|)))
+    `((,label ,(*default-graph*))
+      ,@(map (lambda (graph) 
+               `(,label ,graph))
+             graphs)
+      ,@(splice-when
+         (and named?
+              `((,label-named ,(*default-graph*))
+                ,@(map (lambda (graph) 
+                         `(,label-named ,graph))
+                       graphs)))))))
+
+;; (define (all-graphs realm)
+;;   (hit-hashed-cache
+;;    *cache* (list 'graphs realm)
+;;    (query-with-vars 
+;;     (graph)
+;;     (s-select 
+;;      '?graph
+;;      (write-triples
+;;       `((GRAPH
+;;          ,(*default-graph*)
+;;          (?graph a rewriter:Graph)
+;;          ,@(splice-when
+;;             (and realm
+;;                  `((UNION ((?rule rewriter:graphType ?type)
+;;                            (?graph rewriter:type ?type)
+;;                            (?graph rewriter:realm ,realm))
+;;                           ((?rule rewriter:graph ?graph)))))))))
+;;      from-graph: #f)
+;;     graph)))
+
+;; (select-query-rules
+;;  `((,triple? . ,rw/copy)
+;;    ((GRAPH)
+;;     . ,(lambda (block bindings)
+;;          (values (cddr block) bindings)))
+;;    ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+;;    ((@Dataset) 
+;;     . ,(lambda (block bindings)
+;;          (let ((realm (query-graph-realm)))
+;;            (values (list (replace-dataset realm 'FROM #f)) bindings))))
+;;    (,select? . ,rw/copy)
+;;    (,subselect? . ,rw/copy)
+;;    (,pair? . ,rw/continue)))
 
 (define *in-where?* (make-parameter #f))
 
@@ -317,8 +350,6 @@
                         (rewrite (cdr block)
                                  (update-binding
                                   'dependencies (get-dependencies (list block) bindings) bindings))))
-            (print "got dependencies " )
-            (print (get-dependencies (list block) bindings))
             (values `((WHERE ,@rw)) (delete-binding 'dependencies new-bindings)))))
     ((GRAPH) 
      . ,(lambda (block bindings)
@@ -335,20 +366,22 @@
 (define (get-dependencies query bindings)
   (rewrite query bindings dependency-rules))
 
-(define (minimal-dependencies bound? dependencies)
-  (let-values (((bound unbound) (partition (compose bound? car) dependencies)))
+(define (minimal-dependencies source? sink? dependencies)
+  (let-values (((sources nodes) (partition (compose source? car) dependencies)))
     (let loop ((paths (join (map (lambda (b)
                              (match b ((head . rest) (map (lambda (r) (list r head)) rest))))
-                           bound)))
+                           sources)))
                (finished-paths '()))
       (if (null? paths) finished-paths
           (let* ((path (car paths))
                  (head (car path))
                  (neighbors (remove (lambda (n) (member n path)) ;; remove loops
-                                     (delete head (or  (alist-ref head unbound) '())))))
-            (if (null? neighbors) (loop (cdr paths) (cons path finished-paths))
+                                     (delete head (or (alist-ref head nodes) '())))))
+            (if (or (sink? head)
+                    (null? neighbors))
+                (loop (cdr paths) (cons path finished-paths))
                 (loop (append (cdr paths) 
-                              (filter values (map (lambda (n) (and (not (bound? n)) (cons n path)))
+                              (filter values (map (lambda (n) (and (not (source? n)) (cons n path)))
                                                   neighbors)))
                       finished-paths)))))))
                                   
@@ -388,7 +421,10 @@
      ((GRAPH) . ,(lambda (block bindings)
                    (match block
                      ((`GRAPH graph . rest)
-                      (rewrite rest bindings)))))
+                      (rewrite rest 
+                               (update-binding 'constraint-graphs
+                                               (cons graph (get-binding/default 'constraint-graphs bindings '()))
+                                               bindings))))))
      (,subselect? 
       . ,(lambda (block bindings)
            (match block
@@ -400,9 +436,10 @@
             (let* ((deps (get-binding 'dependencies new-bindings))
                    (constraint-renamings (get-binding 'constraint-renamings bindings))
                    (bs (map car constraint-renamings))
-                   (bound? (lambda (x) (alist-ref x constraint-renamings))))
+                   (source? (lambda (x) (alist-ref x constraint-renamings)))
+                   (sink? (lambda (x) (member x (get-binding/default 'constraint-graphs new-bindings '())))))
               (values
-               (concat-dependencies (minimal-dependencies bound? deps))
+               (concat-dependencies (minimal-dependencies source? sink? deps))
                bindings)))))
     (,pair? . ,rw/continue)))
 
