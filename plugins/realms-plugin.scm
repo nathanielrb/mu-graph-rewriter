@@ -47,61 +47,61 @@
 
 
 
-(define (replace-dataset realm label #!optional named? (extra-graphs '()))
-  (dataset label (append (all-graphs realm) extra-graphs) named?))
+;; (define (replace-dataset realm label #!optional named? (extra-graphs '()))
+;;   (dataset label (append (all-graphs realm) extra-graphs) named?))
 
-(select-query-rules
- `((,triple? . ,rw/copy)
-   ((GRAPH)
-    . ,(lambda (block bindings)
-         (values (cddr block) bindings)))
-   ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
-   ((@Dataset) 
-    . ,(lambda (block bindings)
-         (let ((realm (query-graph-realm)))
-           (values (list (replace-dataset realm 'FROM #f)) bindings))))
-   (,select? . ,rw/copy)
-   (,subselect? . ,rw/copy)
-   (,pair? . ,rw/continue)))
+;; ;; (select-query-rules
+;; ;;  `((,triple? . ,rw/copy)
+;; ;;    ((GRAPH)
+;; ;;     . ,(lambda (block bindings)
+;; ;;          (values (cddr block) bindings)))
+;; ;;    ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+;; ;;    ((@Dataset) 
+;; ;;     . ,(lambda (block bindings)
+;; ;;          (let ((realm (query-graph-realm)))
+;; ;;            (values (list (replace-dataset realm 'FROM #f)) bindings))))
+;; ;;    (,select? . ,rw/copy)
+;; ;;    (,subselect? . ,rw/copy)
+;; ;;    (,pair? . ,rw/continue)))
 
-(define (query-graph-realm)
-  (or (*realm*) ;; for testing
-      (header 'mu-graph-realm)
-      (get-realm (header 'mu-graph-realm-id))
-      (get-realm (($query) 'graph-realm-id))
-      (($query) 'graph-realm)
-      (($body) 'graph-realm)
-      (get-realm (hash-table-ref/default *session-realm-ids* (header 'mu-session-id) #f))))
+;; (define (query-graph-realm)
+;;   (or (*realm*) ;; for testing
+;;       (header 'mu-graph-realm)
+;;       (get-realm (header 'mu-graph-realm-id))
+;;       (get-realm (($query) 'graph-realm-id))
+;;       (($query) 'graph-realm)
+;;       (($body) 'graph-realm)
+;;       (get-realm (hash-table-ref/default *session-realm-ids* (header 'mu-session-id) #f))))
 
-(define (get-type x) #f)
+;; (define (get-type x) #f)
 
-(define (get-realm realm-id) 
-  (and realm-id
-       (query-unique-with-vars
-        (realm)
-        (s-select '?realm (write-triples `((?realm mu:uuid ,realm-id)))
-                  from-graph: (*realm-id-graph*))
-        realm)))
+;; (define (get-realm realm-id) 
+;;   (and realm-id
+;;        (query-unique-with-vars
+;;         (realm)
+;;         (s-select '?realm (write-triples `((?realm mu:uuid ,realm-id)))
+;;                   from-graph: (*realm-id-graph*))
+;;         realm)))
 
-(define (all-graphs realm)
-  (hit-hashed-cache
-   *cache* (list 'graphs realm)
-   (query-with-vars 
-    (graph)
-    (s-select 
-     '?graph
-     (write-triples
-      `((GRAPH
-         ,(*default-graph*)
-         (?graph a rewriter:Graph)
-         ,@(splice-when
-            (and realm
-                 `((UNION ((?rule rewriter:graphType ?type)
-                           (?graph rewriter:type ?type)
-                           (?graph rewriter:realm ,realm))
-                          ((?rule rewriter:graph ?graph)))))))))
-     from-graph: #f)
-    graph)))
+;; (define (all-graphs realm)
+;;   (hit-hashed-cache
+;;    *cache* (list 'graphs realm)
+;;    (query-with-vars 
+;;     (graph)
+;;     (s-select 
+;;      '?graph
+;;      (write-triples
+;;       `((GRAPH
+;;          ,(*default-graph*)
+;;          (?graph a rewriter:Graph)
+;;          ,@(splice-when
+;;             (and realm
+;;                  `((UNION ((?rule rewriter:graphType ?type)
+;;                            (?graph rewriter:type ?type)
+;;                            (?graph rewriter:realm ,realm))
+;;                           ((?rule rewriter:graph ?graph)))))))))
+;;      from-graph: #f)
+;;     graph)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
