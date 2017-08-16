@@ -1,7 +1,8 @@
 (use s-sparql s-sparql-parser
      mu-chicken-support
      matchable intarweb spiffy spiffy-request-vars
-     uri-common intarweb medea irregex srfi-13 http-client cjson)
+     uri-common intarweb medea irregex srfi-13 http-client cjson
+     memoize)
 
 (require-extension sort-combinators)
 
@@ -74,10 +75,7 @@
       (if rewrite-graph-statements?
           (values rw new-bindings)
           (values (list block) 
-                  (update-binding*
-                   '() 'named-graphs 
-                   (cons (second block) (get-binding/default* '() 'named-graphs b '()))
-                   new-bindings))))))
+                  (cons-binding (second-block) 'named-graphs new-bindings))))))
 
 (define (extract-all-variables where-clause)
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
@@ -133,7 +131,8 @@
       . ,(lambda (block bindings)
            (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
              (let ((where-block (alist-ref 'WHERE rw))
-                   (constraints (or (get-binding* '() 'constraints new-bindings) '())))
+                   (constraints (delete-duplicates ; ** only works on top level; should be generalized **
+                                 (get-binding/default* '() 'constraints new-bindings '()))))
                (values `((@Update . ,(alist-update
                                       'WHERE
                                       `((SELECT *) (WHERE ,@constraints ,@where-block))
@@ -159,6 +158,64 @@
  ;; nested for backward compatibility
 (default-rules (lambda () (rules)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Query for graphs
+(define (get-all-graphs #!optional (query (*constraint*)))
+  (hit-hashed-cache
+   *cache* query
+   (let-values (((query bindings) (rewrite query '() extract-graphs-rules)))
+     (let ((query-string (write-sparql query)))
+       (let-values (((vars iris)  (partition sparql-variable? (get-binding 'graphs bindings))))
+         (delete-duplicates
+          (append iris
+                  (map cdr (join (sparql-select query-string from-graph: #f))))))))))
+
+(define rw/value
+  (lambda (block bindings)
+    (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+      (values rw new-bindings))))
+
+(define extract-graphs-rules
+  `(((GRAPH) . ,(lambda (block bindings)
+                  (match block
+                    ((`GRAPH graph . quads)
+                     (let-values (((rw new-bindings) 
+                                   (rewrite quads
+                                            (cons-binding graph 'graphs  bindings))))
+                       (values `((GRAPH ,graph ,@rw)) new-bindings))))))
+    ((@Query @Update) 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+            (values `((@Query
+                       (|SELECT DISTINCT| ,@(delete-duplicates
+                                             (filter sparql-variable?
+                                                     (get-binding 'graphs new-bindings))))
+                       ,@rw))
+                    new-bindings))))
+    (,subselect? . ,(lambda (block bindings)
+                      (match block
+                        ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
+                         (print "IN SELECT" vars)
+                         (let-values (((rw new-bindings) (rewrite quads bindings)))
+                           (values
+                            `((,(car block) (WHERE ,@rw) ,@rest))
+                            new-bindings))))))
+    (,where-subselect?
+       . ,(lambda (block bindings)
+            (match block
+              ((`WHERE select-clause (`WHERE . quads))
+               (let-values (((rw new-bindings) (rewrite quads bindings)))
+                 (values `((WHERE ,select-clause (WHERE ,@rw)))
+                         new-bindings ))))))
+    (,triple? . ,rw/copy)
+    (,symbol? . ,rw/copy)
+    ((CONSTRUCT SELECT INSERT DELETE) . ,rw/remove)
+    ((@Unit WHERE) . ,rw/continue)
+    ((@Prologue) . ,rw/copy)
+    (,pair? . ,(lambda (block bindings)
+               (with-rewrite ((rw (rewrite block bindings)))
+                 (list rw))))))
+
 (define (dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
     `((,label ,(*default-graph*))
@@ -171,56 +228,6 @@
                 ,@(map (lambda (graph) 
                          `(,label-named ,graph))
                        graphs)))))))
-
-(define rw/value
-  (lambda (block bindings)
-    (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-      (values rw new-bindings))))
-
-(define extract-graphs-rules
-  `(((GRAPH) . ,(lambda (block bindings)
-                  (match block
-                    ((`GRAPH graph . quads)
-                     (print "graph " graph)
-                     (let-values (((rw new-bindings) (rewrite quads (update-binding
-                                                                     'graphs
-                                                                     (cons graph (get-binding/default 'graphs bindings '()))
-                                                                     bindings))))
-                       (values `((GRAPH ,graph ,@rw)) new-bindings))))))
-                       
-                     ;;(let-values (((graphs _) (rewrite quads)))
-                     ;;  (values (cons graph graphs) '()))))))
-    (,triple? . ,rw/copy)
-    (,symbol? . ,rw/copy)
-    ((CONSTRUCT) . ,rw/remove)
-    ((@Unit WHERE) . ,rw/continue)
-    ((@Query) 
-     . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-            (values `((@Query
-                       (|SELECT DISTINCT| ,@(filter sparql-variable? (get-binding 'graphs new-bindings)))
-                       ,@rw))
-                    new-bindings))))
-    (,subselect? . ,(lambda (block bindings)
-                      (match block
-                        ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
-                         (let-values (((rw new-bindings) (rewrite quads bindings)))
-                           (values
-                            `((,(car block) (WHERE ,@rw) ,@rest))
-                            new-bindings))))))
-    (,pair? . ,(lambda (block bindings)
-               (with-rewrite ((rw (rewrite block bindings)))
-                 (list rw))))))
-
-(define (get-all-graphs)
-  (hit-hashed-cache
-   *cache* (*constraint*)
-   (let-values (((query bindings) (rewrite (*constraint*) '() extract-graphs-rules)))
-     (let ((query-string (write-sparql query)))
-       (let-values (((vars iris)  (partition sparql-variable? (get-binding 'graphs bindings))))
-         (delete-duplicates
-          (append iris
-                  (map cdr (join (sparql-select query-string from-graph: #f))))))))))
 
 (select-query-rules
  `((,triple? . ,rw/copy)
@@ -255,6 +262,8 @@
     (,select? . ,rw/copy)
     (,subselect? . ,rw/copy)))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Apply constraints
 (define (%rewrite-constraint-rules triple)
   (match triple
     ((a b c)
@@ -374,7 +383,9 @@
           (let-values (((rw new-bindings)
                         (rewrite (cdr block)
                                  (update-binding
-                                  'dependencies (get-dependencies (list block) bindings) bindings))))
+                                  'dependencies
+                                  (get-dependencies (list block) (map car (get-binding 'constraint-renamings bindings)))
+                                  bindings))))
             (values `((WHERE ,@rw)) (delete-binding 'dependencies new-bindings)))))
     ((GRAPH) 
      . ,(lambda (block bindings)
@@ -388,8 +399,12 @@
     (,triple? . ,unify-constraint-triple)
     (,pair? . ,rw/continue)))
 
-(define (get-dependencies query bindings)
-  (rewrite query bindings dependency-rules))
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Constraint variable dependencies
+(define (get-dependencies* query renamings)
+  (rewrite query '() (dependency-rules renamings)))
+
+(define get-dependencies (memoize get-dependencies*))
 
 (define (minimal-dependencies source? sink? dependencies)
   (let-values (((sources nodes) (partition (compose source? car) dependencies)))
@@ -406,14 +421,18 @@
                     (null? neighbors))
                 (loop (cdr paths) (cons path finished-paths))
                 (loop (append (cdr paths) 
-                              (filter values (map (lambda (n) (and (not (source? n)) (cons n path)))
-                                                  neighbors)))
+                              (filter values
+                                      (map (lambda (n) 
+                                             (and (not (source? n)) (cons n path)))
+                                           neighbors)))
                       finished-paths)))))))
                                   
 (define (concat-dependencies paths)
   (let loop ((paths paths) (dependencies '()))
-    (if (null? paths) (map (lambda (pair) (cons (car pair) (delete-duplicates (cdr pair))))
-                           dependencies)
+    (if (null? paths)
+        (map (lambda (pair) 
+               (cons (car pair) (delete-duplicates (cdr pair))))
+             dependencies)
         (match (reverse (car paths))
           ((head . rest)
            (loop (cdr paths)
@@ -422,34 +441,30 @@
                        dependencies
                        rest)))))))
 
-(define dependency-rules
+(define (dependency-rules bound-vars)
   `((,triple? 
      . ,(lambda (triple bindings)
          (let* ((dependencies (or (get-binding 'dependencies bindings) '()))
-                (constraint-renamings (get-binding 'constraint-renamings bindings))
-                (bound? (lambda (x) (alist-ref x constraint-renamings)))
+                (bound? (lambda (var) (member var bound-vars)))
                 (vars (filter sparql-variable? triple)))
            (let-values (((bound unbound) (partition bound? vars)))
              (values
               (list triple)
               (update-binding
                'dependencies
-               (fold
-                (lambda (v deps)
-                 (alist-update v
-                               (delete-duplicates
-                                (append (delete v vars) (or (alist-ref v deps) '())))
-                               deps))
-               dependencies
-               vars)
-              bindings))))))
+               (fold (lambda (var deps)
+                       (alist-update 
+                        var (delete-duplicates
+                             (append (delete var vars)
+                                     (or (alist-ref var deps) '())))
+                        deps))
+                     dependencies vars)
+               bindings))))))
      ((GRAPH) . ,(lambda (block bindings)
                    (match block
                      ((`GRAPH graph . rest)
                       (rewrite rest 
-                               (update-binding 'constraint-graphs
-                                               (cons graph (get-binding/default 'constraint-graphs bindings '()))
-                                               bindings))))))
+                               (cons-binding graph 'constraint-graphs bindings))))))
      (,subselect? 
       . ,(lambda (block bindings)
            (match block
@@ -459,9 +474,7 @@
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
             (let* ((deps (get-binding 'dependencies new-bindings))
-                   (constraint-renamings (get-binding 'constraint-renamings bindings))
-                   (bs (map car constraint-renamings))
-                   (source? (lambda (x) (alist-ref x constraint-renamings)))
+                   (source? (lambda (var) (member var bound-vars)))
                    (sink? (lambda (x) (member x (get-binding/default 'constraint-graphs new-bindings '())))))
               (values
                (concat-dependencies (minimal-dependencies source? sink? deps))
@@ -681,7 +694,7 @@
 
 (when (*plugin*) (load (*plugin*)))
 
-(print "Using constraint:\n" (*constraint*))
+(format #t "==Rewriter Constraint==~%~A" (write-sparql (*constraint*)))
 
 (define constrain-triple
   (let ((constraint (*constraint*)))
@@ -689,12 +702,12 @@
            (lambda (triple bindings)
              (rewrite constraint bindings (%rewrite-constraint-rules triple))))
            ((string? constraint)
-           (let ((constraint (parse-query constraint)))
-             (lambda (triple bindings)
-               (rewrite constraint bindings (%rewrite-constraint-rules triple)))))
-          ((procedure? constraint)
-           (lambda (triple bindings)
-             (rewrite (constraint) bindings (%rewrite-constraint-rules triple)))))))
+            (let ((constraint (parse-query constraint)))
+              (lambda (triple bindings)
+                (rewrite constraint bindings (%rewrite-constraint-rules triple)))))
+           ((procedure? constraint)
+            (lambda (triple bindings)
+              (rewrite (constraint) bindings (%rewrite-constraint-rules triple)))))))
 
 (*port* 8890)
 

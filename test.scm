@@ -989,7 +989,7 @@ ORDER BY ?child1 ?child2 ?child3 ?child4 ?child5
 
 
 (define c1 (parse-query "
-SELECT ?s WHERE { ?a ?b ?c. ?d ?e ?f } "))
+SELECT ?a WHERE { ?a ?b ?c. ?d ?e ?f } "))
 
 (define c2 (parse-query "
 SELECT (COUNT(?a) AS ?count) WHERE { ?a ?b ?c } "))
