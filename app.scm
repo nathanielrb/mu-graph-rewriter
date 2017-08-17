@@ -215,6 +215,7 @@
                                                      (get-binding 'graphs new-bindings))))
                        ,@rw))
                     new-bindings))))
+    (,select? . ,rw/remove)
     (,subselect? . ,(lambda (block bindings)
                       (match block
                         ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
