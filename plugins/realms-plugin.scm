@@ -14,7 +14,7 @@
     ((@Query
       (CONSTRUCT (?s ?p ?o))
       (WHERE
-       ((|SELECT DISTINCT| ?graph ?allGraphs)
+       ((|SELECT DISTINCT| ?graph ?allGraphs ?type)
        (WHERE
          (GRAPH <http://data.europa.eu/eurostat/graphs>
                 (?rule a rewriter:GraphRule)
@@ -24,7 +24,7 @@
                 (?rule rewriter:subjectType ?type)
 ;;                (?o rewriter:likes ?graph)
                 (?allGraphs a rewriter:Graph))  ))
-       (GRAPH ?allGraphs (?s a ?type))  
+       (GRAPH ?allGraphs (?s rdf:type ?type))  
        (GRAPH ?graph (?s ?p ?o))))))))
 
 ;; (*constraint*
