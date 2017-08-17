@@ -49,16 +49,21 @@
       (*rewrite-select-queries?*)))
 
 (define (rewrite-quads-block block bindings)
+  (when (equal? (car block) 'OPTIONAL) (print "quads " (car block)))
   (let ((rewrite-graph-statements? (not (preserve-graphs?))))
     ;; expand triples
-    (let-values (((q1 b1) (rewrite (cdr block) bindings (%expand-triples-rules rewrite-graph-statements?))))
+    (let-values (((q1 b1) (rewrite (cdr block) bindings (expand-triples-rules rewrite-graph-statements?))))
+      (when (equal? (car block) 'OPTIONAL) (print q1))
       ;; rewrite-triples
       (let-values (((q2 b2) (rewrite q1 b1 triples-rules)))
+        (when (equal? (car block) 'OPTIONAL) (print q2))
+        (when (equal? (car block) 'OPTIONAL) (print (get-binding 'constraints b2)))
         ;; continue in nested quad blocks
         (let-values (((q3 b3) (rewrite q2 b2)))
+      (when (equal? (car block) 'OPTIONAL) (print q3))
           (values `((,(rewrite-block-name (car block)) ,@q3)) b3))))))
 
-(define (%expand-triples-rules rewrite-graph-statements? #!optional replace-a?)
+(define (expand-triples-rules rewrite-graph-statements? #!optional replace-a?)
   `((,symbol? . ,rw/copy)
     (,triple? . ,(expand-triple-rule replace-a?))
     ((GRAPH) . ,(flatten-graph-rule rewrite-graph-statements?))
@@ -128,10 +133,11 @@
            (let ((rewrite-select-queries? (rewrite-select?)))
              (if rewrite-select-queries?
                  (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-                   (let ((constraints (delete-duplicates ; ** only works on top level; should be generalized **
-                                       (get-binding 'constraints new-bindings '()))))
+                   (let ((constraints (get-binding/default 'constraints new-bindings '())))
                      (values `((,(car block)
-                                ,@(alist-update 'WHERE (append constraints (alist-ref 'WHERE rw)) rw)))
+                                ,@(alist-update 'WHERE
+                                                (delete-duplicates (append constraints (or (alist-ref 'WHERE rw) '())))
+                                                rw)))
                              new-bindings)))
                  (with-rewrite ((rw (rewrite (cdr block) bindings (select-query-rules))))
                    `((@Query ,rw)))))))
@@ -139,22 +145,25 @@
       . ,(lambda (block bindings)
            (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
              (let ((where-block (or (alist-ref 'WHERE rw) '()))
-                   (constraints (delete-duplicates ; ** only works on top level; should be generalized **
-                                 (get-binding/default* '() 'constraints new-bindings '()))))
+                   (constraints (get-binding/default* '() 'constraints new-bindings '())))
                (let ((insert (or (alist-ref '|INSERT DATA| (cdr block))
                                  (alist-ref 'INSERT (cdr block)))))
                  (let ((constraints (if insert
-                                        (let ((triples (rewrite insert '() (%expand-triples-rules #t #t))))
-                                          (instantiate constraints triples))
+                                        (let ((triples (rewrite insert '() (expand-triples-rules #t #t))))
+                                          (instantiate (delete-duplicates constraints) triples))
                                         constraints)))
                    (values `((@Update . ,(alist-update
                                           'WHERE
-                                          `((SELECT *) (WHERE ,@constraints ,@where-block))
+                                          `((SELECT *) (WHERE ,@(delete-duplicates
+                                                                 (append constraints where-block))))
                                           (reverse rw))))
                            new-bindings)))))))
      ((@Dataset) . ,rw/remove)
      ((@Using) . ,rw/remove)
      ((GRAPH) . ,rw/copy)
+     ((*REWRITTEN*)
+      . ,(lambda (block bindings)
+           (values (cdr block) bindings)))
      (,select? . ,rw/copy)
      (,subselect? . ,rewrite-subselect)        
      (,quads-block? . ,rewrite-quads-block)
@@ -277,7 +286,12 @@
   `((,triple? 
      . ,(lambda (triple bindings)
           (parameterize ((*in-where?* (in-where?)))
-            (constrain-triple triple bindings))))
+            (let ((graph (get-binding* triple 'graph bindings)))
+              (if graph
+                  (if (*in-where?*)
+                      (values '() bindings)
+                      (values `((GRAPH ,graph ,triple)) bindings))
+                  (constrain-triple triple bindings))))))
     ((FILTER BIND MINUS OPTIONAL UNION GRAPH) . ,rw/copy)
     (,select? . ,rw/copy)
     (,subselect? . ,rw/copy)))
@@ -301,9 +315,11 @@
         ((WHERE) . ,rw/remove)
         ((CONSTRUCT) 
          . ,(lambda (block bindings)
-              (let-values (((triples new-bindings) (rewrite (cdr block) '() (%expand-triples-rules #t))))
+              (let-values (((triples _) (rewrite (cdr block) '() (expand-triples-rules #t))))
                 (rewrite triples bindings))))
-        (,triple? 
+
+        ;; matches a triple in CONSTRUCT { ?s ?p ?o }
+        (,triple?
          . ,(lambda (triple bindings)
               (match triple
                 ((s p o)
@@ -317,12 +333,23 @@
                                            (('constraint-renamings constraint-renamings) ('matched-triple (list s p o)))
                                            bindings)
                                           constraint-rules)))
-                     (let ((graph (get-binding a (if (equal? b 'a) 'rdf:type b) c 'graph new-bindings)))
-                       (values (if (*in-where?*) '() `((GRAPH ,graph (,a ,b ,c))))
-                               (update-bindings
-                                (('constraints (append (alist-ref 'WHERE rw) (get-binding/default 'constraints bindings '()))))
-                                (delete-bindings (('matched-triple) ('constraint-renamings))
-                                                 new-bindings))))))))))
+                     (let ((graph (get-binding a (if (equal? b 'a) 'rdf:type b) c 'graph new-bindings))
+                           (constraint (alist-ref 'WHERE rw))
+                           (clean-bindings (delete-bindings (('matched-triple) ('constraint-renamings)) new-bindings)))
+
+                       (print triple)(print "=>")(print constraint)(newline)
+                       (if (*in-where?*)
+                           (values `((*REWRITTEN* ,@constraint)) clean-bindings)
+                           (values `((GRAPH ,graph (,a ,b ,c)))
+                                   (fold-binding constraint 'constraints append '() new-bindings))))))))))
+
+                       ;; (values (if (*in-where?*) ,constraint `((GRAPH ,graph (,a ,b ,c))))
+                       ;;         ;;(update-bindings
+                       ;;         ;;(('constraints (append (alist-ref 'WHERE rw) (get-binding/default 'constraints bindings '()))))
+                       ;;         (fold-binding constraint 'constraints append '()
+                       ;;          (delete-bindings (('matched-triple) ('constraint-renamings))
+                       ;;                           new-bindings))))))))))
+
         (,pair? . ,rw/remove)))))
 
 (define (get-context-graph)

@@ -14,16 +14,18 @@
     ((@Query
       (CONSTRUCT (?s ?p ?o))
       (WHERE
-       ((|SELECT DISTINCT| ?graph ?allGraphs ?type)
+       ((|SELECT DISTINCT| ?graph ?type)
        (WHERE
-         (GRAPH <http://data.europa.eu/eurostat/graphs>
-                (?rule a rewriter:GraphRule)
-                (?graph a rewriter:Graph)
-                (?rule rewriter:graph ?graph)
-                (?rule rewriter:predicate ?p)
-                (?rule rewriter:subjectType ?type)
-;;                (?o rewriter:likes ?graph)
-                (?allGraphs a rewriter:Graph))  ))
+        (GRAPH <http://data.europa.eu/eurostat/graphs>
+               (?rule a rewriter:GraphRule)
+               (?graph a rewriter:Graph)
+               (?rule rewriter:graph ?graph)
+               (?rule rewriter:predicate ?p)
+               (?rule rewriter:subjectType ?type)
+               ;; (?o rewriter:likes ?graph)
+               )))
+       (GRAPH <http://data.europa.eu/eurostat/graphs>
+              (?allGraphs a rewriter:Graph))
        (GRAPH ?allGraphs (?s rdf:type ?type))  
        (GRAPH ?graph (?s ?p ?o))))))))
 
