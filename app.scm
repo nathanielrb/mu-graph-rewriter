@@ -69,7 +69,23 @@
     ((GRAPH) . ,(flatten-graph-rule rewrite-graph-statements?))
     ((FILTER BIND MINUS OPTIONAL UNION) . ,rw/copy)
     (,select? . ,rw/copy)
-    (,subselect? . ,rw/copy)))
+    (,subselect? . ,rw/copy)
+    (,pair? . ,rw/continue)))
+
+(define (deep-expand-triples-rules flatten-graph-statements? #!optional replace-a?)
+  `((,symbol? . ,rw/copy)
+    (,triple? . ,(expand-triple-rule replace-a?))
+    ((GRAPH) 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
+            (if flatten-graph-statements?
+                (values rw new-bindings)
+                (values `((GRAPH ,(second block) ,@rw)) new-bindings)))))
+
+    ((FILTER BIND MINUS OPTIONAL UNION) . ,rw/copy)
+    (,select? . ,rw/copy)
+    (,subselect? . ,rw/continue-subselect)
+    (,pair? . ,rw/continue)))
 
 (define (expand-triple-rule #!optional replace-a?)
   (lambda (block bindings)
@@ -83,11 +99,11 @@
 
 (define (flatten-graph-rule rewrite-graph-statements?)
   (lambda (block bindings)
-    (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
-      (if rewrite-graph-statements?
-          (values rw new-bindings)
-          (values (list block) 
-                  (cons-binding (second-block) 'named-graphs new-bindings))))))
+    (if rewrite-graph-statements?
+        (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
+          (values rw new-bindings))
+        (values (list block) 
+                (cons-binding (second block) 'named-graphs new-bindings)))))
 
 (define (extract-all-variables where-clause)
   (delete-duplicates (filter sparql-variable? (flatten where-clause))))
@@ -187,8 +203,9 @@
   (hit-hashed-cache
    *cache* query
    (let-values (((query bindings) (rewrite query '() extract-graphs-rules)))
+     (print query)(newline)(print bindings)
      (let ((query-string (write-sparql query)))
-       (let-values (((vars iris)  (partition sparql-variable? (get-binding 'graphs bindings))))
+       (let-values (((vars iris) (partition sparql-variable? (get-binding 'graphs bindings))))
          (delete-duplicates
           (append iris
                   (map cdr (join (sparql-select query-string from-graph: #f))))))))))
@@ -212,7 +229,7 @@
             (values `((@Query
                        (|SELECT DISTINCT| ,@(delete-duplicates
                                              (filter sparql-variable?
-                                                     (get-binding 'graphs new-bindings))))
+                                                     (get-binding/default 'graphs new-bindings '()))))
                        ,@rw))
                     new-bindings))))
     (,select? . ,rw/remove)
@@ -233,8 +250,12 @@
     (,triple? . ,rw/copy)
     (,symbol? . ,rw/copy)
     ((CONSTRUCT SELECT INSERT DELETE) . ,rw/remove)
+    ((UNION) 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+            (values `((UNION ,@rw)) new-bindings))))
     ((@Unit WHERE) . ,rw/continue)
-    ((@Prologue) . ,rw/copy)
+    ((@Prologue @Dataset @Using) . ,rw/copy)
     (,pair? . ,(lambda (block bindings)
                (with-rewrite ((rw (rewrite block bindings)))
                  (list rw))))))
@@ -857,14 +878,18 @@
            (lambda (triple bindings)
              (rewrite constraint bindings (%rewrite-constraint-rules triple))))
            ((string? constraint)
-            (let ((constraint (parse-query constraint)))
+            (let ((constraint (rewrite (parse-query constraint) '() (deep-expand-triples-rules #f))))
+              (print "PARSED CONSTRAINT")(print constraint)
+              (*constraint* constraint)
               (lambda (triple bindings)
                 (rewrite constraint bindings (%rewrite-constraint-rules triple)))))
            ((procedure? constraint)
+            (*constraint* (lambda () 
+                            (rewrite (parse-query (constraint)) '() (deep-expand-triples-rules #f))))
             (lambda (triple bindings)
-              (rewrite (constraint) bindings (%rewrite-constraint-rules triple)))))))
+              (rewrite
+                (rewrite (parse-query (constraint)) '() (deep-expand-triples-rules #f))
+                bindings (%rewrite-constraint-rules triple)))))))
 
 (*port* 8890)
-
-
 

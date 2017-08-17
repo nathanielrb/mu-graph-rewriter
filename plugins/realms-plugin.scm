@@ -1,7 +1,7 @@
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
 
 (define *realm-id-graph*
-  (config-param "REALM_ID_GRAPH" '<http://mu.semte.ch/uuid> read-uri))
+  (config-param "REALM_ID_GRAPH" '<http://data.europa.eu/eurostat/uuid> read-uri))
 
 (define *session-realm-ids* (make-hash-table))
 
@@ -9,30 +9,12 @@
 
 
 
-(*constraint*
- `((@Unit
-    ((@Query
-      (CONSTRUCT (?s ?p ?o))
-      (WHERE
-       ((|SELECT DISTINCT| ?graph ?type)
-       (WHERE
-        (GRAPH <http://data.europa.eu/eurostat/graphs>
-               (?rule a rewriter:GraphRule)
-               (?graph a rewriter:Graph)
-               (?rule rewriter:graph ?graph)
-               (?rule rewriter:predicate ?p)
-               (?rule rewriter:subjectType ?type)
-               ;; (?o rewriter:likes ?graph)
-               )))
-       (GRAPH <http://data.europa.eu/eurostat/graphs>
-              (?allGraphs a rewriter:Graph))
-       (GRAPH ?allGraphs (?s rdf:type ?type))  
-       (GRAPH ?graph (?s ?p ?o))))))))
-
 ;; (*constraint*
-;;   `((@Unit
-;;      ((@Query
-;;        (CONSTRUCT (?s ?p ?o) (?x ?y ?z))
+;;  `((@Unit
+;;     ((@Query
+;;       (CONSTRUCT (?s ?p ?o))
+;;       (WHERE
+;;        ((|SELECT DISTINCT| ?graph ?type)
 ;;        (WHERE
 ;;         (GRAPH <http://data.europa.eu/eurostat/graphs>
 ;;                (?rule a rewriter:GraphRule)
@@ -40,70 +22,71 @@
 ;;                (?rule rewriter:graph ?graph)
 ;;                (?rule rewriter:predicate ?p)
 ;;                (?rule rewriter:subjectType ?type)
-;;                (?allGraphs a rewriter:Graph))
-;;         (GRAPH ?allGraphs
-;;                (?s a ?type)
-;;                (?x a rewriter:Graph))
-;;         (GRAPH ?graph (?s ?p ?o))))))))
+;;                ;; (?o rewriter:likes ?graph)
+;;                )))
+;;        (GRAPH <http://data.europa.eu/eurostat/graphs>
+;;               (?allGraphs a rewriter:Graph))
+;;        (GRAPH ?allGraphs (?s rdf:type ?type))  
+;;        (GRAPH ?graph (?s ?p ?o))))))))
+
+
+(define (query-graph-realm)
+  (or (*realm*) ;; for testing
+      (header 'mu-graph-realm)
+      (get-realm (header 'mu-graph-realm-id))
+      (get-realm (($query) 'graph-realm-id))
+      (($query) 'graph-realm)
+      (($body) 'graph-realm)
+      (get-realm (hash-table-ref/default *session-realm-ids* (header 'mu-session-id) #f))))
+
+(define (get-realm realm-id)
+  (and realm-id
+       (query-unique-with-vars
+        (realm)
+        (format #f
+                "SELECT ?realm
+                 FROM ~A
+                 WHERE { ?realm mu:uuid ~A }"
+                (*realm-id-graph*) 
+                (write-sparql realm-id))
+        realm)))
+
+(*constraint*
+ (lambda ()
+   (let ((realm (query-graph-realm)))
+     (format #f  (conc "CONSTRUCT { ?s ?p ?o } "
+                       " WHERE { "
+                       " { SELECT DISTINCT ?graph ?type "
+                       " WHERE { "
+                       " GRAPH <http://data.europa.eu/eurostat/graphs> { "
+                       " ?rule a rewriter:GraphRule. "
+                       " ?graph a rewriter:Graph. "
+                       " ~A "
+                       " ?rule rewriter:predicate ?p. "
+                       " ?rule rewriter:subjectType ?type. } } } "
+                       " ~A "
+                       " GRAPH ?allGraphs { ?s rdf:type ?type } "
+                       " GRAPH ?graph { ?s ?p ?o } } ")
+             
+             (if realm
+                 (format #f (conc "{ ?rule rewriter:graph ?graph } "
+                                  " UNION " 
+                                  " { ?rule rewriter:graphType ?gtype. ?graph rewriter:type ?gtype. ?graph rewriter:realm ~A }")
+                         realm)
+                 "?rule rewriter:graph ?graph.")
+
+             (if realm
+                 (format #f (conc " { SELECT DISTINCT ?allGraphs WHERE { "
+                                  " GRAPH <http://data.europa.eu/eurostat/graphs> {"
+                                  " { ?rule rewriter:graph ?allGraphs } UNION { ?rule rewriter:graphType ?gtype. ?allGraphs rewriter:type ?gtype. ?allGraphs rewriter:realm ~A } } } }")
+                         realm)
+                 " GRAPH <http://data.europa.eu/eurostat/graphs> { ?allGraphs a rewriter:Graph } ")
+             ))))
 
 
 
 
-;; (define (replace-dataset realm label #!optional named? (extra-graphs '()))
-;;   (dataset label (append (all-graphs realm) extra-graphs) named?))
 
-;; ;; (select-query-rules
-;; ;;  `((,triple? . ,rw/copy)
-;; ;;    ((GRAPH)
-;; ;;     . ,(lambda (block bindings)
-;; ;;          (values (cddr block) bindings)))
-;; ;;    ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
-;; ;;    ((@Dataset) 
-;; ;;     . ,(lambda (block bindings)
-;; ;;          (let ((realm (query-graph-realm)))
-;; ;;            (values (list (replace-dataset realm 'FROM #f)) bindings))))
-;; ;;    (,select? . ,rw/copy)
-;; ;;    (,subselect? . ,rw/copy)
-;; ;;    (,pair? . ,rw/continue)))
-
-;; (define (query-graph-realm)
-;;   (or (*realm*) ;; for testing
-;;       (header 'mu-graph-realm)
-;;       (get-realm (header 'mu-graph-realm-id))
-;;       (get-realm (($query) 'graph-realm-id))
-;;       (($query) 'graph-realm)
-;;       (($body) 'graph-realm)
-;;       (get-realm (hash-table-ref/default *session-realm-ids* (header 'mu-session-id) #f))))
-
-;; (define (get-type x) #f)
-
-;; (define (get-realm realm-id) 
-;;   (and realm-id
-;;        (query-unique-with-vars
-;;         (realm)
-;;         (s-select '?realm (write-triples `((?realm mu:uuid ,realm-id)))
-;;                   from-graph: (*realm-id-graph*))
-;;         realm)))
-
-;; (define (all-graphs realm)
-;;   (hit-hashed-cache
-;;    *cache* (list 'graphs realm)
-;;    (query-with-vars 
-;;     (graph)
-;;     (s-select 
-;;      '?graph
-;;      (write-triples
-;;       `((GRAPH
-;;          ,(*default-graph*)
-;;          (?graph a rewriter:Graph)
-;;          ,@(splice-when
-;;             (and realm
-;;                  `((UNION ((?rule rewriter:graphType ?type)
-;;                            (?graph rewriter:type ?type)
-;;                            (?graph rewriter:realm ,realm))
-;;                           ((?rule rewriter:graph ?graph)))))))))
-;;      from-graph: #f)
-;;     graph)))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
