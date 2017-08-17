@@ -1160,3 +1160,13 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
     <http://data.europa.eu/eurostat/id/organization/5994542D1006434909000002> dct:title \"your\".
    }  
  }"))
+
+(define c10 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+ INSERT {
+  GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s rdf:type dct:Agent.
+    ?s dct:title \"you\".
+   }  
+ }
+WHERE { ?s rdf:type qb:DataSet }"))

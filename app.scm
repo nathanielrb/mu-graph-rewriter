@@ -141,9 +141,10 @@
              (let ((where-block (or (alist-ref 'WHERE rw) '()))
                    (constraints (delete-duplicates ; ** only works on top level; should be generalized **
                                  (get-binding/default* '() 'constraints new-bindings '()))))
-               (let ((insert-data (alist-ref '|INSERT DATA| (cdr block))))
-                 (let ((constraints (if insert-data
-                                        (let ((triples (rewrite insert-data '() (%expand-triples-rules #t #t))))
+               (let ((insert (or (alist-ref '|INSERT DATA| (cdr block))
+                                 (alist-ref 'INSERT (cdr block)))))
+                 (let ((constraints (if insert
+                                        (let ((triples (rewrite insert '() (%expand-triples-rules #t #t))))
                                           (instantiate constraints triples))
                                         constraints)))
                    (values `((@Update . ,(alist-update
