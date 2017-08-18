@@ -7,29 +7,6 @@
 
 (define *realm* (make-parameter #f))
 
-
-
-;; (*constraint*
-;;  `((@Unit
-;;     ((@Query
-;;       (CONSTRUCT (?s ?p ?o))
-;;       (WHERE
-;;        ((|SELECT DISTINCT| ?graph ?type)
-;;        (WHERE
-;;         (GRAPH <http://data.europa.eu/eurostat/graphs>
-;;                (?rule a rewriter:GraphRule)
-;;                (?graph a rewriter:Graph)
-;;                (?rule rewriter:graph ?graph)
-;;                (?rule rewriter:predicate ?p)
-;;                (?rule rewriter:subjectType ?type)
-;;                ;; (?o rewriter:likes ?graph)
-;;                )))
-;;        (GRAPH <http://data.europa.eu/eurostat/graphs>
-;;               (?allGraphs a rewriter:Graph))
-;;        (GRAPH ?allGraphs (?s rdf:type ?type))  
-;;        (GRAPH ?graph (?s ?p ?o))))))))
-
-
 (define (query-graph-realm)
   (or (*realm*) ;; for testing
       (header 'mu-graph-realm)
@@ -51,6 +28,26 @@
                 (write-sparql realm-id))
         realm)))
 
+(define (graph-rule-realm realm)
+  (if realm
+      (format #f (conc "{ ?rule rewriter:graph ?graph } "
+                       " UNION " 
+                       " { ?rule rewriter:graphType ?gtype. ?graph rewriter:type ?gtype. ?graph rewriter:realm ~A }")
+              realm)
+      "?rule rewriter:graph ?graph."))
+
+(define (all-graphs-realm realm)
+  (if realm
+      (format #f (conc " { SELECT DISTINCT ?allGraphs WHERE { "
+                       " GRAPH <http://data.europa.eu/eurostat/graphs> {"
+                       " { ?rule rewriter:graph ?allGraphs } "
+                       " UNION "
+                       " { ?rule rewriter:graphType ?gtype. ?allGraphs rewriter:type ?gtype. ?allGraphs rewriter:realm ~A } "
+                       " } "
+                       " } }")
+              realm)
+      " GRAPH <http://data.europa.eu/eurostat/graphs> { ?allGraphs a rewriter:Graph } "))
+
 (*constraint*
  (lambda ()
    (let ((realm (query-graph-realm)))
@@ -67,26 +64,8 @@
                        " ~A "
                        " GRAPH ?allGraphs { ?s rdf:type ?type } "
                        " GRAPH ?graph { ?s ?p ?o } } ")
-             
-             (if realm
-                 (format #f (conc "{ ?rule rewriter:graph ?graph } "
-                                  " UNION " 
-                                  " { ?rule rewriter:graphType ?gtype. ?graph rewriter:type ?gtype. ?graph rewriter:realm ~A }")
-                         realm)
-                 "?rule rewriter:graph ?graph.")
-
-             (if realm
-                 (format #f (conc " { SELECT DISTINCT ?allGraphs WHERE { "
-                                  " GRAPH <http://data.europa.eu/eurostat/graphs> {"
-                                  " { ?rule rewriter:graph ?allGraphs } UNION { ?rule rewriter:graphType ?gtype. ?allGraphs rewriter:type ?gtype. ?allGraphs rewriter:realm ~A } } } }")
-                         realm)
-                 " GRAPH <http://data.europa.eu/eurostat/graphs> { ?allGraphs a rewriter:Graph } ")
-             ))))
-
-
-
-
-
+             (graph-rule-realm realm)
+             (all-graphs-realm realm)))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

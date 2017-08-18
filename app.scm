@@ -134,81 +134,78 @@
        (let-values (((rw b) (rewrite quads inner-bindings)))
          (values (list (cons (car block) rw)) (merge-bindings b bindings)))))))
 
-(define rules
-  (make-parameter
-   `((,symbol? . ,rw/copy)
-     ((@Unit) . ,rw/continue)
-     ((@Prologue)
-      . ,(lambda (block bindings)
-           (values `((@Prologue
-                      (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
-                      ,@(cdr block)))
-                   bindings)))
-     ((@Query)
-      . ,(lambda (block bindings)
-           (let ((rewrite-select-queries? (rewrite-select?)))
-             (if rewrite-select-queries?
-                 (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-                   (let ((constraints (get-binding/default 'constraints new-bindings '())))
-                     (values `((,(car block)
-                                ,@(alist-update 'WHERE
-                                                (delete-duplicates (append constraints (or (alist-ref 'WHERE rw) '())))
-                                                rw)))
-                             new-bindings)))
-                 (with-rewrite ((rw (rewrite (cdr block) bindings (select-query-rules))))
-                   `((@Query ,rw)))))))
-     ((@Update)
-      . ,(lambda (block bindings)
-           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
-             (let ((where-block (or (alist-ref 'WHERE rw) '()))
-                   (constraints (get-binding/default* '() 'constraints new-bindings '())))
-               (let ((insert (or (alist-ref '|INSERT DATA| (cdr block))
-                                 (alist-ref 'INSERT (cdr block)))))
-                 (let ((constraints (if insert
-                                        (let ((triples (rewrite insert '() (expand-triples-rules #t #t))))
-                                          (instantiate (delete-duplicates constraints) triples))
-                                        constraints)))
-                   (values `((@Update . ,(alist-update
-                                          'WHERE
-                                          `((SELECT *) (WHERE ,@(delete-duplicates
-                                                                 (append constraints where-block))))
-                                          (reverse rw))))
-                           new-bindings)))))))
-     ((@Dataset) . ,rw/remove)
-     ((@Using) . ,rw/remove)
-     ((GRAPH) . ,rw/copy)
-     ((*REWRITTEN*)
-      . ,(lambda (block bindings)
-           (values (cdr block) bindings)))
-     (,select? . ,rw/copy)
-     (,subselect? . ,rewrite-subselect)        
-     (,quads-block? . ,rewrite-quads-block)
-     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
-     `((,where-subselect?
-        . ,(lambda (block bindings)
-             (let-values (((rw b) (rewrite-subselect (cdr block) bindings)))
-               (values `((WHERE ,@rw))
-                       (merge-bindings b bindings))))))
-      (,pair?
+(define top-rules
+  `((,symbol? . ,rw/copy)
+    ((@Unit) . ,rw/continue)
+    ((@Prologue)
+     . ,(lambda (block bindings)
+          (values `((@Prologue
+                     (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
+                     ,@(cdr block)))
+                  bindings)))
+    ((@Query)
+     . ,(lambda (block bindings)
+          (let ((rewrite-select-queries? (rewrite-select?)))
+            (if rewrite-select-queries?
+                (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+                  (let ((constraints (get-binding/default 'constraints new-bindings '())))
+                    (values `((,(car block)
+                               ,@(alist-update 'WHERE
+                                               (delete-duplicates (append constraints (or (alist-ref 'WHERE rw) '())))
+                                               rw)))
+                            new-bindings)))
+                (with-rewrite ((rw (rewrite (cdr block) bindings (select-query-rules))))
+                              `((@Query ,rw)))))))
+    ((@Update)
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
+            (let ((where-block (or (alist-ref 'WHERE rw) '()))
+                  (constraints (get-binding/default* '() 'constraints new-bindings '())))
+              (let ((insert (or (alist-ref '|INSERT DATA| (cdr block))
+                                (alist-ref 'INSERT (cdr block)))))
+                (let ((constraints (if insert
+                                       (let ((triples (rewrite insert '() (expand-triples-rules #t #t))))
+                                         (instantiate (delete-duplicates constraints) triples))
+                                       constraints)))
+                  (values `((@Update . ,(alist-update
+                                         'WHERE
+                                         `((SELECT *) (WHERE ,@(delete-duplicates
+                                                                (append constraints where-block))))
+                                         (reverse rw))))
+                          new-bindings)))))))
+    ((@Dataset) . ,rw/remove)
+    ((@Using) . ,rw/remove)
+    ((GRAPH) . ,rw/copy)
+    ((*REWRITTEN*)
+     . ,(lambda (block bindings)
+          (values (cdr block) bindings)))
+    (,select? . ,rw/copy)
+    (,subselect? . ,rewrite-subselect)        
+    (,quads-block? . ,rewrite-quads-block)
+    ((FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+    `((,where-subselect?
        . ,(lambda (block bindings)
-            (with-rewrite ((rw (rewrite block bindings)))
-             (list rw)))))))
-
- ;; nested for backward compatibility
-(default-rules (lambda () (rules)))
+            (let-values (((rw b) (rewrite-subselect (cdr block) bindings)))
+              (values `((WHERE ,@rw))
+                      (merge-bindings b bindings))))))
+    (,pair?
+     . ,(lambda (block bindings)
+          (with-rewrite ((rw (rewrite block bindings)))
+                        (list rw))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Query for graphs
 (define (get-all-graphs #!optional (query (*constraint*)))
-  (hit-hashed-cache
-   *cache* query
-   (let-values (((query bindings) (rewrite query '() extract-graphs-rules)))
-     (print query)(newline)(print bindings)
-     (let ((query-string (write-sparql query)))
-       (let-values (((vars iris) (partition sparql-variable? (get-binding 'graphs bindings))))
-         (delete-duplicates
-          (append iris
-                  (map cdr (join (sparql-select query-string from-graph: #f))))))))))
+  ;; (hit-hashed-cache
+  ;; *cache* query
+  (let ((query (if (procedure? query) (query) query)))
+    (let-values (((query bindings) (rewrite query '() extract-graphs-rules)))
+      (let ((query-string (write-sparql query)))
+        (let-values (((vars iris) (partition sparql-variable? (get-binding/default 'graphs bindings '()))))
+          (if (null? vars) iris
+              (delete-duplicates
+               (append iris
+                       (map cdr (join (sparql-select query-string from-graph: #f)))))))))))
 
 (define rw/value
   (lambda (block bindings)
@@ -223,6 +220,11 @@
                                    (rewrite quads
                                             (cons-binding graph 'graphs  bindings))))
                        (values `((GRAPH ,graph ,@rw)) new-bindings))))))
+    ((@Dataset @Using) 
+     . ,(lambda (block bindings)
+          (print "ds")
+          (let ((graphs (map second (cdr block))))
+            (values (list block) (fold-binding graphs 'graphs append '() bindings)))))
     ((@Query @Update) 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
@@ -235,30 +237,39 @@
     (,select? . ,rw/remove)
     (,subselect? . ,(lambda (block bindings)
                       (match block
-                        ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
+                        ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`@Dataset . dataset)
+                          (`WHERE . quads) . rest)
+                         (let ((graphs (map second dataset)))
+                           (let-values (((rw new-bindings) (rewrite quads bindings)))
+                             (values
+                              `((,(car block) (WHERE ,@rw) ,@rest))
+                              (fold-binding graphs 'graphs append '() new-bindings)))))
+                        ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) 
+                          (`WHERE . quads) . rest)
                          (let-values (((rw new-bindings) (rewrite quads bindings)))
                            (values
                             `((,(car block) (WHERE ,@rw) ,@rest))
                             new-bindings))))))
     (,where-subselect?
        . ,(lambda (block bindings)
+            (print "wss")
             (match block
               ((`WHERE select-clause (`WHERE . quads))
                (let-values (((rw new-bindings) (rewrite quads bindings)))
                  (values `((WHERE ,select-clause (WHERE ,@rw)))
                          new-bindings ))))))
     (,triple? . ,rw/copy)
-    (,symbol? . ,rw/copy)
     ((CONSTRUCT SELECT INSERT DELETE) . ,rw/remove)
     ((UNION) 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
             (values `((UNION ,@rw)) new-bindings))))
+    (,quads-block? . ,rw/continue)
     ((@Unit WHERE) . ,rw/continue)
-    ((@Prologue @Dataset @Using) . ,rw/copy)
+    ((@Prologue) . ,rw/copy)
     (,pair? . ,(lambda (block bindings)
-               (with-rewrite ((rw (rewrite block bindings)))
-                 (list rw))))))
+                 (with-rewrite ((rw (rewrite block bindings)))
+                   (list rw))))))
 
 (define (dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -358,20 +369,10 @@
                      (let ((graph (get-binding a (if (equal? b 'a) 'rdf:type b) c 'graph new-bindings))
                            (constraint (alist-ref 'WHERE rw))
                            (clean-bindings (delete-bindings (('matched-triple) ('constraint-renamings)) new-bindings)))
-
-                       (print triple)(print "=>")(print constraint)(newline)
                        (if (*in-where?*)
                            (values `((*REWRITTEN* ,@constraint)) clean-bindings)
                            (values `((GRAPH ,graph (,a ,b ,c)))
                                    (fold-binding constraint 'constraints append '() new-bindings))))))))))
-
-                       ;; (values (if (*in-where?*) ,constraint `((GRAPH ,graph (,a ,b ,c))))
-                       ;;         ;;(update-bindings
-                       ;;         ;;(('constraints (append (alist-ref 'WHERE rw) (get-binding/default 'constraints bindings '()))))
-                       ;;         (fold-binding constraint 'constraints append '()
-                       ;;          (delete-bindings (('matched-triple) ('constraint-renamings))
-                       ;;                           new-bindings))))))))))
-
         (,pair? . ,rw/remove)))))
 
 (define (get-context-graph)
@@ -834,7 +835,7 @@
 
     (let ((rewritten-query 
            (parameterize (($query $$query) ($body $$body))
-             (rewrite-query query))))
+             (rewrite-query query top-rules))))
 
       (log-message "~%==Parsed As==~%~A~%" (write-sparql query))
       (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
@@ -842,6 +843,9 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
+        (log-message "~%==getting graphs for==~%~A~%"  rewritten-query)
+        (log-message "~%==Graphs==~%~A~%" (get-all-graphs rewritten-query))
+
         (when (update-query? rewritten-query)
           (notify-deltas rewritten-query))
 
