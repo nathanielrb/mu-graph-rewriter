@@ -444,11 +444,13 @@
                                           constraint-rules)))
                      (let ((graph (get-binding a (if (equal? b 'a) 'rdf:type b) c 'graph new-bindings))
                            (constraint (alist-ref 'WHERE rw))
-                           (clean-bindings (delete-bindings (('matched-triple) ('constraint-substitutions)) new-bindings)))
+                           (clean-bindings (delete-bindings (('matched-triple) 
+                                                             ('constraint-substitutions)) 
+                                                            new-bindings)))
                        (if (*in-where?*)
                            (values `((*REWRITTEN* ,@constraint)) clean-bindings)
                            (values `((GRAPH ,graph (,a ,b ,c)))
-                                   (fold-binding constraint 'constraints append '() new-bindings))))))))))
+                                   (fold-binding constraint 'constraints append '() clean-bindings))))))))))
         (,pair? . ,rw/remove)))))
 
 (define (get-context-graph)
@@ -495,7 +497,6 @@
      . ,(lambda (block bindings) 
           (match block
             ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
-             ;; ** should we be projecting bindings here?... it masks important things...
              (let-values (((rw new-bindings) (rewrite quads bindings)))
                (values `(((,(caar block) 
                            ,@(map (lambda (var) 
@@ -509,8 +510,7 @@
           (let-values (((rw new-bindings)
                         (rewrite (cdr block)
                                  (update-binding
-                                  'dependencies
-                                  (get-dependencies (list block) (map car (get-binding 'constraint-substitutions bindings)))
+                                  'dependencies (constraint-dependencies block bindings)
                                   bindings))))
             (values `((WHERE ,@rw)) (delete-binding 'dependencies new-bindings)))))
     ((GRAPH) 
@@ -527,6 +527,11 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Constraint variable dependencies
+(define (constraint-dependencies constraint-where-block bindings)
+  (get-dependencies 
+   (list constraint-where-block) 
+   (map car (get-binding 'constraint-substitutions bindings))))
+
 (define (get-dependencies* query bound-vars)
   (rewrite query '() (dependency-rules bound-vars)))
 
@@ -534,9 +539,8 @@
 
 (define (minimal-dependencies source? sink? dependencies)
   (let-values (((sources nodes) (partition (compose source? car) dependencies)))
-    (let loop ((paths (join (map (lambda (b)
-                             (match b ((head . rest) (map (lambda (r) (list r head)) rest))))
-                           sources)))
+    (let loop ((paths (join (map (match-lambda ((head . rest) (map (lambda (r) (list r head)) rest)))
+                                 sources)))
                (finished-paths '()))
       (if (null? paths) finished-paths
           (let* ((path (car paths))
