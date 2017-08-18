@@ -222,7 +222,6 @@
                        (values `((GRAPH ,graph ,@rw)) new-bindings))))))
     ((@Dataset @Using) 
      . ,(lambda (block bindings)
-          (print "ds")
           (let ((graphs (map second (cdr block))))
             (values (list block) (fold-binding graphs 'graphs append '() bindings)))))
     ((@Query @Update) 
@@ -252,7 +251,6 @@
                             new-bindings))))))
     (,where-subselect?
        . ,(lambda (block bindings)
-            (print "wss")
             (match block
               ((`WHERE select-clause (`WHERE . quads))
                (let-values (((rw new-bindings) (rewrite quads bindings)))
@@ -666,7 +664,6 @@
     (,pair? . ,rw/continue)
     ))
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Deltas
 (define (update-query? query)
@@ -794,9 +791,8 @@
       (lambda ()
         (for-each (lambda (query-deltas)
                     (let ((deltastr (json->string query-deltas)))
-                      ;; (format (current-error-port) "~%==Deltas==~%~A" deltastr)
                       (for-each (lambda (subscriber)
-                                  (print "Notifying " subscriber)
+                                  (log-message "~%Deltas: notifying ~A~% " subscriber)
                                   (notify-subscriber subscriber deltastr))
                                 *subscribers*)))
                   queries-deltas))))))
@@ -868,7 +864,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification
-
 (define-rest-call 'GET '("sparql") rewrite-call)
 (define-rest-call 'POST '("sparql") rewrite-call)
 

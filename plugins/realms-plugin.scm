@@ -67,7 +67,6 @@
              (graph-rule-realm realm)
              (all-graphs-realm realm)))))
 
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Additional Endpoints
 (define change-session-realm-call 
