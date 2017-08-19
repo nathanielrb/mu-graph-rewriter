@@ -13,12 +13,13 @@
 
 (vhost-map `((".*" . ,handle-app)))
 
+(*rewrite-select-queries?* #t)
 
 (*sparql-endpoint* "http://localhost:8890/sparql")
 
 (*subscribers-file* "../config/rewriter/subscribers.json")
 
-
+;; (load "../s-sparql/writer.scm")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
