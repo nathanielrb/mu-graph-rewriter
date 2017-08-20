@@ -19,7 +19,7 @@
 
 (*subscribers-file* "../config/rewriter/subscribers.json")
 
-;; (load "../s-sparql/writer.scm")
+ (load "../s-sparql/writer.scm")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
