@@ -226,8 +226,8 @@
                                        constraints)))
                   (values `((@Update . ,(alist-update
                                          'WHERE
-                                         `((SELECT *) (WHERE ,@(delete-duplicates
-                                                                (append constraints where-block))))
+                                         `((@SubSelect (SELECT *) (WHERE ,@(delete-duplicates
+                                                                (append constraints where-block)))))
                                          (reverse rw))))
                           new-bindings)))))))
     ((@Dataset) . ,rw/remove)
@@ -336,6 +336,7 @@
     (,select? . ,rw/remove)
     ((@SubSelect)
      . ,(lambda (block bindings)
+          (newline)(print "Subselect")(newline)(print block)
           (match block
             ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars)
                          (`@Dataset . dataset) (`WHERE . quads) . rest)
@@ -923,8 +924,6 @@
 (if (procedure? (*constraint*))
     (log-message "==Rewriter Constraint==~%~A" (write-sparql ((*constraint*))))
     (log-message "==Rewriter Constraint==~%~A" (write-sparql (*constraint*))))
-
-
 
 (*port* 8890)
 
