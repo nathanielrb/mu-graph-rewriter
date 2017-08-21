@@ -19,8 +19,6 @@
 
 (*subscribers-file* "../config/rewriter/subscribers.json")
 
- (load "../s-sparql/writer.scm")
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
 (use spiffy)
@@ -1204,3 +1202,154 @@ SELECT DISTINCT ?uuid WHERE {
     ?s mu:uuid ?uuid; a dct:Agent. 
 }
 } GROUP BY ?uuid OFFSET 0 LIMIT 20"))
+
+(define c12 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX cms: <http://mu.semte.ch/vocabulary/cms/>
+PREFIX auth: <http://mu.semte.ch/vocabularies/authorization/>
+PREFIX session: <http://mu.semte.ch/vocabularies/session/>
+PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX dctype: <http://purl.org/dc/dcmitype/>
+PREFIX dcat: <http://www.w3.org/ns/dcat#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
+PREFIX nco: <http://www.semanticdesktop.org/ontologies/2007/03/22/nco#>
+PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie/#>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT DISTINCT ?target
+WHERE
+{
+ GRAPH <http://data.europa.eu/eurostat/temp> 
+ {
+  ?s mu:uuid \"599711A5100643503200000C\".
+  ?s ^dct:publisher/mu:uuid ?target.
+ }
+}"))
+
+(define c13 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX cms: <http://mu.semte.ch/vocabulary/cms/>
+PREFIX auth: <http://mu.semte.ch/vocabularies/authorization/>
+PREFIX session: <http://mu.semte.ch/vocabularies/session/>
+PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX dctype: <http://purl.org/dc/dcmitype/>
+PREFIX dcat: <http://www.w3.org/ns/dcat#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
+PREFIX nco: <http://www.semanticdesktop.org/ontologies/2007/03/22/nco#>
+PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie/#>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT ((COUNT (DISTINCT ?uuid)) AS ?count) WHERE {
+    GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s mu:uuid ?uuid; a dct:Agent. 
+}
+}
+"))
+
+(define c14 (parse-query "PREFIX rewriter: <http://mu.semte.ch/graphs/>
+PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX cms: <http://mu.semte.ch/vocabulary/cms/>
+PREFIX auth: <http://mu.semte.ch/vocabularies/authorization/>
+PREFIX session: <http://mu.semte.ch/vocabularies/session/>
+PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX dctype: <http://purl.org/dc/dcmitype/>
+PREFIX dcat: <http://www.w3.org/ns/dcat#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
+PREFIX nco: <http://www.semanticdesktop.org/ontologies/2007/03/22/nco#>
+PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie/#>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+SELECT DISTINCT ?uuid
+WHERE
+{
+ {
+  SELECT DISTINCT ?graph10905 ?type10906
+  WHERE
+  {
+   GRAPH <http://data.europa.eu/eurostat/graphs> 
+   {
+    ?rule10904 a rewriter:GraphRule.
+    ?graph10905 a rewriter:Graph.
+    ?rule10904 rewriter:graph ?graph10905.
+    ?rule10904 rewriter:predicate mu:uuid.
+    ?rule10904 rewriter:subjectType ?type10906.
+   }
+  }
+ }
+ GRAPH <http://data.europa.eu/eurostat/graphs> 
+ {
+  ?allGraphs10907 a rewriter:Graph.
+ }
+ GRAPH ?allGraphs10907 
+ {
+  ?s rdf:type ?type10906.
+ }
+ GRAPH ?graph10905 
+ {
+  ?s mu:uuid ?uuid.
+ }
+ {
+  SELECT DISTINCT ?graph10909 ?type10906
+  WHERE
+  {
+   GRAPH <http://data.europa.eu/eurostat/graphs> 
+   {
+    ?rule10908 a rewriter:GraphRule.
+    ?graph10909 a rewriter:Graph.
+    ?rule10908 rewriter:graph ?graph10909.
+    ?rule10908 rewriter:predicate rdf:type.
+    ?rule10908 rewriter:subjectType ?type10906.
+   }
+  }
+ }
+ GRAPH ?graph10909 
+ {
+  ?s rdf:type dct:Agent.
+ }
+}
+GROUP BY ?uuid
+OFFSET 0
+LIMIT 20"))

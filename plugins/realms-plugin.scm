@@ -51,21 +51,21 @@
 (*constraint*
  (lambda ()
    (let ((realm (query-graph-realm)))
-     (format #f  (conc "CONSTRUCT { ?s ?p ?o } "
-                       " WHERE { "
-                       " { SELECT DISTINCT ?graph ?type "
-                       " WHERE { "
-                       " GRAPH <http://data.europa.eu/eurostat/graphs> { "
-                       " ?rule a rewriter:GraphRule. "
-                       " ?graph a rewriter:Graph. "
-                       " ~A "
-                       " ?rule rewriter:predicate ?p. "
-                       " ?rule rewriter:subjectType ?type. } } } "
-                       " ~A "
-                       " GRAPH ?allGraphs { ?s rdf:type ?type } "
-                       " GRAPH ?graph { ?s ?p ?o } } ")
-             (graph-rule-realm realm)
-             (all-graphs-realm realm)))))
+     (format (conc "CONSTRUCT { ?s ?p ?o } "
+                    " WHERE { "
+                    " { SELECT DISTINCT ?graph ?type "
+                    " WHERE { "
+                    " GRAPH <http://data.europa.eu/eurostat/graphs> { "
+                    " ?rule a rewriter:GraphRule. "
+                    " ?graph a rewriter:Graph. "
+                    " ~A "
+                    " ?rule rewriter:predicate ?p. "
+                    " ?rule rewriter:subjectType ?type. } } } "
+                    " ~A "
+                    " GRAPH ?allGraphs { ?s rdf:type ?type } "
+                    " GRAPH ?graph { ?s ?p ?o } } ")
+              (graph-rule-realm realm)
+              (all-graphs-realm realm)))))
 
 ;; (*constraint*
 ;;  (conc "CONSTRUCT { ?s ?p ?o } "
