@@ -1,5 +1,5 @@
 {
-   "potentials":["http://localhost:4028/deltas"
+   "potentials":["http://sync/deltas"
   ],
   "effectives":[
   ]

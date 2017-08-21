@@ -7,7 +7,10 @@
 (require-extension sort-combinators)
 
 (define *subscribers-file*
-  (config-param "SUBSCRIBERSFILE" "subscribers.json"))
+  (config-param "SUBSCRIBERSFILE" 
+                (if (feature? 'docker)
+                    "/config/subscribers.json"
+                    "./config/rewriter/subscribers.json")))
 
 (define *subscribers*
   (handle-exceptions exn '()
@@ -24,10 +27,13 @@
    `((@QueryUnit
       ((@Query
        (CONSTRUCT (?s ?p ?o))
-       (WHERE (GRAPH ?g (?s ?p ?o)))))))))
+       (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))))
 
 (define *plugin*
-  (config-param "PLUGIN_PATH" #f))
+  (config-param "PLUGIN_PATH" 
+                (if (feature? 'docker)
+                    "/config/plugin.scm"
+                    "./config/rewriter/plugin.scm")))
 
 (when (*plugin*) (load (*plugin*)))
        
@@ -914,7 +920,9 @@
 (define-rest-call 'GET '("sparql") rewrite-call)
 (define-rest-call 'POST '("sparql") rewrite-call)
 
-;; (format #t "==Rewriter Constraint==~%~A" (write-sparql (*constraint*)))
+(if (procedure? (*constraint*))
+    (log-message "==Rewriter Constraint==~%~A" (write-sparql ((*constraint*))))
+    (log-message "==Rewriter Constraint==~%~A" (write-sparql (*constraint*))))
 
 
 
