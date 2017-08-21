@@ -20,8 +20,7 @@
   (and realm-id
        (query-unique-with-vars
         (realm)
-        (format #f
-                "SELECT ?realm
+        (format "SELECT ?realm
                  FROM ~A
                  WHERE { ?realm mu:uuid ~A }"
                 (*realm-id-graph*) 
@@ -30,7 +29,7 @@
 
 (define (graph-rule-realm realm)
   (if realm
-      (format #f (conc "{ ?rule rewriter:graph ?graph } "
+      (format (conc "{ ?rule rewriter:graph ?graph } "
                        " UNION " 
                        " { ?rule rewriter:graphType ?gtype. ?graph rewriter:type ?gtype. ?graph rewriter:realm ~A }")
               realm)
@@ -38,7 +37,7 @@
 
 (define (all-graphs-realm realm)
   (if realm
-      (format #f (conc " { SELECT DISTINCT ?allGraphs WHERE { "
+      (format (conc " { SELECT DISTINCT ?allGraphs WHERE { "
                        " GRAPH <http://data.europa.eu/eurostat/graphs> {"
                        " { ?rule rewriter:graph ?allGraphs } "
                        " UNION "
