@@ -1,30 +1,30 @@
 ;; (use s-sparql s-sparql-parser mu-chicken-support matchable)
 
-(load "app.scm")
+(include "app.scm")
 ;; (load "constraints.scm")
 ;; (*plugin* "plugins/realms-plugin.scm")
 
-(access-log "access.log")
-(debug-log "debug.log")
+;; (access-log "access.log")
+;; (debug-log "debug.log")
 
-(*default-graph* '<http://data.europa.eu/eurostat/graphs>)
+;; (*default-graph* '<http://data.europa.eu/eurostat/graphs>)
 
 ;; (*realm-id-graph* '<http://data.europa.eu/eurostat/uuid>)
 
-(vhost-map `((".*" . ,handle-app)))
+;; (vhost-map `((".*" . ,handle-app)))
 
 (*rewrite-select-queries?* #t)
 
-(*sparql-endpoint* "http://localhost:8891/sparql")
+;; (*sparql-endpoint* "http://localhost:8890/sparql")
 
-(*subscribers-file* "../config/rewriter/subscribers.json")
+;; (*subscribers-file* "../config/rewriter/subscribers.json")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
 (use spiffy)
 
-(define-namespace skos "http://www.w3.org/2004/02/skos/core#")
-(define-namespace eurostat "http://data.europa.eu/eurostat/")
+;; (define-namespace skos "http://www.w3.org/2004/02/skos/core#")
+;; (define-namespace eurostat "http://data.europa.eu/eurostat/")
 
 ;(*sparql-endpoint* "http://172.31.63.185:8890/sparql")
 
@@ -1396,3 +1396,72 @@ WHERE
 }
  }
 }"))
+
+(define cc8 "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
+PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+PREFIX schema: <http://schema.org/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
+PREFIX qb: <http://purl.org/linked-data/cube#>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX cms: <http://mu.semte.ch/vocabulary/cms/>
+PREFIX auth: <http://mu.semte.ch/vocabularies/authorization/>
+PREFIX session: <http://mu.semte.ch/vocabularies/session/>
+PREFIX geo: <http://www.opengis.net/ont/geosparql#>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX vcard: <http://www.w3.org/2006/vcard/ns#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX dctype: <http://purl.org/dc/dcmitype/>
+PREFIX dcat: <http://www.w3.org/ns/dcat#>
+PREFIX dcterms: <http://purl.org/dc/terms/>
+PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
+PREFIX nco: <http://www.semanticdesktop.org/ontologies/2007/03/22/nco#>
+PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie/#>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+ DELETE {
+  GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s mu:uuid \"5994542D1006434909000002\".
+    ?s a dct:Agent.
+    ?s dct:title ?name.
+    ?datasets dct:publisher ?s.
+   }  
+ }
+
+WHERE {
+  GRAPH <http://data.europa.eu/eurostat/temp> {
+    ?s mu:uuid \"5994542D1006434909000002\".
+    ?s a dct:Agent.
+    OPTIONAL {
+      ?s dct:title ?name.
+     }
+    OPTIONAL {
+      ?datasets dct:publisher ?s.
+     }
+   }  
+ }
+")
+
+(define c16 (parse-query "PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX dct: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+ INSERT DATA {
+  GRAPH <http://data.europa.eu/eurostat/temp> {
+    <02> rdf:type dct:Agent.
+    <02> rdf:type qb:Dataset.
+    <02> dct:title \"your\".
+   }  
+ }"))
+
+(define (go query)
+  (rewrite-query query top-rules))
+
+;; (print (- (cpu-time)
+;;           (begin
+;;             (write-sparql (rewrite-query
+;;                            (parse-query cc8) top-rules)) (cpu-time))))
