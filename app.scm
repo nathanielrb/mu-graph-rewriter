@@ -1,4 +1,4 @@
-(use s-sparql s-sparql-parser
+(use s-sparql
      mu-chicken-support
      matchable intarweb spiffy spiffy-request-vars
      uri-common intarweb medea irregex srfi-13 http-client cjson
@@ -478,7 +478,6 @@
                        (if (*in-where?*)
                            (values `((*REWRITTEN* ,@constraint)) clean-bindings)
                            (values
-                            ;;`((GRAPH ,graph (,a ,b ,c)))
                             (map (lambda (graph)
                                    `(GRAPH ,graph (,a ,b ,c)))
                                  graphs)
@@ -494,8 +493,6 @@
 
 (define rename-constraint-triple
   (lambda (triple bindings)
-    ;; (print "renaming " triple)
-    ;; (print bindings)
     (let* ((matched-triple? (equal? triple (get-binding 'matched-triple bindings)))
            (graph (and matched-triple? (get-context-graph))))
       (let-values (((substitutions new-bindings)
