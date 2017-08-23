@@ -30,6 +30,8 @@
        (CONSTRUCT (?s ?p ?o))
        (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))))
 
+(define *functional-properties* (make-parameter '(rdf:type)))
+
 (define *plugin*
   (config-param "PLUGIN_PATH" 
                 (if (feature? 'docker)
@@ -115,34 +117,36 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Utility transformations
-(define (expand-triples block #!optional (bindings '()) flatten-graph-statements? replace-a?)
-  (rewrite block bindings (expand-triples-rules flatten-graph-statements? replace-a?)))
+;; refactor this a bit, to use #!key for mapp and bindingsp
+(define (expand-triples block #!optional (bindings '()) flatten-graph-statements? mapp bindingsp)
+  (rewrite block bindings (expand-triples-rules flatten-graph-statements? mapp bindingsp)))
 
-(define (recursive-expand-triples block #!optional (bindings '()) flatten-graph-statements? replace-a?)
-  (rewrite block bindings (recursive-expand-triples-rules flatten-graph-statements?)))
+(define (recursive-expand-triples block #!optional (bindings '()) flatten-graph-statements? mapp bindingsp)
+  (rewrite block bindings (recursive-expand-triples-rules flatten-graph-statements? mapp bindingsp)))
 
-(define (expand-triple-rule #!optional expand-a?)
-  (lambda (triple bindings)
-    (if expand-a?
-        (values 
-         (map (match-lambda ((s `a o) `(,s rdf:type ,o))
-                            ((s p o) `(,s ,p ,o)))
-              (expand-triple triple))
-         bindings)
-    (values (expand-triple triple) bindings))))
+(define replace-a
+  (match-lambda ((s `a o) `(,s rdf:type ,o))
+                ((s p o)  `(,s ,p ,o))))
 
-(define (expand-triples-rules flatten-graph-statements? #!optional replace-a?)
+(define (expand-triple-rule #!optional mapp bindingsp)
+  (let ((mapp (or mapp values))
+        (bindingsp (or bindingsp (lambda (triples bindings) bindings))))
+    (lambda (triple bindings)
+      (let ((triples (map mapp (expand-triple triple))))
+        (values triples (bindingsp triples bindings))))))
+
+(define (expand-triples-rules flatten-graph-statements? #!optional mapp bindingsp)
   `((,symbol? . ,rw/copy)
-    (,triple? . ,(expand-triple-rule replace-a?))
+    (,triple? . ,(expand-triple-rule mapp bindingsp))
     ((GRAPH) . ,(flatten-graph-rule flatten-graph-statements?))
     ((FILTER BIND MINUS OPTIONAL UNION) . ,rw/copy)
     (,select? . ,rw/copy)
     ((@SubSelect |GROUP BY| OFFSET LIMIT) . ,rw/copy)
     (,pair? . ,rw/continue)))
 
-(define (recursive-expand-triples-rules flatten-graph-statements? #!optional replace-a?)
+(define (recursive-expand-triples-rules flatten-graph-statements? #!optional mapp bindingsp)
   `((,symbol? . ,rw/copy)
-    (,triple? . ,(expand-triple-rule replace-a?))
+    (,triple? . ,(expand-triple-rule mapp bindingsp))
     ((GRAPH) 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
@@ -183,10 +187,23 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Core Transformation
+(define (get-functional-properties triples bindings)
+  (print "get " triples)
+  (fold (lambda (triple bindings)
+          (match triple
+            ((s p o)
+             (print "F: " s p o)
+             (update-binding s p 'functional-property o bindings))))
+        bindings
+        (filter (lambda (triple)
+                  (match triple
+                    ((s p o) (member p (*functional-properties*)))))
+                triples)))
+
 (define (rewrite-quads-block block bindings)
   (let ((rewrite-graph-statements? (not (preserve-graphs?))))
     ;; expand triples
-    (let-values (((q1 b1) (expand-triples (cdr block) bindings rewrite-graph-statements?)))
+    (let-values (((q1 b1) (expand-triples (cdr block) bindings rewrite-graph-statements? replace-a get-functional-properties)))
       ;; rewrite-triples
       (let-values (((q2 b2) (rewrite q1 b1 triples-rules)))
         ;; continue in nested quad blocks
@@ -229,7 +246,7 @@
               (let ((insert (or (alist-ref '|INSERT DATA| (cdr block))
                                 (alist-ref 'INSERT (cdr block)))))
                 (let* ((constraints (if insert
-                                       (let ((triples (expand-triples insert '() #t #t)))
+                                       (let ((triples (expand-triples insert '() #t replace-a)))
                                          (instantiate constraints triples))
                                        constraints))
                        (new-where (append constraints where-block)))
@@ -474,21 +491,32 @@
                                                             ('matched-triple (list s p o)))
                                                            bindings)
                                           constraint-rules)))
-                     (let (;;(graphs (get-binding a (if (equal? b 'a) 'rdf:type b) c 'graphs new-bindings))
-                           (graphs (cdr-when (assoc (list a (if (equal? b 'a) 'rdf:type b) c) 
+                     
+                     (let ((graphs (cdr-when (assoc (list a (if (equal? b 'a) 'rdf:type b) c) 
                                                (get-binding/default 'triple-graphs new-bindings '()))))
                            (constraint (alist-ref 'WHERE rw))
-                           (clean-bindings (delete-bindings (('matched-triple) 
-                                                             ('constraint-substitutions)) 
-                                                            new-bindings)))
+                           (cleaned-bindings (delete-bindings (('matched-triple) 
+                                                             ('constraint-substitutions))
+                                                            new-bindings))
+                           (fpbs (get-binding 'fproperties-bindings new-bindings)))
+                       (let ((constraint (if fpbs (replace-variables constraint fpbs) constraint)))
+
                        (if (*in-where?*)
-                           (values `((*REWRITTEN* ,@constraint)) clean-bindings)
+                           (values `((*REWRITTEN* ,@constraint)) cleaned-bindings)
                            (values
                             (map (lambda (graph)
                                    `(GRAPH ,graph (,a ,b ,c)))
                                  graphs)
-                            (fold-binding constraint 'constraints append '() clean-bindings))))))))))
+                            (fold-binding constraint 'constraints append '() cleaned-bindings)))))))))))
          (,pair? . ,rw/remove)))))
+
+(define (replace-variables exp bindings)
+  (if (null? exp) '()
+      (let ((e (car exp))
+            (rest (replace-variables (cdr exp) bindings)))
+        (if (pair? e)
+            (cons (replace-variables e bindings) rest)
+            (cons (or (alist-ref e bindings) e) rest)))))
 
 (define (get-context-graph)
   (match (context-head
@@ -500,11 +528,11 @@
 (define (atom-or-cdr a)
   (if (pair? a) (cdr a) a))
 
-;; needs real refactoring and naming
+;; this one needs real refactoring and renaming
 (define rename-constraint-triple
   (lambda (triple bindings)
-    (let* ((matched-triple? (equal? triple (get-binding 'matched-triple bindings)))
-           (graph (get-context-graph)))
+
+    (let* ((graph (get-context-graph)))
       (let-values (((substitutions new-bindings)
                     (let loop ((vars (cons graph triple)) (substitutions '()) (new-bindings bindings)) ;; new-bindings => bindings
                       (if (null? vars) 
@@ -529,20 +557,27 @@
                                                 (update-renaming var new-var new-bindings))))))))))
         (let* ((graph (car substitutions))
                (renamed-triple (map atom-or-cdr (cdr substitutions)))
-               (current-graphs (or (cdr-when (assoc renamed-triple (get-binding/default 'triple-graphs bindings '()))) '())))
+               (current-graphs (or (cdr-when (assoc renamed-triple (get-binding/default 'triple-graphs bindings '()))) '()))
+
+               ;; is this done in the right place???
+               ;; and what about bindings/substitutions
+               (fproperty (match renamed-triple ((s p o) (get-binding s p 'functional-property bindings)))))
+
           (if (member graph current-graphs)
               (values '() new-bindings)
-              (values
-               (list (map atom-or-cdr renamed-triple))
+              (values               
+               (list renamed-triple)
                (fold-binding renamed-triple
-                              'triple-graphs
-                              (lambda (triple graphs-list)
-                                (alist-update triple
-                                              (cons (atom-or-cdr graph)
-                                                    current-graphs)
-                                              graphs-list))
-                              '()
-                              new-bindings))))))))
+                             'triple-graphs
+                             (lambda (triple graphs-list)
+                               (alist-update triple
+                                             (cons (atom-or-cdr graph)
+                                                   current-graphs)
+                                             graphs-list))
+                             '()
+                             (if (and fproperty (sparql-variable? (third renamed-triple)))
+                                 (cons-binding (cons (third renamed-triple) fproperty) 'fproperties-bindings new-bindings)
+                                 new-bindings)))))))))
 
 (define constraint-rules
   `((,symbol? . ,rw/copy)
@@ -690,8 +725,7 @@
                    (match-triple triple (cdr triples))
                    (cons match-binding (match-triple triple (cdr triples)))))
               ((sparql-variable? (car triple1))
-               (loop (cdr triple1) (cdr triple2) (cons (cons (car triple1) (car triple2))
-                                                       match-binding)))
+               (loop (cdr triple1) (cdr triple2) (cons (cons (car triple1) (car triple2)) match-binding)))
               ((equal? (car triple1) (car triple2)) (loop (cdr triple1) (cdr triple2) match-binding))
               (else (match-triple triple (cdr triples)))))))
     
@@ -965,7 +999,7 @@
           (close-connection! uri)
         
           ;; slow!!
-          (let ((headers (headers->list (h response)))); (response-headers response))))
+          (let ((headers (headers->list (response-headers response))))
             (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result))))
             (mu-headers headers)
             result))))))
