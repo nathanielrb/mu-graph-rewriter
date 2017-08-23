@@ -1461,7 +1461,10 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
 (define (go query)
   (rewrite-query query top-rules))
 
-;; (print (- (cpu-time)
-;;           (begin
-;;             (write-sparql (rewrite-query
-;;                            (parse-query cc8) top-rules)) (cpu-time))))
+;; (let loop ((i 0))
+;;   (when (<  i 100)
+;;     (print (- (cpu-time)
+;;               (begin
+;;                 (write-sparql (rewrite-query
+;;                                (parse-query cc8) top-rules)) (cpu-time))))
+;;     (loop (+ i 1))))

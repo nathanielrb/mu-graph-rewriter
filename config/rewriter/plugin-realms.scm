@@ -30,20 +30,30 @@
 (define (graph-rule-realm realm)
   (if realm
       (format (conc "{ ?rule rewriter:graph ?graph } "
-                       " UNION " 
-                       " { ?rule rewriter:graphType ?gtype. ?graph rewriter:type ?gtype. ?graph rewriter:realm ~A }")
+                    "UNION " 
+                    "{"
+                    " ?rule rewriter:graphType ?gtype."
+                    " ?graph rewriter:type ?gtype."
+                    " ?graph rewriter:realm ~A "
+                    "}")
               realm)
       "?rule rewriter:graph ?graph."))
 
 (define (all-graphs-realm realm)
   (if realm
-      (format (conc " { SELECT DISTINCT ?allGraphs WHERE { "
-                       " GRAPH <http://data.europa.eu/eurostat/graphs> {"
-                       " { ?rule rewriter:graph ?allGraphs } "
-                       " UNION "
-                       " { ?rule rewriter:graphType ?gtype. ?allGraphs rewriter:type ?gtype. ?allGraphs rewriter:realm ~A } "
-                       " } "
-                       " } }")
+      (format (conc "{ "
+                    " SELECT DISTINCT ?allGraphs WHERE { "
+                    "  GRAPH <http://data.europa.eu/eurostat/graphs> {"
+                    "   { ?rule rewriter:graph ?allGraphs } "
+                    "   UNION "
+                    "   { "
+                    "    ?rule rewriter:graphType ?gtype."
+                    "    ?allGraphs rewriter:type ?gtype."
+                    "    ?allGraphs rewriter:realm ~A "
+                    "   } "
+                    "  } "
+                    " }"
+                    "}")
               realm)
       " GRAPH <http://data.europa.eu/eurostat/graphs> { ?allGraphs a rewriter:Graph } "))
 
@@ -51,18 +61,23 @@
  (lambda ()
    (let ((realm (query-graph-realm)))
      (format (conc "CONSTRUCT { ?s ?p ?o } "
+                   " WHERE { "
+                   " { "
+                   "  SELECT DISTINCT ?graph ?type "
                     " WHERE { "
-                    " { SELECT DISTINCT ?graph ?type "
-                    " WHERE { "
-                    " GRAPH <http://data.europa.eu/eurostat/graphs> { "
-                    " ?rule a rewriter:GraphRule. "
-                    " ?graph a rewriter:Graph. "
-                    " ~A "
-                    " ?rule rewriter:predicate ?p. "
-                    " ?rule rewriter:subjectType ?type. } } } "
+                    "   GRAPH <http://data.europa.eu/eurostat/graphs> { "
+                    "    ?rule a rewriter:GraphRule. "
+                    "    ?graph a rewriter:Graph. "
+                    "    ~A "
+                    "    ?rule rewriter:predicate ?p. "
+                    "    ?rule rewriter:subjectType ?type. "
+                    "   }"
+                    "  }"
+                    " } "
                     " ~A "
                     " GRAPH ?allGraphs { ?s rdf:type ?type } "
-                    " GRAPH ?graph { ?s ?p ?o } } ")
+                    " GRAPH ?graph { ?s ?p ?o } "
+                    "} ")
               (graph-rule-realm realm)
               (all-graphs-realm realm)))))
 
