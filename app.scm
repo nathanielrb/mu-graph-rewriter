@@ -388,10 +388,12 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Apply CONSTRUCT statement as a constraint on a triple a b c
-(define (parse-constraint constraint)
+(define (parse-constraint* constraint)
   (let ((constraint
          (if (pair? constraint) constraint (parse-query constraint))))
     (recursive-expand-triples constraint '() #f)))
+
+(define parse-constraint (memoize parse-constraint*))
 
 (define constrain-triple
   (let ((constraint (*constraint*)))
@@ -921,7 +923,7 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-        (log-message "~%==Effective Graphs==~%(Will be in headers, and done in parallel for performance)~%~A~%" (get-all-graphs rewritten-query))
+        (log-message "~%==Potential Graphs==~%(Will be in headers, and done in parallel for performance)~%~A~%" (get-all-graphs rewritten-query))
 
         ;; (when (update-query? rewritten-query)
         ;;   (notify-deltas rewritten-query))
