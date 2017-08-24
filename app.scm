@@ -32,6 +32,8 @@
 
 (define *functional-properties* (make-parameter '(rdf:type)))
 
+(*functional-properties* '())
+
 (define *plugin*
   (config-param "PLUGIN_PATH" 
                 (if (feature? 'docker)
@@ -67,17 +69,6 @@
     (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
       (values rw new-bindings))))
 
-;; project...?
-(define (rw/subselect block bindings)
-  (match block
-    ;;((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`@Dataset . dataset)
-    ;;    (`WHERE . quads) . rest)
-    ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
-     (let-values (((rw new-bindings) (rewrite quads bindings)))
-       (values
-        `((@SubSelect ,(second block) (WHERE ,@rw) ,@rest))
-        new-bindings)))))
-
 (define (extract-subselect-vars vars)
   (filter values
           (map (lambda (var)
@@ -86,6 +77,18 @@
                        ((`AS _ v) v)
                        (else #f))))
                vars)))
+
+(define (subselect-bindings vars bindings)
+  (let* ((subselect-vars (extract-subselect-vars vars))
+         (inner-bindings (if (or (equal? subselect-vars '(*))
+                                 (equal? subselect-vars '*))
+                             bindings)))
+    (project-bindings subselect-vars bindings)))
+
+(define (merge-subselect-bindings vars new-bindings bindings)
+  (merge-bindings
+   (project-bindings (extract-subselect-vars vars) new-bindings)
+   bindings))
 
 ;; should be:
 ;; just project bindings
@@ -96,13 +99,25 @@
     ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) . quads)
      (let* ((subselect-vars (extract-subselect-vars vars))
             (inner-bindings (if (or (equal? subselect-vars '(*))
-                              (equal? subselect-vars '*))
-                          bindings
-                          (project-bindings subselect-vars bindings))))
+                                    (equal? subselect-vars '*))
+                                bindings
+                                (project-bindings subselect-vars bindings))))
        (let-values (((rw new-bindings) (rewrite quads inner-bindings)))
-         (values `((@SubSelect ,(second block) ,@rw)) (merge-bindings 
-                                                       (project-bindings subselect-vars bindings)
-                                                       bindings)))))))
+         (values `((@SubSelect ,(second block) ,@rw)) 
+                 (merge-bindings 
+                  (project-bindings subselect-vars new-bindings)
+                  bindings)))))))
+
+;; project...?
+(define (rw/subselect block bindings)
+  (match block
+    ;;((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`@Dataset . dataset)
+    ;;    (`WHERE . quads) . rest)
+    ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
+     (let-values (((rw new-bindings) (rewrite quads bindings)))
+       (values
+        `((@SubSelect ,(second block) (WHERE ,@rw) ,@rest))
+        new-bindings)))))
 
 ;; (define (rw/where-subselect block bindings)
 ;;   (match block
@@ -580,6 +595,8 @@
 
                ;; is this done in the right place???
                ;; and what about bindings/substitutions
+               ;; and what about namespaces?
+               ;; and what about a validity check?
                (fproperty (match renamed-triple ((s p o) (get-binding s p 'functional-property bindings)))))
 
           (if (member graph current-graphs)
@@ -752,6 +769,7 @@
 
 ;; matches a triple against a list of triples, and if successful returns a binding list
 ;; ex: (match-triple '(?s a dct:Agent) '((<a> <b> <c>) (<a> a dct:Agent)) => '((?s . <a>))
+;; but should differentiate between empty success '() and failure #f
 (define (match-triple triple triples)
   (if (null? triples) '()
       (let loop ((triple1 triple) (triple2 (car triples)) (match-binding '()))
@@ -761,7 +779,8 @@
                    (cons match-binding (match-triple triple (cdr triples)))))
               ((sparql-variable? (car triple1))
                (loop (cdr triple1) (cdr triple2) (cons (cons (car triple1) (car triple2)) match-binding)))
-              ((equal? (car triple1) (car triple2)) (loop (cdr triple1) (cdr triple2) match-binding))
+              ((equal? (car triple1) (car triple2))
+               (loop (cdr triple1) (cdr triple2) match-binding))
               (else (match-triple triple (cdr triples)))))))
     
 (define (instantiate-triple triple binding)
@@ -804,7 +823,16 @@
     ))
 
 (define instantiation-union-rules
-  `(((@SubSelect) . ,rw/subselect)
+  `(((@SubSelect) 
+     ;; . ,rw/subselect)
+     ;; necessary to project here?? probably yes
+     . ,(lambda  (block bindings)
+          (match block
+            ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
+             (let-values (((rw new-bindings) (rewrite quads (subselect-bindings vars bindings))))
+               (values
+                `((@SubSelect ,(second block) (WHERE ,@(group-graph-statements rw)) ,@rest))
+                (merge-subselect-bindings vars new-bindings bindings)))))))
     ((GRAPH) 
      . ,(lambda (block bindings)
           (match block
@@ -821,9 +849,12 @@
                    (values 
                     (union-over-instantiation block shared-variable-triples bindings)
                     bindings)))))))
-    ((UNION) . ,rw/continue)
     (,symbol? . ,rw/copy)
     (,null? . ,rw/remove)
+    ((WHERE UNION OPTIONAL MINUS)
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+            (values `((,(car block) ,@(group-graph-statements rw))) new-bindings))))
     (,list? . ,rw/list)
     ))
 
@@ -838,6 +869,26 @@
                    ,@instantiated-quad-block)))
          (update-binding 'instantiated-quads (cdr shared-triples)  bindings)
          instantiation-union-rules))))))
+
+(define (group-graph-statements statements)
+  (let loop ((statements statements) (graph #f) (statements-same-graph '()))
+    (cond ((null? statements) 
+           (if graph `((GRAPH ,graph ,@statements-same-graph)) '()))
+          (graph
+           (match (car statements)
+             ((`GRAPH graph2 . rest) 
+              (if (equal? graph2 graph)
+                  (loop (cdr statements) graph (append statements-same-graph rest))
+                  (cons `(GRAPH ,graph ,@statements-same-graph)
+                        (loop (cdr statements) graph2 rest))))
+             (else (cons `(GRAPH ,graph ,@statements-same-graph)
+                         (cons (car statements)
+                               (loop (cdr statements) #f '()))))))
+          (else
+           (match (car statements)
+             ((`GRAPH graph . rest) 
+              (loop (cdr statements) graph rest))
+             (else (cons (car statements) (loop (cdr statements) #f '()))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Deltas
@@ -1039,7 +1090,8 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-        ;; (log-message "~%==Potential Graphs==~%(Will be in headers, and done in parallel for performance)~%~A~%" (get-all-graphs rewritten-query))
+        (log-message "~%==Potential Graphs==~%(Will be in headers, and done in parallel for performance)~%~A~%" 
+                     (get-all-graphs rewritten-query))
 
         ;; (when (update-query? rewritten-query)
         ;;   (notify-deltas rewritten-query))
