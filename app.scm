@@ -624,10 +624,11 @@
                (if (null? rw)
                    (values '() projected-bindings)
                    (values `((@SubSelect (,(car (second block) )
-                                          ,@(map (lambda (var) 
-                                                   (if (equal? var '*) var
-                                                       (current-substitution var projected-bindings)))
-                                                 vars))
+                                          ,@(filter sparql-variable?
+                                                    (map (lambda (var)  ;; what about Expressions??
+                                                           (if (equal? var '*) var
+                                                               (current-substitution var projected-bindings)))
+                                                         vars)))
                                          (WHERE ,@rw) ,@rest))
                            projected-bindings)))))))))
     ((WHERE)
@@ -991,50 +992,76 @@
 (define $mu-session-id (make-parameter #f))
 (define $mu-call-id (make-parameter #f))
 
-(define parse (memoize parse-query))
+(define (proxy-query rewritten-query)
+  (with-input-from-request 
+   (make-request method: 'POST
+                 uri: (uri-reference (*sparql-endpoint*))
+                 headers: (headers
+                           '((Content-Type application/x-www-form-urlencoded)
+                             (Accept application/sparql-results+json)))) 
+   `((query . , (format #f "~A" (write-sp1 rewritten-query))))
+   read-string))
 
+(define (parse q) (parse-query q))
+
+(define (rw a b) (rewrite-query a b))
+
+(define (write-sp1 q) (write-sparql q))
+
+(define (write-sp2 q) (write-sparql q))
+
+(define (write-sp3 q) (write-sparql q))
+
+(define (get-query-string)
+  (let* (($$query (request-vars source: 'query-string))
+        (body (read-request-body))
+        ($$body (let ((parsed-body (form-urldecode body)))
+                  (lambda (key)
+                    (and parsed-body (alist-ref key parsed-body))))))
+    (or ($$query 'query) ($$body 'query) body)))
+
+(define (first-log query-string query)
+  (log-message "~%==Received Headers==~%~A~%" (*request-headers*))
+  (log-message "~%==Rewriting Query==~%~A~%" query-string)
+  (log-message "~%==Parsed As==~%~A~%" (write-sp2 query)))
+
+(define (second-log rewritten-query)
+  (log-message "~%==Rewritten Query==~%~A~%" (write-sp3 rewritten-query)))
+
+(define (third-log result)
+  (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result)))))
 ;; this is a beast. clean it up.
 (define (rewrite-call _)
-  (let* (($$query (request-vars source: 'query-string))
-         (body (read-request-body))
-         ($$body (let ((parsed-body (form-urldecode body)))
-                   (lambda (key)
-                     (and parsed-body (alist-ref key parsed-body)))))
-         (query-string (or ($$query 'query) ($$body 'query) body))
+  (let* (
+         (query-string (get-query-string))
          (query (parse query-string)))
          
-    (log-message "~%==Received Headers==~%~A~%" (*request-headers*))
-    (log-message "~%==Rewriting Query==~%~A~%" query-string)
-    (log-message "~%==Parsed As==~%~A~%" (write-sparql query))
+    ;; (print "Query came from " (cond (($$query 'query) "query") (($$body 'query) "body param") (body "body")))
+    
+    (first-log query-string query)
 
     (let ((rewritten-query 
-           (parameterize (($query $$query) ($body $$body))
-             (rewrite-query query top-rules))))
+           ;; (parameterize (($query $$query) ($body $$body))
+             (rw query top-rules))) ;)
 
-      (log-message "~%==Rewritten Query==~%~A~%" (write-sparql rewritten-query))
+      (second-log rewritten-query)
 
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-        (log-message "~%==Potential Graphs==~%(Will be in headers, and done in parallel for performance)~%~A~%" (get-all-graphs rewritten-query))
+        ;; (log-message "~%==Potential Graphs==~%(Will be in headers, and done in parallel for performance)~%~A~%" (get-all-graphs rewritten-query))
 
         ;; (when (update-query? rewritten-query)
         ;;   (notify-deltas rewritten-query))
       
       (let-values (((result uri response)
-                      (with-input-from-request 
-                       (make-request method: 'POST
-                                     uri: (uri-reference (*sparql-endpoint*))
-                                     headers: (headers
-                                               '((Content-Type application/x-www-form-urlencoded)
-                                                 (Accept application/sparql-results+json)))) 
-                       `((query . , (format #f "~A" (write-sparql rewritten-query))))
-                       read-string)))
-          (close-connection! uri)
+                    (proxy-query rewritten-query)))
+        (close-connection! uri)
         
           ;; slow!!
           (let ((headers (headers->list (response-headers response))))
-            (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result))))
+            (third-log result)
+            ;;(log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result))))
             (mu-headers headers)
             result))))))
 
