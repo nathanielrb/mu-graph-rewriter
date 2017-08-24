@@ -99,8 +99,10 @@
                               (equal? subselect-vars '*))
                           bindings
                           (project-bindings subselect-vars bindings))))
-       (let-values (((rw b) (rewrite quads inner-bindings)))
-         (values `((@SubSelect ,(second block) ,@rw)) (merge-bindings b bindings)))))))
+       (let-values (((rw new-bindings) (rewrite quads inner-bindings)))
+         (values `((@SubSelect ,(second block) ,@rw)) (merge-bindings 
+                                                       (project-bindings subselect-vars bindings)
+                                                       bindings)))))))
 
 ;; (define (rw/where-subselect block bindings)
 ;;   (match block
@@ -188,11 +190,9 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Core Transformation
 (define (get-functional-properties triples bindings)
-  (print "get " triples)
   (fold (lambda (triple bindings)
           (match triple
             ((s p o)
-             (print "F: " s p o)
              (update-binding s p 'functional-property o bindings))))
         bindings
         (filter (lambda (triple)
@@ -425,6 +425,10 @@
   (let ((sub (alist-ref var (get-binding/default 'constraint-substitutions bindings '()))))
     (if (equal? sub 'a) 'rdf:type sub)))
 
+(define (dependency-substitution var bindings)
+  (let ((sub (alist-ref var (get-binding/default 'dependency-substitutions bindings '()))))
+    (if (equal? sub 'a) 'rdf:type sub)))
+
 (define (substitution-or-value var bindings)
   (if (sparql-variable? var)
       (current-substitution var bindings)
@@ -433,17 +437,21 @@
 (define (deps* var bindings)
   (let ((dependencies (get-binding/default 'dependencies bindings '())))
     (filter (lambda (v) (member v (or (alist-ref var dependencies) '())))
-            (get-binding 'matched-triple bindings))))
+            (get-binding/default 'matched-triple bindings '()))))
 
 (define deps (memoize deps*))
 
 (define (keys* var bindings)
-  (map (cut current-substitution <> bindings) (deps var bindings)))
+  (map (cut dependency-substitution <> bindings) (deps var bindings)))
 
 (define keys (memoize keys*))
 
 (define (renaming* var bindings)
-  (alist-ref var (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
+  (alist-ref var 
+             (get-binding/default* (keys var bindings)
+                                   (deps var bindings) 
+                                   bindings
+                                   '())))
 
 (define renaming (memoize renaming*))
 
@@ -454,6 +462,9 @@
                  (cut alist-update var <> <>)
                 '()
                 bindings))
+
+;; (define (remove-renaming var bindings)
+;;  (delete-binding* (keys var bindings) (deps var bindings) bindings))
 
 ;; (define (project-renamings ..) 
 
@@ -488,19 +499,25 @@
                    (let-values (((rw new-bindings)
                                  (rewrite (get-binding 'constraint-where bindings)
                                           (update-bindings (('constraint-substitutions constraint-substitutions)
+                                                            ('dependency-substitutions constraint-substitutions)
                                                             ('matched-triple (list s p o)))
                                                            bindings)
                                           constraint-rules)))
                      
-                     (let ((graphs (cdr-when (assoc (list a (if (equal? b 'a) 'rdf:type b) c) 
+                     (let* ((graphs (cdr-when (assoc (list a (if (equal? b 'a) 'rdf:type b) c) 
                                                (get-binding/default 'triple-graphs new-bindings '()))))
                            (constraint (alist-ref 'WHERE rw))
-                           (cleaned-bindings (delete-bindings (('matched-triple) 
-                                                             ('constraint-substitutions))
-                                                            new-bindings))
+                           (substitutions (get-binding 'constraint-substitutions new-bindings))
+                           (updated-bindings (fold (lambda (substitution bindings)
+                                                     (update-renaming (car substitution) (cdr substitution) bindings))
+                                                   new-bindings
+                                                   substitutions))
                            (fpbs (get-binding 'fproperties-bindings new-bindings)))
-                       (let ((constraint (if fpbs (replace-variables constraint fpbs) constraint)))
-
+                       (let ((constraint (if fpbs (replace-variables constraint fpbs) constraint))
+                             (cleaned-bindings (delete-bindings (('matched-triple) 
+                                                                 ('constraint-substitutions)
+                                                                 ('dependency-substitutions) ('dependencies))
+                                                                updated-bindings)))
                        (if (*in-where?*)
                            (values `((*REWRITTEN* ,@constraint)) cleaned-bindings)
                            (values
@@ -554,7 +571,9 @@
                                   (else (let ((new-var (gensym var)))
                                           (loop (cdr vars)
                                                 (cons `(,var . ,new-var) substitutions)
-                                                (update-renaming var new-var new-bindings))))))))))
+                                                new-bindings
+                                                ;; (update-renaming var new-var new-bindings)
+                                                )))))))))
         (let* ((graph (car substitutions))
                (renamed-triple (map atom-or-cdr (cdr substitutions)))
                (current-graphs (or (cdr-when (assoc renamed-triple (get-binding/default 'triple-graphs bindings '()))) '()))
@@ -579,6 +598,11 @@
                                  (cons-binding (cons (third renamed-triple) fproperty) 'fproperties-bindings new-bindings)
                                  new-bindings)))))))))
 
+(define (project-substitutions vars substitutions)
+  (filter (lambda (substitution)
+            (member (car substitution) vars))
+          substitutions))
+
 (define constraint-rules
   `((,symbol? . ,rw/copy)
     ((CONSTRUCT) . ,rw/remove)
@@ -586,16 +610,26 @@
      . ,(lambda (block bindings) 
           (match block
             ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
-             (let-values (((rw new-bindings) (rewrite quads bindings)))
+             (let* ((subselect-vars (extract-subselect-vars vars))
+                    (projected-substitutions (project-substitutions subselect-vars
+                                                                    (get-binding 'constraint-substitutions bindings))))
+             (let-values (((rw new-bindings) (rewrite quads (update-binding 'constraint-substitutions projected-substitutions
+                                                                            bindings))))
+               (let ((projected-bindings (update-binding 'constraint-substitutions
+                                                         (append
+                                                          (project-substitutions
+                                                           subselect-vars (get-binding 'constraint-substitutions new-bindings))
+                                                          (get-binding 'constraint-substitutions bindings))
+                                                         new-bindings)))
                (if (null? rw)
-                   (values '() new-bindings)
+                   (values '() projected-bindings)
                    (values `((@SubSelect (,(car (second block) )
                                           ,@(map (lambda (var) 
                                                    (if (equal? var '*) var
-                                                       (current-substitution var new-bindings)))
+                                                       (current-substitution var projected-bindings)))
                                                  vars))
                                          (WHERE ,@rw) ,@rest))
-                           new-bindings)))))))
+                           projected-bindings)))))))))
     ((WHERE)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings)
@@ -603,7 +637,7 @@
                                  (update-binding
                                   'dependencies (constraint-dependencies block bindings)
                                   bindings))))
-            (values `((WHERE ,@rw)) (delete-binding 'dependencies new-bindings)))))
+            (values `((WHERE ,@rw)) new-bindings)))) ;; (delete-binding 'dependencies new-bindings)))))
     ((UNION) . ,rw/continue)
     ((GRAPH) 
      . ,(lambda (block bindings)
