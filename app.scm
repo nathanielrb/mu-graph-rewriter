@@ -992,59 +992,49 @@
 (define $mu-session-id (make-parameter #f))
 (define $mu-call-id (make-parameter #f))
 
-(define (proxy-query rewritten-query)
+(define (proxy-query rewritten-query-string)
   (with-input-from-request 
    (make-request method: 'POST
                  uri: (uri-reference (*sparql-endpoint*))
                  headers: (headers
                            '((Content-Type application/x-www-form-urlencoded)
                              (Accept application/sparql-results+json)))) 
-   `((query . , (format #f "~A" (write-sp1 rewritten-query))))
+   `((query . , (format #f "~A" rewritten-query-string)))
    read-string))
 
 (define (parse q) (parse-query q))
 
-(define (rw a b) (rewrite-query a b))
+(define (log-headers) (log-message "~%==Received Headers==~%~A~%" (*request-headers*)))
 
-(define (write-sp1 q) (write-sparql q))
-
-(define (write-sp2 q) (write-sparql q))
-
-(define (write-sp3 q) (write-sparql q))
-
-(define (get-query-string)
-  (let* (($$query (request-vars source: 'query-string))
-        (body (read-request-body))
-        ($$body (let ((parsed-body (form-urldecode body)))
-                  (lambda (key)
-                    (and parsed-body (alist-ref key parsed-body))))))
-    (or ($$query 'query) ($$body 'query) body)))
-
-(define (first-log query-string query)
-  (log-message "~%==Received Headers==~%~A~%" (*request-headers*))
+(define (log-received-query query-string query)
+  (log-headers)
   (log-message "~%==Rewriting Query==~%~A~%" query-string)
-  (log-message "~%==Parsed As==~%~A~%" (write-sp2 query)))
+  (log-message "~%==Parsed As==~%~A~%" (write-sparql query)))
 
-(define (second-log rewritten-query)
-  (log-message "~%==Rewritten Query==~%~A~%" (write-sp3 rewritten-query)))
+(define (log-rewritten-query rewritten-query-string)
+  (log-message "~%==Rewritten Query==~%~A~%" rewritten-query-string))
 
-(define (third-log result)
+(define (log-results result)
   (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result)))))
+
 ;; this is a beast. clean it up.
 (define (rewrite-call _)
-  (let* (
-         (query-string (get-query-string))
+  (let* (($$query (request-vars source: 'query-string))
+         (body (read-request-body))
+         ($$body (let ((parsed-body (form-urldecode body)))
+                   (lambda (key)
+                     (and parsed-body (alist-ref key parsed-body)))))
+         (query-string (or ($$query 'query) ($$body 'query) body))
          (query (parse query-string)))
          
-    ;; (print "Query came from " (cond (($$query 'query) "query") (($$body 'query) "body param") (body "body")))
-    
-    (first-log query-string query)
+    (log-received-query query-string query)
 
-    (let ((rewritten-query 
-           ;; (parameterize (($query $$query) ($body $$body))
-             (rw query top-rules))) ;)
-
-      (second-log rewritten-query)
+    (let* ((rewritten-query 
+            (parameterize (($query $$query) ($body $$body))
+              (rewrite-query query top-rules)))
+           (rewritten-query-string (write-sparql rewritten-query)))
+      
+      (log-rewritten-query rewritten-query-string)
 
       (handle-exceptions exn 
           (virtuoso-error exn)
@@ -1055,12 +1045,12 @@
         ;;   (notify-deltas rewritten-query))
       
       (let-values (((result uri response)
-                    (proxy-query rewritten-query)))
+                    (proxy-query rewritten-query-string)))
         (close-connection! uri)
         
-          ;; slow!!
+          ;; slow!! (?)
           (let ((headers (headers->list (response-headers response))))
-            (third-log result)
+            (log-results result)
             ;;(log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result))))
             (mu-headers headers)
             result))))))
