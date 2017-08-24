@@ -141,8 +141,7 @@
          (realm (or (read-uri (alist-ref 'graph-realm body))
                     (get-realm (alist-ref 'graph-realm-id body))))
          (graph (read-uri (alist-ref 'graph body))))
-    (log-message "~%Deleting graph-realm for ~A or ~A  ~%"
-                 realm graph)
+    (log-message "~%Deleting graph-realm for ~A or ~A  ~%" realm graph)
     (hash-table-delete! *cache* '(graphs #f))
     (delete-realm realm graph)))
 
