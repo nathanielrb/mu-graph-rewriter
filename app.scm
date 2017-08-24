@@ -39,11 +39,7 @@
                 (if (feature? 'docker)
                     "/config/plugin.scm"
                     "./config/rewriter/plugin.scm")))
-
-(when (*plugin*) 
-  (log-message "Loading plugin: ~A " (*plugin*))
-  (load (*plugin*)))
-       
+     
 (define *cache* (make-hash-table))
 
 (define *rewrite-graph-statements?*
@@ -1123,15 +1119,20 @@
 (define-rest-call 'GET '("sparql") rewrite-call)
 (define-rest-call 'POST '("sparql") rewrite-call)
 
-(log-message "==Query Rewriter Service==")
+(define-namespace rewriter "http://mu.semte.ch/graphs/")
+
+(log-message "~%==Query Rewriter Service==")
+
+(when (*plugin*) 
+  (log-message "~%Loading plugin: ~A " (*plugin*))
+  (load (*plugin*)))
+
 (log-message "~%Proxying to SPARQL endpoint: ~A~% " (*sparql-endpoint*))
 (log-message "~%and SPARQL update endpoint: ~A~% " (*sparql-update-endpoint*))
 
 (if (procedure? (*constraint*))
-    (log-message "With constraint:~%~A" (write-sparql ((*constraint*))))
-    (log-message "With constraint:~%~A" (write-sparql (*constraint*))))
-
-(define-namespace rewriter "http://mu.semte.ch/graphs/")
+    (log-message "~%With constraint:~%~A" (write-sparql ((*constraint*))))
+    (log-message "~%With constraint:~%~A" (write-sparql (*constraint*))))
 
 (*port* 8890)
 
