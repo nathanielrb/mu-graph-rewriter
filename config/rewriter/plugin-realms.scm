@@ -118,8 +118,7 @@
                     (get-realm (alist-ref 'graph-realm-id body))))
          (graph-type (read-uri (alist-ref 'graph-type body)))
          (graph (read-uri (alist-ref 'graph body))))
-    (log-message "~%Adding graph-realm ~A for ~A  ~%"
-                 realm graph)
+    (log-message "~%Adding graph-realm ~A for ~A  ~%" realm graph)
     (add-realm realm graph graph-type)
     (hash-table-delete! *cache* '(graphs #f))
     `((status . "success")
