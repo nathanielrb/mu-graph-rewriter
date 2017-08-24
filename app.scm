@@ -4,7 +4,7 @@
 
 (import s-sparql mu-chicken-support)
 (use s-sparql mu-chicken-support)
-     
+
 (require-extension sort-combinators)
 
 (define *subscribers-file*
@@ -30,9 +30,9 @@
        (CONSTRUCT (?s ?p ?o))
        (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))))
 
-(define *functional-properties* (make-parameter '(rdf:type)))
+(define *functional-properties* (make-parameter '()))
 
-(*functional-properties* '())
+(*functional-properties* '(rdf:type))
 
 (define *plugin*
   (config-param "PLUGIN_PATH" 
@@ -839,10 +839,11 @@
             ((`GRAPH graph triple)
              (let* ((shared-variable-triples 
                      (filter values
-                             (map (match-lambda ((a b binding)
-                                                 (let ((vars (map car binding)))
-                                                   (and (any values (map (cut member <> vars) triple))
-                                                        (list a b binding)))))
+                             (map (match-lambda
+                                    ((a b binding)
+                                     (let ((vars (map car binding)))
+                                       (and (any values (map (cut member <> vars) triple))
+                                            (list a b binding)))))
                                   (get-binding/default 'instantiated-quads bindings '())))))
                (if (null? shared-variable-triples)
                    (values (list block) bindings)
@@ -896,6 +897,11 @@
   ;;((list-of? update-unit?)
   ;;(alist-ref '@UpdateUnit query)))
   (equal? (car query) '@UpdateUnit))
+
+(define (select-query? query)
+  ;;((list-of? update-unit?)
+  ;;(alist-ref '@UpdateUnit query)))
+  (equal? (car query) '@QueryUnit))
 
 (define (update-unit? unit)
   (alist-ref '@Update unit))
@@ -1043,10 +1049,10 @@
 (define $mu-session-id (make-parameter #f))
 (define $mu-call-id (make-parameter #f))
 
-(define (proxy-query rewritten-query-string)
+(define (proxy-query rewritten-query-string endpoint)
   (with-input-from-request 
    (make-request method: 'POST
-                 uri: (uri-reference (*sparql-endpoint*))
+                 uri: (uri-reference endpoint)
                  headers: (headers
                            '((Content-Type application/x-www-form-urlencoded)
                              (Accept application/sparql-results+json)))) 
@@ -1090,31 +1096,40 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-        (log-message "~%==Potential Graphs==~%(Will be in headers, and done in parallel for performance)~%~A~%" 
-                     (get-all-graphs rewritten-query))
-
         ;; (when (update-query? rewritten-query)
         ;;   (notify-deltas rewritten-query))
-      
-      (let-values (((result uri response)
-                    (proxy-query rewritten-query-string)))
-        (close-connection! uri)
-        
-          ;; slow!! (?)
-          (let ((headers (headers->list (response-headers response))))
-            (log-results result)
-            ;;(log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result))))
-            (mu-headers headers)
-            result))))))
+
+        (plet-if (not (update-query? query))
+                 ((potential-graphs (get-all-graphs rewritten-query))
+                  ((result response) (let-values (((result uri response)
+                                                   (proxy-query rewritten-query-string
+                                                                (if (update-query? query)
+                                                                    (*sparql-update-endpoint*)
+                                                                    (*sparql-endpoint*)))))
+                                       (close-connection! uri)
+                                       (list result response))))
+            
+            (log-message "~%==Potential Graphs==~%(Will be sent in headers)~%~A~%"  
+                         potential-graphs)
+            
+            (let ((headers (headers->list (response-headers response))))
+              (log-results result)
+              (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result))))
+              (mu-headers headers)
+              result))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification
 (define-rest-call 'GET '("sparql") rewrite-call)
 (define-rest-call 'POST '("sparql") rewrite-call)
 
+(log-message "==Query Rewriter Service==")
+(log-message "~%Proxying to SPARQL endpoint: ~A~% " (*sparql-endpoint*))
+(log-message "~%and SPARQL update endpoint: ~A~% " (*sparql-update-endpoint*))
+
 (if (procedure? (*constraint*))
-    (log-message "==Rewriter Constraint==~%~A" (write-sparql ((*constraint*))))
-    (log-message "==Rewriter Constraint==~%~A" (write-sparql (*constraint*))))
+    (log-message "With constraint:~%~A" (write-sparql ((*constraint*))))
+    (log-message "With constraint:~%~A" (write-sparql (*constraint*))))
 
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
 
