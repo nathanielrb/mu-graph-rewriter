@@ -58,6 +58,19 @@
       (equal? "true" (($query) 'rewrite-select-queries))
       (*rewrite-select-queries?*)))
 
+(log-message "~%==Query Rewriter Service==")
+
+(when (*plugin*) 
+  (log-message "~%Loading plugin: ~A " (*plugin*))
+  (load (*plugin*)))
+
+(log-message "~%Proxying to SPARQL endpoint: ~A~% " (*sparql-endpoint*))
+(log-message "~%and SPARQL update endpoint: ~A~% " (*sparql-update-endpoint*))
+
+(if (procedure? (*constraint*))
+    (log-message "~%With constraint:~%~A" (write-sparql ((*constraint*))))
+    (log-message "~%With constraint:~%~A" (write-sparql (*constraint*))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; for RW library, to be cleaned up and abstracted.
 (define rw/value
@@ -1120,19 +1133,6 @@
 (define-rest-call 'POST '("sparql") rewrite-call)
 
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
-
-(log-message "~%==Query Rewriter Service==")
-
-(when (*plugin*) 
-  (log-message "~%Loading plugin: ~A " (*plugin*))
-  (load (*plugin*)))
-
-(log-message "~%Proxying to SPARQL endpoint: ~A~% " (*sparql-endpoint*))
-(log-message "~%and SPARQL update endpoint: ~A~% " (*sparql-update-endpoint*))
-
-(if (procedure? (*constraint*))
-    (log-message "~%With constraint:~%~A" (write-sparql ((*constraint*))))
-    (log-message "~%With constraint:~%~A" (write-sparql (*constraint*))))
 
 (*port* 8890)
 
