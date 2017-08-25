@@ -2,7 +2,7 @@
  (conc "CONSTRUCT { ?s ?p ?o } "
        "WHERE { "
        " {"
-       "  SELECT DISTINCT ?graph ?type "
+       "  SELECT DISTINCT ?graph ?type ?p "
        "  WHERE { "
        "   GRAPH <http://data.europa.eu/eurostat/graphs> { "
        "    ?rule a rewriter:GraphRule. "
