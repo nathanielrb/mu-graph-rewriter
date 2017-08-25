@@ -32,8 +32,6 @@
 
 (define *functional-properties* (make-parameter '()))
 
-(*functional-properties* '(rdf:type))
-
 (define *plugin*
   (config-param "PLUGIN_PATH" 
                 (if (feature? 'docker)
@@ -92,34 +90,19 @@
    (project-bindings (extract-subselect-vars vars) new-bindings)
    bindings))
 
-;; should be:
-;; just project bindings
-;;    ((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) . rest) 
-;; (rewrite (cdr block))
-(define (rewrite-subselect block bindings)
+(define (rw/subselect block bindings)
   (match block
-    ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) . quads)
+    ((@SubSelect (label . vars) . rest)
      (let* ((subselect-vars (extract-subselect-vars vars))
             (inner-bindings (if (or (equal? subselect-vars '(*))
                                     (equal? subselect-vars '*))
                                 bindings
                                 (project-bindings subselect-vars bindings))))
-       (let-values (((rw new-bindings) (rewrite quads inner-bindings)))
-         (values `((@SubSelect ,(second block) ,@rw)) 
+       (let-values (((rw new-bindings) (rewrite rest inner-bindings)))
+         (values `((@SubSelect (,label ,@vars) ,@rw)) 
                  (merge-bindings 
                   (project-bindings subselect-vars new-bindings)
                   bindings)))))))
-
-;; project...?
-(define (rw/subselect block bindings)
-  (match block
-    ;;((((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`@Dataset . dataset)
-    ;;    (`WHERE . quads) . rest)
-    ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
-     (let-values (((rw new-bindings) (rewrite quads bindings)))
-       (values
-        `((@SubSelect ,(second block) (WHERE ,@rw) ,@rest))
-        new-bindings)))))
 
 (define (rw/list block bindings)
   (let-values (((rw new-bindings) (rewrite block bindings)))
@@ -321,7 +304,7 @@
      . ,(lambda (block bindings)
           (values (cdr block) bindings)))
     (,select? . ,rw/copy)
-    ((@SubSelect) . ,rewrite-subselect)
+    ((@SubSelect) . ,rw/subselect)
     (,quads-block? . ,rewrite-quads-block)
     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT| |GROUP BY| OFFSET LIMIT) . ,rw/copy)
     (,list? . ,rw/list)))
@@ -335,7 +318,7 @@
 	    (instantiate (get-binding/default* '() 'constraints bindings '()) triples)))
 	(get-binding/default* '() 'constraints bindings '()))))
 
-(define (dataset label graphs #!optional named?)
+(define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
     `((,label ,(*default-graph*))
       ,@(map (lambda (graph) `(,label ,graph))
@@ -355,7 +338,7 @@
    ((@Dataset) 
     . ,(lambda (block bindings)
          (let ((graphs (get-all-graphs (*constraint*))))
-	   (values `((@Dataset ,@(dataset 'FROM graphs #f))) 
+	   (values `((@Dataset ,@(make-dataset 'FROM graphs #f))) 
 		   (update-binding 'all-graphs graphs bindings)))))
    (,select? . ,rw/copy)
    (,list? . ,rw/list)))
@@ -418,23 +401,17 @@
                        (values `((GRAPH ,graph ,@rw)) new-bindings))))))
     (,select? . ,rw/remove)
     ((@SubSelect)
-     ;; ((@SubSelect (head . vars) . rest)
-     ;; (let ((graphs (alist-ref '@Dataset rest)) (where (alist-ref 'WHERE rest))) ...
      . ,(lambda (block bindings)
           (match block
-            ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars)
-                         (`@Dataset . dataset) (`WHERE . quads) . rest)
-             (let ((graphs (map second dataset)))
-               (let-values (((rw new-bindings) (rewrite quads bindings)))
-                 (values
-                  `((@SubSelect ,(second block) (WHERE ,@rw) ,@rest))
-                  (fold-binding graphs 'all-graphs append '() new-bindings)))))
-            ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars)
-                         (`WHERE . quads) . rest)
-             (let-values (((rw new-bindings) (rewrite quads bindings)))
-               (values
-                `((@SubSelect ,(second block) (WHERE ,@rw) ,@rest))
-                new-bindings))))))
+            ((@SubSelect (label . vars) . rest)
+	     (let* ((dataset (get-child-body '@Dataset rest))
+		    (graphs (and dataset (map second dataset))))
+               (let-values (((rw new-bindings) (rewrite (get-child-body 'WHERE rest) bindings)))
+		 (values
+		  `((@SubSelect (,label ,@vars) ,@(replace-child-body 'WHERE rw rest)))
+		  (if graphs
+		      (fold-binding graphs 'all-graphs append '() new-bindings)
+		      new-bindings))))))))
     (,triple? . ,rw/copy)
     ((CONSTRUCT SELECT INSERT DELETE) . ,rw/remove)
     ((UNION) 
@@ -647,35 +624,46 @@
 	       (update-triple-graph renamed-graph renamed-triple
 				    (update-fproperty-bindings renamed-triple new-bindings))))))))
 
+(define (project-substitution-bindings vars bindings)
+  (update-binding 
+   'constraint-substitutions 
+   (project-substitutions vars (get-binding 'constraint-substitutions bindings))
+   bindings))
+
+(define (merge-substitution-bindings vars old-bindings new-bindings)
+  (update-binding 'constraint-substitutions
+		  (append
+		   (project-substitutions
+		    vars (get-binding 'constraint-substitutions new-bindings))
+		   (get-binding 'constraint-substitutions old-bindings))
+		  new-bindings))
+
+;; what about Expressions??
+(define (substituted-subselect-vars vars bindings)
+  (filter sparql-variable?
+	  (map (lambda (var)
+		 (if (equal? var '*) var
+		     (current-substitution var bindings)))
+	       vars)))
+
 (define rename-constraint-rules
   `((,symbol? . ,rw/copy)
     ((CONSTRUCT) . ,rw/remove)
     ((@SubSelect)
      . ,(lambda (block bindings) 
           (match block
-            ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) (`WHERE . quads) . rest)
-             (let* ((subselect-vars (extract-subselect-vars vars))
-                    (projected-substitutions (project-substitutions subselect-vars
-                                                                    (get-binding 'constraint-substitutions bindings))))
-             (let-values (((rw new-bindings) (rewrite quads (update-binding 'constraint-substitutions projected-substitutions
-                                                                            bindings))))
-               (let ((projected-bindings (update-binding 'constraint-substitutions
-                                                         (append
-                                                          (project-substitutions
-                                                           subselect-vars (get-binding 'constraint-substitutions new-bindings))
-                                                          (get-binding 'constraint-substitutions bindings))
-                                                         new-bindings)))
+	    ((`@SubSelect (label . vars) . rest)
+             (let ((subselect-vars (extract-subselect-vars vars)))
+             (let-values (((rw new-bindings)
+			   (rewrite rest (project-substitution-bindings subselect-vars bindings))))
+               (let ((merged-bindings (merge-substitution-bindings subselect-vars bindings new-bindings)))
                (if (null? rw)
-                   (values '() projected-bindings)
-                   (values `((@SubSelect (,(car (second block) )
-                                          ,@(filter sparql-variable?
-						    ;; what about Expressions??
-                                                    (map (lambda (var)
-                                                           (if (equal? var '*) var
-                                                               (current-substitution var projected-bindings)))
-                                                         vars)))
-                                         (WHERE ,@rw) ,@rest))
-                           projected-bindings)))))))))
+                   (values '() merged-bindings)
+                   (values `((@SubSelect 
+			      (,label ,@(substituted-subselect-vars 
+					 vars merged-bindings))
+			      ,@rw))
+                           merged-bindings)))))))))
     ((WHERE)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings)
@@ -844,12 +832,13 @@
                    (if (null? match-bindings)
                        (values (list block) bindings)
                        (values '() 
-                               (fold-binding (map expand-instantiation match-bindings)
+                               (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
 					     'instantiated-quads 
 					     append '() bindings)))))))))
     (,symbol? . ,rw/copy)
     (,null? . ,rw/remove)
     ((OPTIONAL UNION) . ,rw/continue)
+    (,quads-block? . ,rw/continue)
     (,list? . ,rw/list)
     ))
 
@@ -867,11 +856,13 @@
      ;; necessary to project here?? probably yes
      . ,(lambda  (block bindings)
           (match block
-            ((@SubSelect ((or `SELECT `|SELECT DISTINCT| `|SELECT REDUCED|) . vars) 
-			 (`WHERE . quads) . rest)
-             (let-values (((rw new-bindings) (rewrite quads (subselect-bindings vars bindings))))
+            ((`@SubSelect (label . vars) . rest)
+             (let-values (((rw new-bindings)
+			   (rewrite (get-child-body 'WHERE rest) 
+				    (subselect-bindings vars bindings))))
                (values
-                `((@SubSelect ,(second block) (WHERE ,@(group-graph-statements rw)) ,@rest))
+                `((@SubSelect (,label ,@vars)
+			      ,@(replace-child-body 'WHERE (group-graph-statements rw) rest)))
                 (merge-subselect-bindings vars new-bindings bindings)))))))
     ((GRAPH) 
      . ,(lambda (block bindings)

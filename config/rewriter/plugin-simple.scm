@@ -1,3 +1,5 @@
+(*functional-properties* '(rdf:type))
+
 (*constraint*
  (conc "CONSTRUCT { ?s ?p ?o } "
        "WHERE { "

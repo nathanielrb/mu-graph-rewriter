@@ -1458,6 +1458,9 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
    }  
  }"))
 
+(define c17 (parse-query "SELECT * WHERE { SELECT (COUNT(?s) AS ?count) WHERE { ?s ?p ?o } }"))
+(define c18 (parse-query "SELECT * WHERE { ?s ?p ?o . { SELECT (COUNT(?s) AS ?count) WHERE { ?s ?p ?o } }}"))
+
 (define (go query)
   (rewrite-query query top-rules))
 

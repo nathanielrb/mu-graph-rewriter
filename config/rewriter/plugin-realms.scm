@@ -7,6 +7,8 @@
 
 (define *realm* (make-parameter #f))
 
+(*functional-properties* '(rdf:type))
+
 (define (query-graph-realm)
   (or (*realm*) ;; for testing
       (header 'mu-graph-realm)
