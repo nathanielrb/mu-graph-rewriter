@@ -1459,10 +1459,15 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
  }"))
 
 (define c17 (parse-query "SELECT * WHERE { SELECT (COUNT(?s) AS ?count) WHERE { ?s ?p ?o } }"))
-(define c18 (parse-query "SELECT * WHERE { ?s ?p ?o . { SELECT (COUNT(?s) AS ?count) WHERE { ?s ?p ?o } }}"))
+
+(define c18 (parse-query "SELECT * WHERE { ?a ?b ?c . { SELECT (COUNT(?a) AS ?count) WHERE { ?a ?b ?c } }}"))
+
+(define c19 (parse-query "SELECT * WHERE { ?a ?b ?c . { SELECT ?a (COUNT(?a) AS ?count) WHERE { ?a ?b ?c } }}"))
 
 (define (go query)
   (rewrite-query query top-rules))
+
+(define (pgo query) (print (write-sparql (go query))))
 
 ;; (let loop ((i 0))
 ;;   (when (<  i 100)

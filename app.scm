@@ -93,12 +93,18 @@
 (define (rw/subselect block bindings)
   (match block
     ((@SubSelect (label . vars) . rest)
+     (print "Subselect vars: " vars)
+     (print "where: " (get-child 'WHERE rest))
+     (print "with bindings: " bindings)
      (let* ((subselect-vars (extract-subselect-vars vars))
             (inner-bindings (if (or (equal? subselect-vars '(*))
                                     (equal? subselect-vars '*))
                                 bindings
                                 (project-bindings subselect-vars bindings))))
+       (print "subs vars: "  subselect-vars)
+       (print "inner b: " inner-bindings)
        (let-values (((rw new-bindings) (rewrite rest inner-bindings)))
+         (print "Rw: " rw)(newline)
          (values `((@SubSelect (,label ,@vars) ,@rw)) 
                  (merge-bindings 
                   (project-bindings subselect-vars new-bindings)
@@ -221,14 +227,18 @@
                 triples)))
 
 (define (rewrite-quads-block block bindings)
+  (print "rewriting " (car block))
   (parameterize ((flatten-graphs? (not (preserve-graphs?))))
     ;; expand triples
     (let-values (((q1 b1) (expand-triples (cdr block) bindings replace-a collect-functional-properties)))
+      (print "q1 " q1)
       ;; rewrite-triples
       (let-values (((q2 b2) (rewrite q1 b1 triples-rules)))
+        (print "q2 " q2)
         ;; continue in nested quad blocks
         (let-values (((q3 b3) (rewrite q2 b2)))
-          (values `((,(rewrite-block-name (car block)) ,@q3)) b3))))))
+          (if (null? q3) (values '() b3)
+              (values `((,(rewrite-block-name (car block)) ,@q3)) b3)))))))
 
 (define (rewrite-block-name name)
   (case name
@@ -343,11 +353,31 @@
    (,select? . ,rw/copy)
    (,list? . ,rw/list)))
 
-(define (get-triple-graphs triple bindings)
+(define (a->rdf:type b)
+  (if (equal? b 'a) 'rdf:type b))
+
+(define (gtg vars triple bindings)
   (or
-   (cdr-when
-    (assoc triple (get-binding/default 'triple-graphs bindings '())))
+   (cdr-when (assoc triple (get-binding/default* vars 'graphs bindings '())))
    '()))
+
+(define (get-triple-graphs triple bindings)
+  (let ((vars (filter sparql-variable? triple))
+        (triple (map a->rdf:type triple)))
+    (gtg vars triple bindings)))
+
+(define (update-triple-graph graph triple bindings)
+  (let ((vars (filter sparql-variable? triple))
+        (triple (map a->rdf:type triple)))
+    (fold-binding* triple
+                   vars
+                   'graphs
+                   (lambda (triple graphs-list)
+                     (alist-update triple
+                                   (cons graph (gtg vars triple bindings))
+                                   graphs-list))
+                   '()
+                   bindings)))
 
 (define triples-rules
   `((,triple? 
@@ -445,11 +475,13 @@
 
 (define (current-substitution var bindings)
   (let ((sub (alist-ref var (get-binding/default 'constraint-substitutions bindings '()))))
-    (if (equal? sub 'a) 'rdf:type sub)))
+    (a->rdf:type sub)))
+    ;;(if (equal? sub 'a) 'rdf:type sub)))
 
 (define (dependency-substitution var bindings)
   (let ((sub (alist-ref var (get-binding/default 'dependency-substitutions bindings '()))))
-    (if (equal? sub 'a) 'rdf:type sub)))
+    (a->rdf:type sub)))
+;; (if (equal? sub 'a) 'rdf:type sub)))
 
 (define (substitution-or-value var bindings)
   (if (sparql-variable? var)
@@ -546,11 +578,12 @@
 		     bindings)))
 
 (define (constraint-graphs a b c new-bindings)
-  (let ((b (if (equal? b 'a) 'rdf:type b)))
-    (cdr-when
-     (assoc
-      (list a b c) 
-      (get-binding/default 'triple-graphs new-bindings '())))))
+  ;; (let ((b (if (equal? b 'a) 'rdf:type b)))
+    ;; (cdr-when
+    ;;  (assoc
+    ;;(list a b c) 
+    ;;(get-binding/default 'triple-graphs new-bindings '())))))
+    (get-triple-graphs (list a b c) bindings))
 
 (define (clean-constraint-bindings old-bindings new-bindings)
   (let ((substitutions (get-binding 'constraint-substitutions new-bindings)))
@@ -594,17 +627,6 @@
 			(loop (cdr vars)
 			      (cons `(,var . ,new-var) substitutions)
 			      new-bindings))))))))
-
-(define (update-triple-graph graph triple bindings)
-  (let ((current-graphs (get-triple-graphs triple bindings)))
-    (fold-binding triple
-		  'triple-graphs
-		  (lambda (triple graphs-list)
-		    (alist-update triple
-				  (cons graph current-graphs)
-				  graphs-list))
-		  '()
-		  bindings)))
 
 (define (update-fproperty-bindings triple bindings)
   (let ((fproperty (match triple ((s p o) (get-binding s p 'functional-property bindings)))))
@@ -655,14 +677,14 @@
 	    ((`@SubSelect (label . vars) . rest)
              (let ((subselect-vars (extract-subselect-vars vars)))
              (let-values (((rw new-bindings)
-			   (rewrite rest (project-substitution-bindings subselect-vars bindings))))
+			   (rewrite (get-child-body 'WHERE rest) (project-substitution-bindings subselect-vars bindings))))
                (let ((merged-bindings (merge-substitution-bindings subselect-vars bindings new-bindings)))
                (if (null? rw)
                    (values '() merged-bindings)
                    (values `((@SubSelect 
 			      (,label ,@(substituted-subselect-vars 
 					 vars merged-bindings))
-			      ,@rw))
+			      ,@(replace-child-body 'WHERE rw rest)))
                            merged-bindings)))))))))
     ((WHERE)
      . ,(lambda (block bindings)
@@ -689,9 +711,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Constraint variable dependencies
 (define (constraint-dependencies constraint-where-block bindings)
+  (print "where: " constraint-where-block)
+  (print "bound: " (map car (get-binding 'dependency-substitutions bindings)))
+  (newline)
   (get-dependencies 
    (list constraint-where-block) 
-   (map car (get-binding 'constraint-substitutions bindings))))
+   (map car (get-binding 'dependency-substitutions bindings))))
 
 (define (get-dependencies* query bound-vars)
   (rewrite query '() (dependency-rules bound-vars)))
