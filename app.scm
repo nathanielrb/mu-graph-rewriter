@@ -356,15 +356,12 @@
 (define (a->rdf:type b)
   (if (equal? b 'a) 'rdf:type b))
 
-(define (gtg vars triple bindings)
-  (or
-   (cdr-when (assoc triple (get-binding/default* vars 'graphs bindings '())))
-   '()))
-
 (define (get-triple-graphs triple bindings)
   (let ((vars (filter sparql-variable? triple))
         (triple (map a->rdf:type triple)))
-    (gtg vars triple bindings)))
+    (cdr-or 
+     (assoc triple (get-binding/default* vars 'graphs bindings '()))
+     '())))
 
 (define (update-triple-graph graph triple bindings)
   (let ((vars (filter sparql-variable? triple))
@@ -373,9 +370,10 @@
                    vars
                    'graphs
                    (lambda (triple graphs-list)
-                     (alist-update triple
-                                   (cons graph (gtg vars triple bindings))
-                                   graphs-list))
+                     (alist-update
+                      triple
+                      (cons graph (assoc triple graphs-list))
+                      graphs-list))
                    '()
                    bindings)))
 
