@@ -30,34 +30,30 @@
         realm)))
 
 (define (graph-rule-realm realm)
-  (if realm
-      (format (conc "{ ?rule rewriter:graph ?graph } "
-                    "UNION " 
-                    "{"
-                    " ?rule rewriter:graphType ?gtype."
-                    " ?graph rewriter:type ?gtype."
-                    " ?graph rewriter:realm ~A "
-                    "}")
-              realm)
-      "?rule rewriter:graph ?graph."))
+  (format (conc "{ ?rule rewriter:graph ?graph } "
+                "UNION " 
+                "{"
+                " ?rule rewriter:graphType ?gtype."
+                " ?graph rewriter:type ?gtype."
+                " ?graph rewriter:realm ~A "
+                "}")
+          (or realm "?realm")))
 
 (define (all-graphs-realm realm)
-  (if realm
-      (format (conc "{ "
-                    " SELECT DISTINCT ?allGraphs WHERE { "
-                    "  GRAPH <http://data.europa.eu/eurostat/graphs> {"
-                    "   { ?rule rewriter:graph ?allGraphs } "
-                    "   UNION "
-                    "   { "
-                    "    ?rule rewriter:graphType ?gtype."
-                    "    ?allGraphs rewriter:type ?gtype."
-                    "    ?allGraphs rewriter:realm ~A "
-                    "   } "
-                    "  } "
-                    " }"
-                    "}")
-              realm)
-      " GRAPH <http://data.europa.eu/eurostat/graphs> { ?allGraphs a rewriter:Graph } "))
+  (format (conc "{ "
+                " SELECT DISTINCT ?allGraphs WHERE { "
+                "  GRAPH <http://data.europa.eu/eurostat/graphs> {"
+                "   { ?allRules rewriter:graph ?allGraphs } "
+                "   UNION "
+                "   { "
+                "    ?allRules rewriter:graphType ?allgtype."
+                "    ?allGraphs rewriter:type ?allgtype."
+                "    ?allGraphs rewriter:realm ~A "
+                "   } "
+                "  } "
+                " }"
+                "}")
+          (or realm "?allRealms")))
 
 (*constraint*
  (lambda ()
