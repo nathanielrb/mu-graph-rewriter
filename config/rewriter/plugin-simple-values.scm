@@ -82,25 +82,31 @@
   "}"))
 
 
-(*functional-properties* '(rdf:type))
+;; (*functional-properties* '(rdf:type))
 
-
-(*constraint* 
- (conc 
-  "CONSTRUCT { "
-  "  ?s ?p ?o. ?s mu:uuid ?id"
-  "} "
-  "WHERE "
-  "{"  
-  " {   GRAPH ?uuidGraph { "
-  "      ?s mu:uuid ?id. "
-  "   } "
-  "   VALUES ?uuidGraph { <http://data.europa.eu/eurostat/uuid> }  }"
-
-  "    { GRAPH ?graph { "
-  "      ?s ?p ?o. "
-  "      ?s rdf:type ?type. "
-  "   } "
-  "  FILTER ( ?p != mu:uuid) "
-  "  VALUES (?graph ?type) { (<http://data.europa.eu/eurostat/retailers> dct:Agent) (<http://data.europa.eu/eurostat/datasets> qb:Dataset ) } }"
-  "}"))
+;; (*constraint* 
+;;  (conc 
+;;   "CONSTRUCT { "
+;;   "  ?s ?p ?o. ?s mu:uuid ?id"
+;;   "} "
+;;   "WHERE "
+;;   "{"  
+;;   " {"
+;;   "  GRAPH ?uuidGraph { "
+;;   "      ?s mu:uuid ?id. "
+;;   "   } "
+;;   "   VALUES ?uuidGraph { <http://data.europa.eu/eurostat/uuid> } "
+;;   " }"
+;;   ""
+;;   " { "
+;;   "  GRAPH ?graph { "
+;;   "    ?s ?p ?o. "
+;;   "    ?s rdf:type ?type. "
+;;   "   } "
+;;   "   FILTER ( ?p != mu:uuid) "
+;;   "   VALUES (?graph ?type) { "
+;;   "       (<http://data.europa.eu/eurostat/retailers> dct:Agent)"
+;;   "       (<http://data.europa.eu/eurostat/datasets> qb:Dataset) "
+;;   "   }"
+;;   " }"
+;;   "}"))
