@@ -496,17 +496,18 @@
     (,list? . ,rw/list)
     (,symbol? . ,rw/copy)))   
 
+;; shouldn't we instantiate the whole constraints+where-block?
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
     (let* ((insert-block (get-child-body 'INSERT rw))
            (triples (expand-triples insert-block '() replace-a))
-           (where-block (or (get-child-body 'WHERE rw) '())))
-      (let-values (((instantiated-constraints inst-bindings)
-		    (instantiate (get-binding/default* '() 'constraints new-bindings '()) triples)))
+           (where-block (or (get-child-body 'WHERE rw) '()))
+           (constraints (optimize (get-binding/default 'constraints new-bindings '()) new-bindings)))
+      (let-values (((instantiated-constraints inst-bindings) (instantiate (list constraints) triples)))
 	(let* ((instantiated-values (get-binding 'instantiated-values inst-bindings))
-	       (new-where (optimize (append instantiated-constraints where-block) new-bindings))
+	       (new-where (append instantiated-constraints where-block))
 	       (new-insert (if instantiated-values
-			       (replace-variables insert-block instantiated-values)
+			       (instantiate-values insert-block instantiated-values)
 			       insert-block)))
           (replace-child-body 'INSERT new-insert 
                               (if (null? new-where)
@@ -1050,8 +1051,9 @@
      (,list? . ,rw/list)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Instantiation for INSERT and INSERT DATA
-;; to do: expand namespaces before checking
+;; Instantiation
+;; for INSERT and INSERT DATA
+;; To do: expand namespaces before checking
 (define (instantiate where-block triples)
   (let ((where-block (expand-graphs where-block)))
     (let-values (((rw new-bindings)
@@ -1101,14 +1103,15 @@
           (match block
             ((`GRAPH graph triple)
              (if (member triple triples)
-                 (values '() bindings)
+                 (values `((*graph* . ,graph)) bindings)
                  (let ((match-bindings (match-triple triple triples)))
                    (if (null? match-bindings)
                        (values (list block) bindings)
-                       (values '() 
+                       (values `((*graph* . ,graph)) ;;'() 
                                (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
 					     'instantiated-quads 
-					     append '() bindings)))))))))
+					     append '() 
+                                             bindings)))))))))
     ((OPTIONAL) . ,rw/quads)
     ((UNION) . ,rw/union)
     (,quads-block? 
@@ -1122,7 +1125,40 @@
     (,list? 
      . ,(lambda (block bindings)
 	  (let-values (((rw new-bindings) (rw/list block bindings)))
-	    (values rw new-bindings))))))
+            ;; Remove blocks that only contain VALUES and FILTER statements.
+	    ;; Assumes length = 1. Is this warranted?
+            ;; Only handles 1 VALUES statement.
+            ;; And 'instantiated-values SHOULD be used as following:
+            ;; - separate alists for each VALUES tuple
+            ;; - graphs kept separately, and instantiated only if the corresponding VALUES is used
+	    (let loop ((statements (car rw)) 
+                       (filter-statements '()) (values-statements '()) 
+                       (graphs '()) (quads '()))
+	      (if (null? statements)
+		  (if (null? quads)
+                      (match (car values-statements) ;; ** only 1!!
+                          ((`VALUES vars . vals)
+                           (let ((new-instantiated-values
+                                  (if (pair? vars)
+                                      (map reverse
+                                           (fold (lambda (n r) (map cons n r))
+                                                 (map list vars)
+                                                 vals))  ;)
+                                      `((,vars . ,vals)))))
+                             (values '()
+                                     (update-instantiated-values new-instantiated-values new-bindings)))))
+		      (values (list (filter (lambda (st) (not (equal? (car st) '*graph*))) (car rw)))
+                              (if (null? graphs)
+                                  new-bindings
+                                  (update-instantiated-values 
+                                   (map (lambda (graph) (list graph graph)) graphs)
+                                   new-bindings))))   
+		  (case (caar statements)
+                    ;; only works on 1 level, not passed up.
+                    ((*graph*) (loop (cdr statements) filter-statements values-statements (cons (cdar statements) graphs) quads))
+		    ((FILTER) (loop (cdr statements) (cons (car statements) filter-statements) values-statements graphs quads))
+		    ((VALUES) (loop (cdr statements) filter-statements (cons (car statements) values-statements) graphs quads))
+		    (else (loop (cdr statements) filter-statements values-statements graphs (cons (car statements) quads)))))))))))
 
 (define (match-instantiated-quads triple bindings)
   (filter values
@@ -1168,37 +1204,30 @@
     (,symbol? . ,rw/copy)
     (,null? . ,rw/remove)
     ((VALUES). ,rw/copy)
+    ((*graph*) . ,rw/remove)
     ((FILTER)
      . ,(lambda (block bindings)
           (values (list block) bindings)))
-    (,list? 
-     . ,(lambda (block bindings)
-	  (let-values (((rw new-bindings) (rw/list block bindings)))
-            ;; Remove blocks that only contain VALUES and FILTER statements.
-	    ;; Assumes length = 1. Is this warranted?
-	    (let loop ((statements (car rw)) (filter-statements '()) (values-statements '()) (others '()))
-	      (if (null? statements)
-		  (if (null? others)
-                      (match (car values-statements) ;; ** only 1!!
-                          ((`VALUES vars . vals)
-                           (let ((new-instantiated-values
-                                  (if (pair? vars)
-                                      (join (map (lambda (var vals)
-                                                   (map
-                                                    (lambda (val) (cons var val)) vals))
-                                                 vars vals))
-                                      (map (lambda (val) (cons vars val)) vals))))
-                             ;; VALIDATE/CHECK!
-                             (values '()
-                                     (fold-binding new-instantiated-values 
-                                                   'instantiated-values
-                                                   append '() new-bindings)))))
-		      (values rw new-bindings))
-		  (case (caar statements)
-		    ((FILTER) (loop (cdr statements) (cons (car statements) filter-statements) values-statements others))
-		    ((VALUES) (loop (cdr statements) filter-statements (cons (car statements) values-statements) others))
-		    (else (loop (cdr statements) filter-statements values-statements (cons (car statements) others)))))))))
+    (,list? . ,rw/list)
     ))
+
+;; didn't I already do this somewhere else?
+;; and at least do it efficiently...
+(define (update-instantiated-values kvs bindings)
+  (if (null? kvs) bindings
+      (let ((key (caar kvs)) (vals (cdar kvs)))
+        (fold-binding key 'instantiated-values
+                      (lambda (key ivals)
+                        (alist-update key (delete-duplicates (append vals (or (alist-ref key ivals) '()))) ivals))
+                      '()
+                      (update-instantiated-values (cdr kvs) bindings)))))
+
+(define (update-instantiated-value key val bindings)
+  (fold-binding key 'instantiated-values
+                (lambda (key ivals)
+                  (alist-update key (delete-duplicates (cons val (or (alist-ref key ivals) '()))) ivals))
+                '()
+                bindings))
 
 (define (union-over-instantiation block matching-quads bindings)
   (match block
@@ -1231,6 +1260,42 @@
              ((`GRAPH graph . rest) 
               (loop (cdr statements) graph rest))
              (else (cons (car statements) (loop (cdr statements) #f '()))))))))
+
+(define (instantiate-values block substitutions)
+  (rewrite block '() (instantiate-values-rules substitutions)))
+
+(define (instantiate-values-rules substitutions)
+  `(((GRAPH) 
+     . ,(lambda (block bindings)
+          (match block
+            ((`GRAPH graph . triples)
+             (let ((new-graphs (alist-ref graph substitutions)))
+               (if new-graphs
+                   (let-values (((rw _) (rewrite triples)))
+                     (values (map (lambda (new-graph)
+                                    `(GRAPH ,new-graph ,@triples))
+                                  new-graphs)
+                             bindings))
+                   (values (list block) bindings)))))))
+    (,triple? 
+     . ,(lambda (triple bindings)
+          (values
+           (let loop ((triple triple) (cont list))
+             (if (null? triple) (cont '())
+                 (let ((subs (alist-ref (car triple) substitutions)))
+                   (if subs
+                       (loop (cdr triple)
+                             (lambda (rest)
+                               (join
+                                (map
+                                 (lambda (s) (cont (cons s rest)))
+                                 subs))))
+                       (loop (cdr triple)
+                             (lambda (rest)
+                               (cont (cons (car triple) rest))))))))
+           bindings)))
+
+    (,list? . ,rw/list)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Deltas
@@ -1406,6 +1471,7 @@
 (define (log-received-query query-string query)
   (log-headers)
   (log-message "~%==Rewriting Query==~%~A~%" query-string)
+  (log-message "~%==With Constraint==~%~A~%" (write-sparql ((*constraint*))))
   (log-message "~%==Parsed As==~%~A~%" (write-sparql query)))
 
 (define (log-rewritten-query rewritten-query-string)

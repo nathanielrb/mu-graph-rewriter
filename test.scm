@@ -1164,6 +1164,22 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
    }  
  }"))
 
+(define q (parse-query "PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX app: <http://mu.semte.ch/app/>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+INSERT DATA {
+ GRAPH <http://mu.semte.ch/application> {
+  <http://webcat.tmp.tenforce.com/themes/59AEC217BAED420009000001> rdf:type mu:Book.
+  <http://webcat.tmp.tenforce.com/themes/59AEC217BAED420009000001> mu:uuid \"59AEC217BAED420009000001\".
+  <http://webcat.tmp.tenforce.com/themes/59AEC217BAED420009000001> dct:title \"Adventure\".
+ }
+}"))
+
 (define c10 (parse-query "PREFIX obs: <http://data.europa.eu/eurostat/id/observation/>
 PREFIX eurostat: <http://data.europa.eu/eurostat/ns/>
  INSERT {
