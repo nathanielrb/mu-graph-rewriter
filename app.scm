@@ -320,6 +320,7 @@
 (define keys (memoize keys*))
 
 (define (renaming* var bindings)
+;;  (print "deps of " var ": " (deps var bindings))
   (let ((renamings
          (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
     (alist-ref var renamings)))
