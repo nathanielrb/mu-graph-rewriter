@@ -1,4 +1,4 @@
-(*constraint* 
+(define-constraint
  (conc 
   "CONSTRUCT { "
   "  ?s ?p ?o. "
@@ -24,7 +24,7 @@
   "}"))
 
 
-(*constraint* 
+(define-constraint
  (conc 
   "CONSTRUCT { "
   "  ?s ?p ?o. "
@@ -57,7 +57,7 @@
   "}"))
 
 
-(*constraint* 
+(define-constraint
  (conc 
   "CONSTRUCT { "
   "  ?s ?p ?o. "
@@ -84,7 +84,7 @@
 
 (*functional-properties* '(rdf:type))
 
-;; (*constraint* 
+;; (define-constraint
 ;;  (conc 
 ;;   "CONSTRUCT { "
 ;;   "  ?s ?p ?o. ?s mu:uuid ?id"

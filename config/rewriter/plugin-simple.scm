@@ -1,6 +1,6 @@
 (*functional-properties* '(rdf:type))
 
-(*constraint*
+(define-constraint
  (conc "CONSTRUCT { ?s ?p ?o } "
        "WHERE { "
        " {"
@@ -29,7 +29,7 @@
        " }"
        "} "))
 
-(*constraint*
+(define-constraint
  (conc "CONSTRUCT { ?s ?p ?o } "
        "WHERE { "
        "   GRAPH <http://data.europa.eu/eurostat/graphs> { "
