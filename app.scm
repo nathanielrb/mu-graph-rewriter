@@ -320,7 +320,6 @@
 (define keys (memoize keys*))
 
 (define (renaming* var bindings)
-;;  (print "deps of " var ": " (deps var bindings))
   (let ((renamings
          (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
     (alist-ref var renamings)))
@@ -542,6 +541,11 @@
    (*quads*)
    (join (map cdr (filter (lambda (block) (equal? (car block) '*REWRITTEN*)) new-quads)))))
 
+(define (optimize-duplicates block)
+  (lset-difference equal?
+                   (delete-duplicates (filter pair? block))
+                   (*quads*)))
+
 (define (rewrite-quads-block block bindings)
   (parameterize ((flatten-graphs? (not (preserve-graphs?))))
     ;; expand triples
@@ -553,12 +557,8 @@
                                 (rewrite q2 b2))))
           (cond ((null? q3) (values '() b3))
                 ((fail? q3) (values (list #f) b3))
-                (else       (values `((,(rewrite-block-name (car block))
-                                       ;;,@(delete-duplicates (filter pair? q3))))
-                                       ,@(lset-difference equal?
-                                                          (delete-duplicates (filter pair? q3))
-                                                          (*quads*))))
-                                    b3))))))))
+                (else (values `((,(rewrite-block-name (car block)) ,@(optimize-duplicates q3)))
+                              b3))))))))
 
 (define top-rules
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
@@ -589,10 +589,13 @@
 		   `((@Update
 		      ,@(instantiated-insert-query rw new-bindings)))
 		   new-bindings)
-		  (let ((new-where (get-binding/default* '() 'constraints bindings '())))
+		  (let ((new-where ;; should do real optimization!
+                         (delete-duplicates  
+                          (append (get-child-body 'WHERE rw)
+                                  (get-binding/default* '() 'constraints bindings '())))))
 		    (if (null? new-where)
 			(values `((@Update ,@(reverse rw))) new-bindings)
-			(values `((@Update ,@(replace-child-body 'WHERE (optimize new-where) (reverse rw))))
+			(values `((@Update ,@(replace-child-body 'WHERE (optimize new-where new-bindings) (reverse rw))))
 				new-bindings)))))))
     (,select? . ,rw/copy)
     ((@SubSelect) . ,rw/subselect)
@@ -600,7 +603,12 @@
     ((*REWRITTEN*)
      . ,(lambda (block bindings)
           (values (cdr block) bindings)))
-    (,quads-block? . ,rewrite-quads-block)
+    ((WHERE DELETE |DELETE WHERE| |DELETE DATA| INSERT |INSERT WHERE| |INSERT DATA| MINUS OPTIONAL GRAPH)
+     . ,rewrite-quads-block)
+    ;; ((WHERE)
+    ;;  . ,(lambda (block bindings)
+    ;;       (let-values (((rw new-bindings) (rewrite-quads-block block bindings)
+    ;; (,quads-block? . ,rewrite-quads-block)
     ((UNION) . ,rw/union)
     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT| |GROUP BY| OFFSET LIMIT) . ,rw/copy)
     (,list? . ,rw/list)
@@ -611,8 +619,12 @@
     (let* ((insert-block (get-child-body 'INSERT rw))
            (triples (expand-triples insert-block '() replace-a))
            (where-block (or (get-child-body 'WHERE rw) '()))
-           (constraints (optimize (get-binding/default 'constraints new-bindings '()) new-bindings)))
-      (let-values (((new-where inst-bindings) (instantiate (append (list constraints) where-block) triples)))
+           (constraints (optimize
+                          (get-binding/default* '() 'constraints new-bindings '())
+                         new-bindings))) 
+      (let-values (((new-where inst-bindings) (instantiate ;; should do real optimization!
+                                                  (delete-duplicates (append (list constraints) where-block))
+                                                  triples)))
 	(let* ((instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
 	       (new-insert (if instantiated-values
@@ -722,7 +734,9 @@
                           (map (lambda (graph)
                                  `(GRAPH ,graph (,a ,b ,c)))
                                graphs)
-                          (fold-binding constraints 'constraints append '() 
+                          ;; do real optimization here
+                          ;; with optimize-duplicates, for example
+                          (fold-binding constraints 'constraints append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
                                                               new-bindings))))))))))
        ((@Dataset) . ,rw/copy)
@@ -944,7 +958,7 @@
       (not (equal? a b))))
   
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Constraint variable dependencies
+;; Renaming dependencies
 (define (constraint-dependencies constraint-where-block bindings)
   (get-dependencies 
    (list constraint-where-block) 
@@ -1562,6 +1576,14 @@
 
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Load
+(log-message "~%==Query Rewriter Service==")
+
+(when (*plugin*) 
+  (log-message "~%Loading plugin: ~A " (*plugin*))
+  (load (*plugin*)))
+
 (log-message "~%Proxying to SPARQL endpoint: ~A " (*sparql-endpoint*))
 (log-message "~%and SPARQL update endpoint: ~A " (*sparql-update-endpoint*))
 
@@ -1580,11 +1602,4 @@
 ;;       (lambda ()
 ;;         (swank-server-start 4005))))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Load plugin    
-(log-message "~%==Query Rewriter Service==")
-
-(when (*plugin*) 
-  (log-message "~%Loading plugin: ~A " (*plugin*))
-  (load (*plugin*)))
 

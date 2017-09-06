@@ -40,21 +40,16 @@
           (or realm "?realm")))
 
 (define (all-graphs-realm realm)
-  (format (conc
-           ;; "{ "
-           ;; " SELECT DISTINCT ?allGraphs WHERE { "
-           "  GRAPH <http://data.europa.eu/eurostat/graphs> {"
-           "   { ?allRules rewriter:graph ?allGraphs } "
-           "   UNION "
-           "   { "
-           "    ?allRules rewriter:graphType ?allGraphTypes."
-           "    ?allGraphs rewriter:type ?allGraphTypes."
-           "    ?allGraphs rewriter:realm ~A "
-           "   } "
-           "  } "
-           ;; " }"
-           ;; "}"
-           )
+  (format (conc "  GRAPH <http://data.europa.eu/eurostat/graphs> {"
+                "   { ?allRules rewriter:graph ?allGraphs } "
+                "   UNION "
+                "   { "
+                "    ?allRules rewriter:graphType ?allGraphTypes."
+                "    ?allGraphs rewriter:type ?allGraphTypes."
+                "    ?allGraphs rewriter:realm ~A "
+                "   } "
+                "  } "
+                )
           (or realm "?allRealms")))
 
 (define-constraint
