@@ -82,7 +82,7 @@
   "    } "
   ;;  "   FILTER ( ?p != mu:uuid )"
   " FILTER ( ?p NOT IN (mu:uuid)) "
-  " BIND ( COUNT(?type) AS ?count )"
+;;  " BIND ( COUNT(?type) AS ?count )"
   "  }"
   "}"))
 

@@ -13,11 +13,11 @@
 
 ;; (vhost-map `((".*" . ,handle-app)))
 
-(*rewrite-select-queries?* #t)
-
 ;; (*sparql-endpoint* "http://localhost:8890/sparql")
 
 ;; (*subscribers-file* "../config/rewriter/subscribers.json")
+
+(define psp (compose print write-sparql))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing

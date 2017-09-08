@@ -513,7 +513,7 @@
                        (map cdr (join (sparql-select query-string from-graph: #f)))))))))))
 
 (define extract-graphs-rules
-  `(((@QueryUnit @UpdateUnit WHERE) . ,rw/quads)
+  `(((@QueryUnit @UpdateUnit) . ,rw/quads)
     ((@Query @Update) 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
@@ -523,6 +523,7 @@
             (values `((@Query
                        ,@(insert-child-before 'WHERE `(|SELECT DISTINCT| ,@graphs) rw)))
                     new-bindings)))))
+    ((WHERE) . ,rw/quads)
     ((@Prologue) . ,rw/copy)
     ((@Dataset @Using) 
      . ,(lambda (block bindings)
@@ -553,6 +554,19 @@
      . ,(rw/lambda (block)
           (with-rewrite ((rw (rewrite (cdr block))))
 	    `((UNION ,@rw)))))
+    ((VALUES) ;; order-dependent
+     . ,(lambda (block bindings)
+          (let ((graphs (get-binding 'all-graphs bindings)))
+            (match block
+              ((`VALUES vars . vals)
+               (if (pair? vars)
+                   (values (list block) bindings)
+                   (if (member vars graphs)
+                       (values '()
+                               (update-binding 'all-graphs 
+                                               (append vals (delete vars graphs))
+                                               bindings))
+                       (values (list block) bindings))))))))
     (,quads-block? . ,rw/quads)
     (,triple? . ,rw/copy)
     ((VALUES FILTER BIND) . ,rw/copy)
@@ -622,7 +636,7 @@
 				       new-bindings)))
 			  new-bindings)))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
-	        `((@Query ,rw))))))
+	        `((@Query ,@rw))))))
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
@@ -694,7 +708,7 @@
  `(((GRAPH)
     . ,(rw/lambda (block) 
          (cddr block)))
-   ((@SubSelect FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+   ((@Prologue @SubSelect WHERE FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
    ((@Dataset) 
     . ,(lambda (block bindings)
          (let ((graphs (get-all-graphs (*constraint*))))
@@ -723,7 +737,7 @@
 (define (parse-constraint constraint)
   (let ((constraint
          (if (pair? constraint) constraint (parse-query constraint))))
-    (recursive-expand-triples (list constraint))))
+    (car (recursive-expand-triples (list constraint)))))
 
 ;; (define parse-constraint (memoize parse-constraint*))
 
@@ -737,8 +751,8 @@
   (parameterize ((flatten-graphs? #f))
     (let ((C (*constraint*)))
       (if (procedure? C)
-          (rewrite (C) bindings (apply-constraint-rules triple))
-          (rewrite C bindings (apply-constraint-rules triple))))))
+          (rewrite (list (C)) bindings (apply-constraint-rules triple))
+          (rewrite (list C) bindings (apply-constraint-rules triple))))))
 
 ;; (define (remove-renaming var bindings)
 ;;  (delete-binding* (keys var bindings) (deps var bindings) bindings))
@@ -774,7 +788,11 @@
                            (parameterize ((flatten-graphs? #t))
                              (expand-triples (cdr block)))))
                (let-values (((rw new-bindings) (rewrite triples bindings)))
-                 (let ((constraints (filter (lambda (c) (and c (not (equal? c '(#f))))) rw)))
+                 (let* ((constraints (filter (compose not fail?) rw))
+                        (constraints (if (equal? (length constraints) 1)
+                                         (car constraints)
+                                         `((UNION ,@constraints)))))
+
                    (let ((graphs (find-triple-graphs (list a b c) constraints)))
                      (if (*in-where?*)
                          (values `((*REWRITTEN* ,@constraints)) new-bindings)
@@ -782,8 +800,7 @@
                           (map (lambda (graph)
                                  `(GRAPH ,graph (,a ,b ,c)))
                                graphs)
-                          ;; do real optimization here
-                          ;; with optimize-duplicates, for example
+                          ;; do real optimization here?
                           (fold-binding constraints 'constraints append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
                                                               new-bindings))))))))))
@@ -801,7 +818,8 @@
 					       (update-binding 'constraint-substitutions initial-substitutions bindings)
 					       rename-constraint-rules)))
 			  (let ((cleaned-bindings #f)) ; (clean-constraint-bindings bindings new-bindings)))
-			    (values (get-child-body 'WHERE rw) new-bindings))))
+			    (values (list (get-child-body 'WHERE rw)) ; (get-child-body 'WHERE rw)
+                                    new-bindings))))
                       (values '() bindings)))))))
        (,list? . ,rw/remove)))))
 
@@ -1726,6 +1744,8 @@
 (when (*plugin*) 
   (log-message "~%Loading plugin: ~A " (*plugin*))
   (load (*plugin*)))
+
+(print "RWSQ? " (*rewrite-select-queries?*))
 
 (log-message "~%Proxying to SPARQL endpoint: ~A " (*sparql-endpoint*))
 (log-message "~%and SPARQL update endpoint: ~A " (*sparql-update-endpoint*))

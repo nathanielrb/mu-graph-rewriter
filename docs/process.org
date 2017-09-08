@@ -1,0 +1,39 @@
+* Top
+** Rename
+*** Rename WHERE block, in place
+*** Rename INSERT, DELETE etc. blocks as *constraints*
+*** Append renamed WHERE block and *constraints*
+** Optimize Functional Properties
+** Instantiate INSERT queries
+
+* Rewriting Quads Block
+** Expand triples
+*** replace a -> rdf:type
+*** collect functional properties
+signalling errors if 2 values have been specified
+** Apply constraint to triple
+** Optimize duplicates using level-quads
+** Continue next level of quads
+
+* Apply Constraint to Triple
+** Calculate (memoized) naming dependencies of Constraint query
+** rename Constraint
+*** for each triple in CONSTRUCT statement
+**** instantiate triple
+**** rename, collecting new substitutions
+*** simplify and validate VALUES, FILTER, BIND
+
+* Optimizing Functional Properties
+** Rename with functional-property-substitutions
+** simplify and validate FILTERS, VALUES and BIND
+
+* Instantiating INSERT queries
+** get instantiation matches
+*** if full match, remove and keep *graph*
+*** if partial match, collect in *instantiated-quads*
+*** check for isolated VALUES statements, collect in *instantiation-values*
+** do instantiation-unions on triples (should be quads?) with shared variables
+
+* Deltas
+
+* Get Graphs

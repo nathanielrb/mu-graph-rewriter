@@ -1,0 +1,22 @@
+* Difficult Cases
+
+** BIND in the Constraint
+
+#+BEGIN_SRC SPARQL
+?s ?p ?o
+BIND(COUNT(?o) AS ?count)
+#+END_SRC
+
+when ?o is substituted with a value:
+
+#+BEGIN_SRC SPARQL
+?s ?p <property>
+BIND(COUNT(<property>) AS ?count)
+#+END_SRC SPARQL
+
+One solution(?):
+
+#+BEGIN_SRC SPARQL
+?s ?p <property>
+BIND(COUNT(<property>) AS ?count)
+#+END_SRC SPARQL
