@@ -1,6 +1,6 @@
 * Questions and Difficult Cases
 
-** BIND in the Constraint
+** BIND in constraint query
 
     ?s ?p ?o
     BIND(COUNT(?o) AS ?count)
@@ -17,19 +17,19 @@ One solution(?):
 
 ** singleton VALUES statements for ?graph 
 
-CONSTRUCT { ?s ?p ?o }
-WHERE {
- {
-  GRAPH ?graph { ?s ?p ?o }
-  VALUES ?graph { <G1> <G2> }
-  FILTER ( ?p != mu:uuid )
- }
- UNION
- {
-  GRAPH ?graph { ?s ?p ?o }
-  VALUES ( ?graph ?p ) { <GRAPHS/UUID> mu:uuid }
- }
-}
+    CONSTRUCT { ?s ?p ?o }
+    WHERE {
+      {
+        GRAPH ?graph { ?s ?p ?o }
+        VALUES ?graph { <G1> <G2> }
+        FILTER ( ?p != mu:uuid )
+      }
+      UNION
+      {
+        GRAPH ?graph { ?s ?p ?o }
+        VALUES ( ?graph ?p ) { <GRAPHS/UUID> mu:uuid }
+      }
+    }
 
 Here, ?graph is not exclusively determined, so updates are not well-defined, unless
 a triple is meant to go into all graphs. But how to define SELECT queries such as:
@@ -40,6 +40,20 @@ a triple is meant to go into all graphs. But how to define SELECT queries such a
 Can ?a ?b ?c and ?d ?e ?f come from different graphs, i.e., ?graph depends on ?s, ?p and ?o?
 The current assumptions mean that they must be in the same graph for the query to succeed.
 
-** singleton VALUES statements in general
+** singleton VALUES statements 
 
 how to calculate dependencies? with other singletons...
+** OPTIONALS and constraints that *should* be inside them
+
+what about something like this:
+
+    DELETE {
+      ?s ?p ?o . 
+      ?dataset <D> ?s 
+    }
+    WHERE { 
+      ?s ?p ?o.
+      OPTIONAL { ?s <invD> ?dataset . }
+    }
+
+the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...

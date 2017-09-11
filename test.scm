@@ -1236,7 +1236,7 @@ PREFIX app: <http://mu.semte.ch/app/>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 SELECT DISTINCT ?uuid WHERE {
     GRAPH <http://data.europa.eu/eurostat/temp> {
-    ?s mu:uuid ?uuid; a dct:Agent. 
+    ?s <http://mu.semte.ch/vocabularies/core/uuid> ?uuid; a dct:Agent. 
 }
 } GROUP BY ?uuid OFFSET 0 LIMIT 20"))
 

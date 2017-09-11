@@ -310,6 +310,10 @@
 (define (a->rdf:type b)
   (if (equal? b 'a) 'rdf:type b))
 
+(define (rdf-equal? a b)
+  (equal? (expand-namespace (a->rdf:type a) (query-namespaces))
+          (expand-namespace (a->rdf:type b) (query-namespaces))))
+
 (define (current-substitution var bindings)
   (let ((substitutions (get-binding/default 'constraint-substitutions bindings '())))
     (a->rdf:type (alist-ref var substitutions))))
@@ -347,7 +351,6 @@
 (define keys (memoize keys*))
 
 (define (renaming* var bindings)
-  (print "deps of " var ": " (deps var bindings))
   (let ((renamings
          (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
     (alist-ref var renamings)))
@@ -378,7 +381,7 @@
   			    (and (sparql-variable? current-value)
   				 (not (sparql-variable? o))))
   			(update-binding s p 'functional-property o bindings))
-  		       ((or (sparql-variable? o) (equal? o current-value)) ; modulo namespace!
+  		       ((or (sparql-variable? o) (rdf-equal? o current-value)) ; modulo namespace!
   			bindings)
   		       (else (abort
 			      (make-property-condition
@@ -398,7 +401,7 @@
 	   (cond ((sparql-variable? o)
 		  (cons-binding `(,o . ,fpv)
 				'fproperties-substitutions bindings))
-		 ((or (sparql-variable? fpv) (equal? o fpv))
+		 ((or (sparql-variable? fpv) (rdf-equal? o fpv))
 		  bindings)
 		 (else
 		  (abort
@@ -495,6 +498,7 @@
 (define (update-triple-graphs new-graphs triple bindings)
   (let ((vars (filter sparql-variable? triple))
         (triple (map a->rdf:type triple)))
+    (print "updating graphs for " triple ": " new-graphs)
     (fold-binding* triple
                    vars
                    'graphs
@@ -731,6 +735,9 @@
      . ,(lambda (triple bindings)
           (parameterize ((*in-where?* (in-where?)))
             (let ((graphs (get-triple-graphs triple bindings)))
+               (newline)(print triple " => " graphs)
+               ;; (print bindings)
+               (newline)
               (if (null? graphs)
                   (apply-constraint triple bindings)
 		  (values
@@ -803,12 +810,14 @@
 
                    (let ((graphs (find-triple-graphs (list a b c) constraints)))
                      (if (*in-where?*)
-                         (values `((*REWRITTEN* ,@constraints)) new-bindings)
+                         (values `((*REWRITTEN* ,@constraints)) 
+                                 (update-triple-graphs graphs (list a b c) 
+                                                       new-bindings))
                          (values
                           (map (lambda (graph)
                                  `(GRAPH ,graph (,a ,b ,c)))
                                graphs)
-                          ;; do real optimization here?
+                          ;; can we do real optimization here?
                           (fold-binding constraints 'constraints append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
                                                               new-bindings))))))))))
@@ -1049,7 +1058,7 @@
 			   (map cdr vals) 
 			   (map cons (map car vals) new-vals)))
 		    (else
-		     (let ((matches (map (cut equal? <> (car vars)) (map car vals))))
+		     (let ((matches (map (cut rdf-equal? <> (car vars)) (map car vals))))
 		       (if (null? (filter values matches))
 			   (out #f)
 			   (loop (cdr vars) new-vars
@@ -1057,7 +1066,7 @@
 				 (filter values (map (lambda (match? val) (and match? val)) matches new-vals))))))))
 	     (else (cond ((sparql-variable? vars) `(VALUES ,vars ,@vals))
 			 (else
-			  (if (null? (filter not (map (cut equal? <> vars) vals)))
+			  (if (null? (filter not (map (cut rdf-equal? <> vars) vals)))
 			      '()
 			      (out #f))))))))))
 
@@ -1081,15 +1090,15 @@
 (define (unify a b bindings)
   (if (or (sparql-variable? a) (sparql-variable? b))
       '?
-      (equal? a b)))
+      (rdf-equal? a b)))
 
 (define (disunify a b bindings)
   (if (or (sparql-variable? a) (sparql-variable? b))
       '?
-      (not (equal? a b))))
+      (not (rdf-equal? a b))))
 
 (define (constraint-member a b bindings)
-  (let ((possible? (lambda (x) (or (sparql-variable? x) (equal? a x)))))
+  (let ((possible? (lambda (x) (or (sparql-variable? x) (rdf-equal? a x)))))
     (cond ((sparql-variable? a) '?)
 	  ((member a b) #t)
 	  ((null? (filter sparql-variable? b)) #f)
@@ -1229,7 +1238,6 @@
             (let* ((paths (get-binding 'dependency-paths new-bindings))
                    (source? (lambda (var) (member var bound-vars)))
                    (sink? (lambda (x) (member x (get-binding/default 'constraint-graphs new-bindings '())))))
-	      (print "paths: " paths)
               (values
                (concat-dependency-paths (minimal-dependency-paths source? sink? paths))
                bindings)))))
@@ -1258,7 +1266,7 @@
                    (cons match-binding (match-triple triple (cdr triples)))))
               ((sparql-variable? (car triple1))
                (loop (cdr triple1) (cdr triple2) (cons (cons (car triple1) (car triple2)) match-binding)))
-              ((equal? (car triple1) (car triple2))
+              ((rdf-equal? (car triple1) (car triple2))
                (loop (cdr triple1) (cdr triple2) match-binding))
               (else (match-triple triple (cdr triples)))))))
     
@@ -1465,8 +1473,10 @@
               (loop (cdr statements) graph rest))
              (else (cons (car statements) (loop (cdr statements) #f '()))))))))
 
+;; This isn't quite correct. Should be done per-tuple.
 (define (instantiate-values block substitutions graphs)
-  (print "S: " substitutions)(print "G: " graphs)
+  (print "S: " substitutions)
+  (print "G: " graphs)
   (let ((substitutions (if (not graphs)
                            substitutions
                            (fold (lambda (graph substitutions)
