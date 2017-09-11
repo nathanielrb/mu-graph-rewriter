@@ -80,8 +80,8 @@
   "       (<http://data.europa.eu/eurostat/retailers> dct:Agent) "
   "       (<http://data.europa.eu/eurostat/datasets> qb:Dataset) "
   "    } "
-  ;;  "   FILTER ( ?p != mu:uuid )"
-  " FILTER ( ?p NOT IN (mu:uuid)) "
+  "   FILTER ( ?p != mu:uuid )"
+  ;;" FILTER ( ?p NOT IN (mu:uuid)) "
 ;;  " BIND ( COUNT(?type) AS ?count )"
   "  }"
   "}"))

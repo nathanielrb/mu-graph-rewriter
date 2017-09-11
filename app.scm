@@ -56,6 +56,12 @@
       (equal? "true" (($query) 'rewrite-select-queries))
       (*rewrite-select-queries?*)))
 
+(define *send-deltas?* 
+  (config-param "SEND_DELTAS" #f))
+
+(define *calculate-potentials?* 
+  (config-param "CALCULATE_POTENTIALS" #t))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; for RW library, to be cleaned up and abstracted.
 ;; (define rw/value
@@ -640,7 +646,7 @@
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
-	      (if (insert-query? block)
+	      (if (insert-query? block) 
 		  (values
 		   `((@Update
 		      ,@(instantiated-insert-query rw new-bindings)))
@@ -648,10 +654,12 @@
 		  (let ((new-where ;; should do real optimization!
                          (delete-duplicates  
                           (append (get-child-body 'WHERE rw)
-                                  (get-binding/default* '() 'constraints bindings '())))))
+                                  (get-binding/default* '() 'constraints new-bindings '())))))
 		    (if (null? new-where)
 			(values `((@Update ,@(reverse rw))) new-bindings)
-			(values `((@Update ,@(replace-child-body 'WHERE (optimize new-where new-bindings) (reverse rw))))
+			(values `((@Update ,@(replace-child-body 'WHERE 
+                                                                 `((@SubSelect (SELECT *) (WHERE ,@(optimize new-where new-bindings))))
+                                                                 (reverse rw))))
 				new-bindings)))))))
     (,select? . ,rw/copy)
     ((@SubSelect) . ,rw/subselect)
@@ -679,10 +687,9 @@
                           (get-binding/default* '() 'constraints new-bindings '())
                          new-bindings))) 
       ;; To do: real optimization here!
-      (let-values (((new-where inst-bindings) (instantiate
-                                                  (delete-duplicates (append (list constraints) where-block))
-                                                  triples)))
-	(let* ((instantiated-values (get-binding 'instantiated-values inst-bindings))
+      (let-values (((instantiated-constraints inst-bindings) (instantiate constraints triples)))
+        (let* ((new-where (delete-duplicates (append instantiated-constraints where-block)))
+               (instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
 	       (new-insert (if instantiated-values
 			       (instantiate-values insert-block instantiated-values instantiated-graphs)
@@ -690,7 +697,8 @@
           (replace-child-body 'INSERT new-insert 
                               (if (null? new-where)
                                   (reverse rw)
-                                  (replace-child-body 'WHERE new-where 
+                                  (replace-child-body 'WHERE
+                                                      `((@SubSelect (SELECT *) (WHERE ,@new-where)))
                                                       (reverse rw)))))))))
 
 (define (make-dataset label graphs #!optional named?)
@@ -1418,12 +1426,12 @@
                       '()
                       (update-instantiated-values (cdr kvs) bindings)))))
 
-(define (update-instantiated-value key val bindings)
-  (fold-binding key 'instantiated-values
-                (lambda (key ivals)
-                  (alist-update key (delete-duplicates (cons val (or (alist-ref key ivals) '()))) ivals))
-                '()
-                bindings))
+;; (define (update-instantiated-value key val bindings)
+;;   (fold-binding key 'instantiated-values
+;;                 (lambda (key ivals)
+;;                   (alist-update key (delete-duplicates (cons val (or (alist-ref key ivals) '()))) ivals))
+;;                 '()
+;;                 bindings))
 
 (define (union-over-instantiation block matching-quads bindings)
   (match block
@@ -1458,10 +1466,11 @@
              (else (cons (car statements) (loop (cdr statements) #f '()))))))))
 
 (define (instantiate-values block substitutions graphs)
+  (print "S: " substitutions)(print "G: " graphs)
   (let ((substitutions (if (not graphs)
                            substitutions
                            (fold (lambda (graph substitutions)
-                                   (alist-update-proc graph (lambda (graphs) (cons graph graphs)) substitutions))
+                                   (alist-update-proc graph (lambda (graphs) (cons graph (or graphs '()))) substitutions))
                                  substitutions
                                  graphs))))
     (rewrite block '() (instantiate-values-rules substitutions))))
@@ -1482,19 +1491,19 @@
     (,triple? 
      . ,(lambda (triple bindings)
           (values
-           (let loop ((triple triple) (cont list))
-             (if (null? triple) (cont '())
+           (let loop ((triple triple) (k list))
+             (if (null? triple) (k '())
                  (let ((subs (alist-ref (car triple) substitutions)))
                    (if subs
                        (loop (cdr triple)
                              (lambda (rest)
                                (join
                                 (map
-                                 (lambda (s) (cont (cons s rest)))
+                                 (lambda (s) (k (cons s rest)))
                                  subs))))
                        (loop (cdr triple)
                              (lambda (rest)
-                               (cont (cons (car triple) rest))))))))
+                               (k (cons (car triple) rest))))))))
            bindings)))
 
     (,list? . ,rw/list)))
@@ -1709,11 +1718,12 @@
       (handle-exceptions exn 
           (virtuoso-error exn)
         
-        ;; (when (update-query? rewritten-query)
-        ;;   (notify-deltas rewritten-query))
+        (when (and (update-query? rewritten-query) (*send-deltas?*))
+          (notify-deltas rewritten-query))
 
         (plet-if (not (update-query? query))
-                 ((potential-graphs (get-all-graphs rewritten-query))
+                 ((potential-graphs (and (*calculate-potentials?*)
+                                         (get-all-graphs rewritten-query)))
                   ((result response)
                    (let-values (((result uri response)
                                  (proxy-query rewritten-query-string
@@ -1722,13 +1732,15 @@
                                                   (*sparql-endpoint*)))))
                      (close-connection! uri)
                      (list result response))))
+                 
+                 (when (*calculate-potentials?*)
+                   (log-message "~%==Potential Graphs==~%(Will be sent in headers)~%~A~%"  potential-graphs))
+                 
+                 (let ((headers (headers->list (response-headers response))))
+                   (log-results result)
+                   (mu-headers headers)
+                   result))))))
             
-                 (log-message "~%==Potential Graphs==~%(Will be sent in headers)~%~A~%"  potential-graphs)
-            
-          (let ((headers (headers->list (response-headers response))))
-            (log-results result)
-            (mu-headers headers)
-            result))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification

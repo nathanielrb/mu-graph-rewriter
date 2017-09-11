@@ -1,22 +1,45 @@
-* Difficult Cases
+* Questions and Difficult Cases
 
 ** BIND in the Constraint
 
-#+BEGIN_SRC SPARQL
-?s ?p ?o
-BIND(COUNT(?o) AS ?count)
-#+END_SRC
+    ?s ?p ?o
+    BIND(COUNT(?o) AS ?count)
 
 when ?o is substituted with a value:
 
-#+BEGIN_SRC SPARQL
-?s ?p <property>
-BIND(COUNT(<property>) AS ?count)
-#+END_SRC SPARQL
+    ?s ?p <property>
+    BIND(COUNT(<property>) AS ?count)
 
 One solution(?):
 
-#+BEGIN_SRC SPARQL
-?s ?p <property>
-BIND(COUNT(<property>) AS ?count)
-#+END_SRC SPARQL
+    ?s ?p <property>
+    BIND(COUNT(<property>) AS ?count)
+
+** singleton VALUES statements for ?graph 
+
+CONSTRUCT { ?s ?p ?o }
+WHERE {
+ {
+  GRAPH ?graph { ?s ?p ?o }
+  VALUES ?graph { <G1> <G2> }
+  FILTER ( ?p != mu:uuid )
+ }
+ UNION
+ {
+  GRAPH ?graph { ?s ?p ?o }
+  VALUES ( ?graph ?p ) { <GRAPHS/UUID> mu:uuid }
+ }
+}
+
+Here, ?graph is not exclusively determined, so updates are not well-defined, unless
+a triple is meant to go into all graphs. But how to define SELECT queries such as:
+
+    SELECT *
+    WHERE { ?a ?b ?c . ?d ?e ?f }
+
+Can ?a ?b ?c and ?d ?e ?f come from different graphs, i.e., ?graph depends on ?s, ?p and ?o?
+The current assumptions mean that they must be in the same graph for the query to succeed.
+
+** singleton VALUES statements in general
+
+how to calculate dependencies? with other singletons...

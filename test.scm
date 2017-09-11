@@ -1164,6 +1164,23 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
    }  
  }"))
 
+(define c9prim (parse-query "
+INSERT { ?s <exists> <now> }
+WHERE { ?s ?p ?o}"))
+
+(define c9bis (parse-query "
+INSERT { ?s <exists> <now> }
+WHERE { ?s a ?T }"))
+
+(define c9tert (parse-query "
+INSERT { ?s <exists> <now> }
+WHERE { ?s <thinks> <good> }"))
+
+(define c9quart (parse-query "
+INSERT { ?s <wantsToBe> ?T . ?s a qb:Dataset }
+WHERE { ?s a ?T }"))
+
+
 (define q (parse-query "PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
 PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
 PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>

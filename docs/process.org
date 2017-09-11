@@ -17,6 +17,9 @@ signalling errors if 2 values have been specified
 
 * Apply Constraint to Triple
 ** Calculate (memoized) naming dependencies of Constraint query
+*** Triples
+*** Quads
+*** VALUES
 ** rename Constraint
 *** for each triple in CONSTRUCT statement
 **** instantiate triple
