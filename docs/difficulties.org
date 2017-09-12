@@ -2,8 +2,10 @@
 
 ** BIND in constraint query
 
+#+BEGIN_SRC
     ?s ?p ?o
     BIND(COUNT(?o) AS ?count)
+#+END_SRC
 
 when ?o is substituted with a value:
 
@@ -14,7 +16,7 @@ One solution(?):
 
     ?s ?p <property>
     BIND(COUNT(<property>) AS ?count)
-
+    
 ** singleton VALUES statements for ?graph 
 
     CONSTRUCT { ?s ?p ?o }
