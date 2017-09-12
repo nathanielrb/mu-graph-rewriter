@@ -686,7 +686,7 @@
   (parameterize ((flatten-graphs? #t))
     (let* ((insert-block (get-child-body 'INSERT rw))
            (triples (expand-triples insert-block '() replace-a))
-           (where-block (or (get-child-body 'WHERE rw) '()))
+           (where-block (optimize (or (get-child-body 'WHERE rw) '())))
            (constraints (optimize
                           (get-binding/default* '() 'constraints new-bindings '())
                          new-bindings))) 
