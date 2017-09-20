@@ -686,7 +686,7 @@
   (parameterize ((flatten-graphs? #t))
     (let* ((insert-block (get-child-body 'INSERT rw))
            (triples (expand-triples insert-block '() replace-a))
-           (where-block (optimize (or (get-child-body 'WHERE rw) '())))
+           (where-block (optimize (or (get-child-body 'WHERE rw) '()) new-bindings))
            (constraints (optimize
                           (get-binding/default* '() 'constraints new-bindings '())
                          new-bindings))) 
@@ -712,8 +712,8 @@
              graphs)
       ,@(splice-when
          (and named?
-              `((,label-named ,(*default-graph*))
-                ,@(map (lambda (graph) `(,label-named ,graph))
+              `((,label (NAMED ,(*default-graph*))) 
+                ,@(map (lambda (graph) `(,label (NAMED ,graph)))
                        graphs)))))))
 
 (define select-query-rules
@@ -1348,9 +1348,6 @@
                           (values (list (filter (not-node? '*graph*) (car rw)))
                                   (if (null? graphs)
                                       new-bindings
-                                      ;; (update-instantiated-values 
-                                      ;;  (map (lambda (graph) (list graph graph)) graphs)
-                                      ;;  new-bindings))))   
                                       (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings))))
                       (case (caar statements)
                         ((*graph*) (loop (cdr statements) filter-statements
@@ -1382,14 +1379,8 @@
 				    (subselect-bindings vars bindings))))
                (values
                 `((@SubSelect (,label ,@vars)
-			      ;;,@(replace-child-body 'WHERE (group-graph-statements rw) rest)))
                               ,@(replace-child-body 'WHERE rw rest)))
                 (merge-subselect-bindings vars new-bindings bindings)))))))
-    ;; ((WHERE OPTIONAL MINUS)
-    ;;  . ,(lambda (block bindings)
-    ;;       (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-    ;;         ;; (values `((,(car block) ,@(group-graph-statements rw))) new-bindings))))
-    ;;         (values `((,(car block) ,@rw)) new-bindings))))
     ((WHERE OPTIONAL MINUS) . ,rw/quads)
     ((UNION)
      . ,(lambda (block bindings)
@@ -1397,8 +1388,6 @@
 	    (let ((new-blocks (filter values rw)))
 	      (case (length new-blocks)
 		((0)  (values '() new-bindings))
-		;; ((1)  (values  (group-graph-statements (car new-blocks)) new-bindings))
-		;; (else (values `((UNION ,@(group-graph-statements new-blocks))) new-bindings)))))))
                 ((1)  (values  new-blocks new-bindings))
 		(else (values `((UNION ,@new-blocks)) new-bindings)))))))
     ((GRAPH) 
@@ -1417,7 +1406,6 @@
      . ,(lambda (block bindings)
           (values (list block) bindings)))
     (,list? 
-     ;;. ,rw/list)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rw/list block bindings)))
             (values (list (group-graph-statements (car rw))) new-bindings))))
@@ -1433,13 +1421,6 @@
                         (alist-update key (delete-duplicates (append vals (or (alist-ref key ivals) '()))) ivals))
                       '()
                       (update-instantiated-values (cdr kvs) bindings)))))
-
-;; (define (update-instantiated-value key val bindings)
-;;   (fold-binding key 'instantiated-values
-;;                 (lambda (key ivals)
-;;                   (alist-update key (delete-duplicates (cons val (or (alist-ref key ivals) '()))) ivals))
-;;                 '()
-;;                 bindings))
 
 (define (union-over-instantiation block matching-quads bindings)
   (match block
@@ -1473,10 +1454,8 @@
               (loop (cdr statements) graph rest))
              (else (cons (car statements) (loop (cdr statements) #f '()))))))))
 
-;; This isn't quite correct. Should be done per-tuple.
+;; This isn't quite correct. Should be done per-tuple, right?
 (define (instantiate-values block substitutions graphs)
-  (print "S: " substitutions)
-  (print "G: " graphs)
   (let ((substitutions (if (not graphs)
                            substitutions
                            (fold (lambda (graph substitutions)

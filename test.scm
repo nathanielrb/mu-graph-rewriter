@@ -28,6 +28,7 @@
 
 ;(*sparql-endpoint* "http://172.31.63.185:8890/sparql")
 
+
 (define v (parse-query "PREFIX pre: <http://www.home.com/> 
                   PREFIX rdf: <http://www.gooogle.com/> 
 
