@@ -60,7 +60,7 @@
   (config-param "SEND_DELTAS" #f))
 
 (define *calculate-potentials?* 
-  (config-param "CALCULATE_POTENTIALS" #t))
+  (config-param "CALCULATE_POTENTIALS" #f))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; for RW library, to be cleaned up and abstracted.
@@ -1629,6 +1629,7 @@
                       ((condition-property-accessor 'server-error 'response) exn)))
         (body (or ((condition-property-accessor 'client-error 'body) exn)
                   ((condition-property-accessor 'server-error 'body) exn))))
+    (log-message "Virtuoso error: ~A" exn)
     (when body
       (log-message "~%==Virtuoso Error==~% ~A ~%" body))
     (when response
@@ -1704,9 +1705,15 @@
       
       (log-rewritten-query rewritten-query-string)
 
+      ;;
+      (log-message "is update? ~A\n~A" (update-query? query)
+                   (if (update-query? query)
+                                                  (*sparql-update-endpoint*)
+                                                  (*sparql-endpoint*)))
+
       (handle-exceptions exn 
           (virtuoso-error exn)
-        
+
         (when (and (update-query? rewritten-query) (*send-deltas?*))
           (notify-deltas rewritten-query))
 
@@ -1755,6 +1762,7 @@
     (log-message "~%with constraint:~%~A" (write-sparql ((*constraint*))))
     (log-message "~%with constraint:~%~A" (write-sparql (*constraint*))))
 
+(log-message "Calculating potentials? ~A" (*calculate-potentials?*))
 (*port* 8890)
 
 ;; (use slime)
