@@ -60,7 +60,7 @@
   (config-param "SEND_DELTAS" #f))
 
 (define *calculate-potentials?* 
-  (config-param "CALCULATE_POTENTIALS" #f))
+  (config-param "CALCULATE_POTENTIALS" #t))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; for RW library, to be cleaned up and abstracted.
@@ -498,7 +498,6 @@
 (define (update-triple-graphs new-graphs triple bindings)
   (let ((vars (filter sparql-variable? triple))
         (triple (map a->rdf:type triple)))
-    (print "updating graphs for " triple ": " new-graphs)
     (fold-binding* triple
                    vars
                    'graphs
@@ -533,7 +532,15 @@
             (values `((@Query
                        ,@(insert-child-before 'WHERE `(|SELECT DISTINCT| ,@graphs) rw)))
                     new-bindings)))))
-    ((WHERE) . ,rw/quads)
+    ;; ((WHERE) . ,rw/quads)
+    ((WHERE)
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rw/quads block bindings)))
+            (values rw new-bindings))))
+    ((INSERT DELETE)
+     . ,(lambda (block bindings)
+          (let-values (((_ new-bindings) (rw/quads block bindings)))
+            (values '() new-bindings))))
     ((@Prologue) . ,rw/copy)
     ((@Dataset @Using) 
      . ,(lambda (block bindings)
@@ -552,7 +559,8 @@
 		  (if graphs
 		      (fold-binding graphs 'all-graphs append '() new-bindings)
 		      new-bindings))))))))
-    ((CONSTRUCT SELECT INSERT DELETE |INSERT DATA|) . ,rw/remove)
+    ;; ((CONSTRUCT SELECT INSERT DELETE |INSERT DATA|) . ,rw/remove)
+    ((CONSTRUCT SELECT) . ,rw/remove)
     ((GRAPH) . ,(lambda (block bindings)
                   (match block
                     ((`GRAPH graph . quads)
@@ -566,13 +574,13 @@
 	    `((UNION ,@rw)))))
     ((VALUES) ;; order-dependent
      . ,(lambda (block bindings)
-          (let ((graphs (get-binding 'all-graphs bindings)))
+          (let ((graphs (get-binding/default 'all-graphs bindings '())))
             (match block
               ((`VALUES vars . vals)
                (if (pair? vars)
                    (values (list block) bindings)
                    (if (member vars graphs)
-                       (values '()
+                       (values (list block)
                                (update-binding 'all-graphs 
                                                (append vals (delete vars graphs))
                                                bindings))
@@ -735,9 +743,6 @@
      . ,(lambda (triple bindings)
           (parameterize ((*in-where?* (in-where?)))
             (let ((graphs (get-triple-graphs triple bindings)))
-               (newline)(print triple " => " graphs)
-               ;; (print bindings)
-               (newline)
               (if (null? graphs)
                   (apply-constraint triple bindings)
 		  (values
@@ -1718,8 +1723,10 @@
           (notify-deltas rewritten-query))
 
         (plet-if (not (update-query? query))
-                 ((potential-graphs (and (*calculate-potentials?*)
-                                         (get-all-graphs rewritten-query)))
+                 ((potential-graphs (handle-exceptions exn
+                                        (begin (log-message "~%Error getting potential graphs: ~A~%" exn) #f)
+                                      (and (*calculate-potentials?*)
+                                           (get-all-graphs rewritten-query))))
                   ((result response)
                    (let-values (((result uri response)
                                  (proxy-query rewritten-query-string
