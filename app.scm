@@ -1685,7 +1685,6 @@
 (define (log-results result)
   (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result)))))
 
-;; this is a beast. clean it up.
 (define (rewrite-call _)
   (let* (($$query (request-vars source: 'query-string))
          (body (read-request-body))
@@ -1710,12 +1709,10 @@
       
       (log-rewritten-query rewritten-query-string)
 
-      ;;
       (log-message "is update? ~A\n~A" (update-query? query)
                    (if (update-query? query)
                                                   (*sparql-update-endpoint*)
                                                   (*sparql-endpoint*)))
-
       (handle-exceptions exn 
           (virtuoso-error exn)
 
@@ -1724,7 +1721,8 @@
 
         (plet-if (not (update-query? query))
                  ((potential-graphs (handle-exceptions exn
-                                        (begin (log-message "~%Error getting potential graphs: ~A~%" exn) #f)
+                                        (begin (log-message "~%Error getting potential graphs: ~A~%" exn) 
+                                               #f)
                                       (and (*calculate-potentials?*)
                                            (get-all-graphs rewritten-query))))
                   ((result response)
@@ -1780,5 +1778,3 @@
 ;;      (make-thread
 ;;       (lambda ()
 ;;         (swank-server-start 4005))))))
-
-
