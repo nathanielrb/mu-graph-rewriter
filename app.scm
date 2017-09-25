@@ -93,14 +93,14 @@
 
 (define (rw/subselect block bindings)
   (match block
-    ((@SubSelect (label . vars) . rest)
+    ((`@SubSelect (label . vars) . rest)
      (let* ((subselect-vars (extract-subselect-vars vars))
             (inner-bindings (if (or (equal? subselect-vars '(*))
                                     (equal? subselect-vars '*))
                                 bindings
                                 (project-bindings subselect-vars bindings))))
        (let-values (((rw new-bindings) (rewrite rest inner-bindings)))
-         (values `((@SubSelect (,label ,@vars) ,@rw)) 
+         (values `((@SubSelect (,label ,@(filter sparql-variable? vars)) ,@rw)) 
                  (merge-bindings 
                   (project-bindings subselect-vars new-bindings)
                   bindings)))))))
@@ -311,8 +311,9 @@
   (if (equal? b 'a) 'rdf:type b))
 
 (define (rdf-equal? a b)
-  (equal? (expand-namespace (a->rdf:type a) (query-namespaces))
-          (expand-namespace (a->rdf:type b) (query-namespaces))))
+  (let ((nss (append (query-namespaces) (*namespaces*)))) ; memoize this
+    (equal? (expand-namespace (a->rdf:type a) nss)
+            (expand-namespace (a->rdf:type b) nss))))
 
 (define (current-substitution var bindings)
   (let ((substitutions (get-binding/default 'constraint-substitutions bindings '())))
@@ -372,6 +373,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
+
+;; don't collect duplicates
 (define (collect-functional-properties triples bindings)
   (fold (match-lambda* 
   	  (((s p o) bindings)
@@ -381,13 +384,15 @@
   			    (and (sparql-variable? current-value)
   				 (not (sparql-variable? o))))
   			(update-binding s p 'functional-property o bindings))
-  		       ((or (sparql-variable? o) (rdf-equal? o current-value)) ; modulo namespace!
+  		       ((or (sparql-variable? o) (rdf-equal? o current-value))
   			bindings)
   		       (else (abort
 			      (make-property-condition
 			       'exn
 			       'message
-			       (format "Invalid query: ~A is a declared as a functional property but two values are given for subject ~A: ~A and ~A."
+			       (format (conc "Invalid query:"
+                                             " ~A is a declared as a functional property"
+                                             " but two values are given for subject ~A: ~A and ~A.")
 				       p s o current-value))))))
   	       bindings)))
         bindings
@@ -429,7 +434,23 @@
   `(((@UpdateUnit @QueryUnit @Update @Query) . ,rw/continue)
     ((@Prologue @Dataset GROUP |GROUP BY| LIMIT ORDER |ORDER BY| OFFSET) . ,rw/copy)
     (,select? . ,rw/copy)
-    ((@SubSelect) . ,rw/subselect)
+    ;; ((@SubSelect) . ,rw/subselect)
+    ;; ;; when can we make a direct call to the db?
+    ((@SubSelect) 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rw/subselect block bindings)))
+            (match rw
+              (((`@SubSelect (label . vars) . rest))
+               (print "vars : " vars)
+               (print "next: "(context-next (*context*)))
+               (print "prev: "(context-previous (*context*)))
+               (print "left-uncles: " (context-previous (context-parent (*context*))))
+               (print "right-uncles: " (context-next (context-parent (*context*))))
+               )
+               ;; (print "subselect vars: " (filter sparql-variable? rest))
+               ;; (print "dif: " (lset-difference equal? vars (filter sparql-variable? rest))))
+              (else (print "no match for " rw)))
+            (values rw new-bindings))))
     ((VALUES) 
      . ,(lambda (block bindings)
           (match block
@@ -699,6 +720,7 @@
                           (get-binding/default* '() 'constraints new-bindings '())
                          new-bindings))) 
       ;; To do: real optimization here!
+      (print "instantiating " (write-sparql constraints))
       (let-values (((instantiated-constraints inst-bindings) (instantiate constraints triples)))
         (let* ((new-where (delete-duplicates (append instantiated-constraints where-block)))
                (instantiated-values (get-binding 'instantiated-values inst-bindings))
@@ -969,8 +991,7 @@
                (if (null? rw)
                    (values '() merged-bindings)
                    (values `((@SubSelect 
-			      (,label ,@(substituted-subselect-vars 
-					 vars merged-bindings))
+			      (,label ,@(substituted-subselect-vars vars merged-bindings))
 			      ,@(replace-child-body 'WHERE rw rest)))
                            merged-bindings)))))))))
     ((WHERE)
@@ -982,7 +1003,7 @@
 				    'dependencies (constraint-dependencies block bindings) 
 				    bindings))))
 	      (let ((new-bindings (update-renamings new-bindings)))
-	      (if (null? (filter not rw)) ;; abstract (already as fail? ?)
+	      (if (null? (filter not rw)) ; abstract (already as fail? ?)
 		  (values `((WHERE ,@rw)) new-bindings)
 		  (values `((WHERE #f)) new-bindings)))))))
     ((UNION) . ,rw/union)
@@ -1296,6 +1317,7 @@
 ;; or '(matched-quad () match-binding) if the instantiated quad is instantiated completely.
 ;; To do: group matches by shared variables (i.e., (map car match-binding) )
 (define (get-instantiation-matches-rules triples)
+  (print "getting for " triples)
   `(((@SubSelect) . ,rw/subselect)
     ((GRAPH) 
      . ,(lambda (block bindings)
@@ -1353,7 +1375,7 @@
                           (values (list (filter (not-node? '*graph*) (car rw)))
                                   (if (null? graphs)
                                       new-bindings
-                                      (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings))))
+                                      (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings)))) 
                       (case (caar statements)
                         ((*graph*) (loop (cdr statements) filter-statements
 					 values-statements (cons (cdar statements) graphs) quads))
@@ -1696,52 +1718,48 @@
          
     (log-received-query query-string query)
 
-    (let* ((rewritten-query 
-            (parameterize (($query $$query) ($body $$body))
-              (handle-exceptions exn 
-                  (begin (log-message "~%==Rewriting Error==~%") 
-                         (log-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn))
-                         (print-error-message exn (current-error-port))
-                         (print-call-chain (current-error-port))
-                         (abort exn))
-                (rewrite-query query top-rules))))
-           (rewritten-query-string (write-sparql rewritten-query)))
-      
-      (log-rewritten-query rewritten-query-string)
+    (let-values (((rewritten-query bindings)
+                  (parameterize (($query $$query) ($body $$body))
+                    (handle-exceptions exn 
+                        (begin (log-message "~%==Rewriting Error==~%") 
+                               (log-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn))
+                               (print-error-message exn (current-error-port))
+                               (print-call-chain (current-error-port))
+                               (abort exn))
+                      (rewrite-query query top-rules)))))
+      (let ((rewritten-query-string (write-sparql rewritten-query)))
+        
+        (log-rewritten-query rewritten-query-string)
 
-      (log-message "is update? ~A\n~A" (update-query? query)
-                   (if (update-query? query)
-                                                  (*sparql-update-endpoint*)
-                                                  (*sparql-endpoint*)))
-      (handle-exceptions exn 
-          (virtuoso-error exn)
+        (handle-exceptions exn 
+            (virtuoso-error exn)
 
-        (when (and (update-query? rewritten-query) (*send-deltas?*))
-          (notify-deltas rewritten-query))
+          (when (and (update-query? rewritten-query) (*send-deltas?*))
+            (notify-deltas rewritten-query))
 
-        (plet-if (not (update-query? query))
-                 ((potential-graphs (handle-exceptions exn
-                                        (begin (log-message "~%Error getting potential graphs: ~A~%" exn) 
-                                               #f)
-                                      (and (*calculate-potentials?*)
-                                           (get-all-graphs rewritten-query))))
-                  ((result response)
-                   (let-values (((result uri response)
-                                 (proxy-query rewritten-query-string
-                                              (if (update-query? query)
-                                                  (*sparql-update-endpoint*)
-                                                  (*sparql-endpoint*)))))
-                     (close-connection! uri)
-                     (list result response))))
-                 
-                 (when (*calculate-potentials?*)
-                   (log-message "~%==Potential Graphs==~%(Will be sent in headers)~%~A~%"  potential-graphs))
-                 
-                 (let ((headers (headers->list (response-headers response))))
-                   (log-results result)
-                   (mu-headers headers)
-                   result))))))
-            
+          (plet-if (not (update-query? query))
+                   ((potential-graphs (handle-exceptions exn
+                                          (begin (log-message "~%Error getting potential graphs: ~A~%" exn) 
+                                                 #f)
+                                        (and (*calculate-potentials?*)
+                                             (get-all-graphs rewritten-query))))
+                    ((result response)
+                     (let-values (((result uri response)
+                                   (proxy-query (add-prefixes rewritten-query-string)
+                                                (if (update-query? query)
+                                                    (*sparql-update-endpoint*)
+                                                    (*sparql-endpoint*)))))
+                       (close-connection! uri)
+                       (list result response))))
+                   
+                   (when (*calculate-potentials?*)
+                     (log-message "~%==Potential Graphs==~%(Will be sent in headers)~%~A~%"  potential-graphs))
+                   
+                   (let ((headers (headers->list (response-headers response))))
+                     (log-results result)
+                     (mu-headers headers)
+                     result)))))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification

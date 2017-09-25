@@ -1602,3 +1602,45 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
    }  
  }"))
 
+(define c21 (parse-query "WITH <http://mu.semte.ch/application> INSERT {<http://mu.semte.ch/school/classes/dc6c981b-d2fc-484a-95f5-4412d8ea1257> a <http://mu.semte.ch/vocabularies/school/Class>; <http://mu.semte.ch/vocabularies/core/uuid> \"dc6c981b-d2fc-484a-95f5-4412d8ea1257\";<http://purl.org/dc/terms/title> \"Categorical Fish 102\" } WHERE {}"))
+
+(define c21bis (parse-query "WITH <http://mu.semte.ch/application> INSERT {<http://mu.semte.ch/school/classes/dc6c981b-d2fc-484a-95f5-4412d8ea1257> a school:Class; <http://mu.semte.ch/vocabularies/core/uuid> \"dc6c981b-d2fc-484a-95f5-4412d8ea1257\";<http://purl.org/dc/terms/title> \"Categorical Fish 102\" } WHERE {}"))
+
+(define c22 (parse-query "WITH <http://mu.semte.ch/application> INSERT  {<http://mu.semte.ch/school/classes/1f4640f8-f358-4308-b1b9-dee3e0579e96> <http://mu.semte.ch/vocabularies/school/grade> <http://mu.semte.ch/school/grades/0ec94657-277a-4efc-880f-75fe1a48f27a> .} WHERE {}"))
+
+
+
+(define c23 (parse-query "PREFIX xmlns: <http://xmlns.com/foaf/0.1/>
+PREFIX app: <http://mu.semte.ch/school/>
+PREFIX school: <http://mu.semte.ch/vocabularies/school/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT (COUNT(DISTINCT ?uuid) AS ?count)
+WHERE {
+ GRAPH <http://mu.semte.ch/application> {
+  <http://mu.semte.ch/school/people/2b331d06-3c48-4d9e-94dd-2eed5255fad8> ^school:student ?resource.
+  ?resource mu:uuid ?uuid.
+ }
+}"))
+
+(define c24 (parse-query "
+PREFIX xmlns: <http://xmlns.com/foaf/0.1/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT ((COUNT (DISTINCT ?uuid)) AS ?count) WHERE {
+    GRAPH <http://mu.semte.ch/application> {
+    <http://mu.semte.ch/school/people/85f517b7-92e6-44e4-8cfd-bb2f69bad958> ^school:gradeRecipient ?resource. ?resource mu:uuid ?uuid.  
+}
+}"))
