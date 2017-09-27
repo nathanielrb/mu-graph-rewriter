@@ -122,7 +122,7 @@
     (let ((new-blocks (filter values rw)))
       (case (length new-blocks)
 	((0)  (values (list #f) new-bindings))
-	((1)  (values new-blocks new-bindings))
+        ((1)  (values (car new-blocks) new-bindings))
 	(else (values `((UNION ,@new-blocks)) new-bindings))))))
 
 (define (atom-or-cdr a)
@@ -413,8 +413,10 @@
 		   (make-property-condition
 		    'exn
 		    'message
-		    (format "Invalid query: ~A is a declared as a functional property but two values are given for subject ~A: ~A and ~A."
-			    p s o current-value)))))
+                    (format (conc "Invalid query:"
+                                  " ~A is a declared as a functional property"
+                                  " but two values are given for subject ~A: ~A and ~A.")
+			    p s o fpv)))))
 	   bindings)))))
 
 (define (fproperty-replacements block bindings)
@@ -424,64 +426,165 @@
 	block)))
 
 (define (optimize block bindings)
-  (let-values (((rw new-bindings)
-		(rewrite (fproperty-replacements block bindings)
-			 bindings
-			 optimization-rules)))
-    rw))
+  (if (null? block) '()
+      (let-values (((rw new-bindings)
+                    (rewrite (list block) ;;(fproperty-replacements block bindings)
+                             bindings
+                             optimization-rules)))
+        rw)))
+
+(define fprops (make-parameter '((props) (subs))))
+
+(define (collect-fprops block #!optional rec?)
+  (let-values (((subs quads) (partition subs? block)))
+    (let loop ((quads quads)
+               (props (alist-ref 'props (fprops)))
+               (subs (append (join (map second subs)) (alist-ref 'subs (fprops)))))
+    (cond ((null? quads) `((props . ,props) (subs . ,subs)))
+          ((triple? (car quads)) (match (car quads)
+                                   ((s p o) 
+                                    (if (member p (*functional-properties*))
+                                        (let ((current-value (cdr-when (assoc `(,s ,p) props))))
+                                          (cond ((or (not current-value)
+                                                     (and (sparql-variable? current-value)
+                                                          (not (sparql-variable? o))))
+                                                 (loop (cdr quads) (cons `((,s ,p) . ,o) props) subs))
+                                                ((rdf-equal? o current-value) (loop (cdr quads) props subs))
+                                                ((sparql-variable? o) (loop (cdr quads) props 
+                                                                            (assoc-update o current-value subs)))
+                                                (else #f)))
+                                        (loop (cdr quads) props subs)))))
+          ((and (not rec?) (graph? (car quads)))
+           (let ((inner (collect-fprops (cddr (car quads)) #t)))
+             (if inner (loop (cdr quads) (append (alist-ref 'props inner) props) (append (alist-ref 'subs inner) subs)) #f)))
+          (else (loop (cdr quads) props subs))))))
+
+(define (replace-fprop elt)
+  (if (sparql-variable? elt)
+      (let ((subs (alist-ref 'subs (fprops))))
+        (or (alist-ref elt subs) elt))
+        elt))
+
+(define (subs? exp)
+  (and (pair? exp) (equal? (car exp) '*subs*)))
+
+(define (append-subs rw)
+  (let-values (((subs quads) (partition subs? rw)))
+    (let ((new-subs (alist-ref 'subs (fprops))))
+      (cons `(*subs* ,(delete-duplicates (append new-subs (join (map second subs)))))
+            quads))))
+
+(define (optimize-list block bindings)
+  (parameterize ((fprops (collect-fprops block)))
+    (if (fprops)
+        (let-values (((rw new-bindings) (rw/list block bindings)))
+          (if (or ; (equal? rw (list block))
+               (equal? (filter (compose not subs?) rw)
+                       (list (filter (compose not subs?) block)))
+               (equal? rw '(#f)))
+              (values rw new-bindings)
+              (begin
+                (print "Simplified: \n"  block "\n=>\n" rw )
+                (print "with fprops " (fprops) "\n")
+                (rewrite (append-subs rw) new-bindings))))
+                ;;(rewrite rw new-bindings))))
+        (values (list #f) bindings))))
 
 (define optimization-rules
   `(((@UpdateUnit @QueryUnit @Update @Query) . ,rw/continue)
     ((@Prologue @Dataset GROUP |GROUP BY| LIMIT ORDER |ORDER BY| OFFSET) . ,rw/copy)
     (,select? . ,rw/copy)
     ;; ((@SubSelect) . ,rw/subselect)
-    ;; ;; when can we make a direct call to the db?
+    ;; when can we make a direct call to the db?
     ((@SubSelect) 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rw/subselect block bindings)))
-            (match rw
-              (((`@SubSelect (label . vars) . rest))
-               (print "vars : " vars)
-               (print "next: "(context-next (*context*)))
-               (print "prev: "(context-previous (*context*)))
-               (print "left-uncles: " (context-previous (context-parent (*context*))))
-               (print "right-uncles: " (context-next (context-parent (*context*))))
-               )
-               ;; (print "subselect vars: " (filter sparql-variable? rest))
-               ;; (print "dif: " (lset-difference equal? vars (filter sparql-variable? rest))))
-              (else (print "no match for " rw)))
             (values rw new-bindings))))
+    ((*subs*) . ,rw/copy)
     ((VALUES) 
      . ,(lambda (block bindings)
           (match block
             ((`VALUES vars . vals)
-	     (values
-	      (list (simplify-values vars vals bindings))
-	      bindings)))))
+             (print "vars: " vars " => "  (map replace-fprop vars))
+             (values
+              (list (simplify-values (map replace-fprop vars) vals bindings))
+              bindings)))))
     ((FILTER) 
      . ,(lambda (block bindings)
-	  (validate-filter block bindings)))
+          (let ((subs (alist-ref 'subs (fprops))))
+            ;; (validate-filter block bindings)))
+            (print "filter " block " => " (replace-variables block subs) " => " (validate-filter (replace-variables block subs) bindings))
+            (validate-filter (replace-variables block subs) bindings))))
     ((BIND) . ,rw/copy) ;;?
-    ((GRAPH) . ,rw/copy)
-    ((UNION) . ,rw/union)
+    ((GRAPH)
+     . ,(lambda (block bindings)
+          ;; (parameterize ((fprops (collect-fprops block)))
+          ;;   (if (fprops)
+          ;;       (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
+          ;;         (values `((,(car block) ,(replace-fprop (cadr block)) ,@rw))
+          ;;                 new-bindings))
+          ;;       (values (list #f) bindings)))))
+          (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
+            (values `((GRAPH ,(second block) ,@rw)) new-bindings))))
+    ((UNION) ;; . ,rw/union)
+     . ,(lambda (block bindings)
+          ;;(let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+          (let ((rw (filter values (map (cut rewrite <> bindings) (cdr block)))) )
+            (print "rw" rw)
+            (print "oo "  (map (cut filter subs? <>) rw))
+            (let* ((new-subs (lset-intersection equal? (map second (filter pair? (map (cut filter subs? <>) rw)))))
+                   (new-blocks (map (cut filter (compose not subs?) <>) rw)) ; * !!
+                   (new-subs-block (if (null? new-subs) '() `((*subs* ,new-subs)))))
+            (case (length new-blocks)
+              ((0)  (values (list #f) bindings))
+              ((1)  (values (append new-subs-block (car new-blocks)) bindings))
+              (else (values (append new-subs-block `(UNION ,@new-blocks)) bindings))))))  )
+
     ((WHERE)
      . ,(lambda (block bindings)
-	  (let-values (((rw new-bindings) (rw/quads block bindings)))
+	  ;; (let-values (((rw new-bindings) (rw/quads block bindings)))
+          (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
+            (print "got: " rw)
 	    (if (fail? rw)
 		(abort
 		 (make-property-condition
 		  'exn
 		  'message (format "Invalid query: functional property conflict.")))
-		(values rw new-bindings)))))
-    (,quads-block? . ,rw/quads)
-    (,triple? . ,rw/copy)
-    (,list? . ,rw/list)
+		(values `((WHERE  ,@(join (filter (compose not subs?) rw)))) new-bindings)))))
+    ;; (,quads-block? . ,rw/quads)
+    (,quads-block? 
+     . ,(lambda (block bindings)
+          (parameterize ((fprops (collect-fprops block)))
+            ;; (print "q fprops : " (fprops))
+            (if (fprops)
+                (rw/quads `(,(car block) ,@(cdr block)) bindings)
+                (values (list #f) bindings)))))
+    (,triple? 
+     . ,(lambda (triple bindings)
+          (values (list (map replace-fprop triple)) bindings)))
+    (,list? ;;. ,rw/list)
+     . ,optimize-list)
     (,symbol? . ,rw/copy)))
+
+
+;; (define (replace-fprops block)
+;;   (let ((props (alist-ref 'props (fprops))))
+;;     (let loop ((quads block) (rquads '()))
+;;       (cond ((null? quads) (reverse rquads))
+;;             ((triple? (car quads)) (match (car quads)
+;;                                      ((s p o)
+;;                                       (if (and (member p (*functional-properties*))
+;;                                                (sparql-variable? o))
+;;                                           (loop (cdr quads)
+;;                                                 (cons `(,s ,p ,(cdr (assoc `(,s ,p) props)))
+;;                                                       rquads))
+;;                                           (loop (cdr quads) (cons (car quads) rquads))))))
+;;             (else (loop (cdr quads) (cons (car quads) rquads)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Triples Graphs
 (define (find-triple-graphs triple block)
-  (rewrite block '() (find-triple-graphs-rules triple)))
+  (delete-duplicates (rewrite block '() (find-triple-graphs-rules triple))))
 
 (define (find-triple-graphs-rules triple)
   `(((GRAPH)
@@ -634,15 +737,27 @@
    (level-quads)
    (join (map cdr (filter rewritten? new-quads)))))
 
+;; Virtuoso bug (?) when VALUES statement is not after all statements
+;; whose variables it binds. Maybe not a bug at all. To think about.
+(define (values-to-end block)
+  (let loop ((statements block) (values-statements '()))
+    (cond ((null? statements) (reverse values-statements))
+          ((equal? (caar statements) 'VALUES)
+           (loop (cdr statements) (cons (car statements) values-statements)))
+          (else
+           (cons (car statements)
+                 (loop (cdr statements) values-statements))))))
+
 (define (optimize-duplicates block)
-  (lset-difference equal?
-    (delete-duplicates (filter pair? block))
-    (level-quads)))
+  (values-to-end
+   (lset-difference equal?
+     (delete-duplicates (filter pair? block))
+     (level-quads))))
 
 (define (rewrite-quads-block block bindings)
   (parameterize ((flatten-graphs? (not (preserve-graphs?))))
     ;; expand triples
-    (let-values (((q1 b1) (expand-triples (cdr block) bindings replace-a collect-functional-properties)))
+    (let-values (((q1 b1) (expand-triples (cdr block) bindings replace-a))) ; collect-functional-properties)))
       ;; rewrite-triples
       (let-values (((q2 b2) (rewrite q1 b1 triples-rules)))
         ;; continue in nested quad blocks
@@ -711,6 +826,13 @@
     (,list? . ,rw/list)
     (,symbol? . ,rw/copy)))   
 
+(define (instantiate-insert-rules constraints)
+  `((,triple?
+     . ,(lambda (triple bindings)
+          (let ((graphs (find-triple-graphs triple constraints)))
+            (values (map (lambda (graph) `(GRAPH ,graph ,triple)) graphs) bindings))))))
+;;            (values (list triple) bindings))))))
+
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
     (let* ((insert-block (get-child-body 'INSERT rw))
@@ -721,8 +843,11 @@
                          new-bindings))) 
       ;; To do: real optimization here!
       (print "instantiating " (write-sparql constraints))
+      (print "insert bolck: " insert-block)
+      (print "=>"  (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
       (let-values (((instantiated-constraints inst-bindings) (instantiate constraints triples)))
         (let* ((new-where (delete-duplicates (append instantiated-constraints where-block)))
+               (insert-block (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
                (instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
 	       (new-insert (if instantiated-values
@@ -769,8 +894,9 @@
                   (apply-constraint triple bindings)
 		  (values
 		   (if (*in-where?*) '() 
-		       (map (lambda (graph) `(GRAPH ,graph ,triple))
-			    graphs))
+                       (list triple))
+		       ;; (map (lambda (graph) `(GRAPH ,graph ,triple))
+		       ;;      graphs))
 		   bindings))))))
     (,list? . ,rw/copy)))
 
@@ -841,9 +967,11 @@
                                  (update-triple-graphs graphs (list a b c) 
                                                        new-bindings))
                          (values
-                          (map (lambda (graph)
-                                 `(GRAPH ,graph (,a ,b ,c)))
-                               graphs)
+                          ;; (map (lambda (graph)
+                          ;;`(GRAPH ,graph (,a ,b ,c)))
+                          ;; graphs)
+                          `((*REWRITTEN* (,a ,b ,c)))
+                          
                           ;; can we do real optimization here?
                           (fold-binding constraints 'constraints append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
@@ -951,7 +1079,8 @@
         (values               
 	 (list (cdr renamed-quad)) ;         (list renamed-triple)
          ;; (update-fproperty-bindings renamed-triple new-bindings))))))
-	 (update-fproperty-bindings (cdr renamed-quad) new-bindings))))))
+	 ;;(update-fproperty-bindings (cdr renamed-quad) new-bindings))))))
+         new-bindings)))))
 
 (define (project-substitution-bindings vars bindings)
   (update-binding 
@@ -1317,7 +1446,6 @@
 ;; or '(matched-quad () match-binding) if the instantiated quad is instantiated completely.
 ;; To do: group matches by shared variables (i.e., (map car match-binding) )
 (define (get-instantiation-matches-rules triples)
-  (print "getting for " triples)
   `(((@SubSelect) . ,rw/subselect)
     ((GRAPH) 
      . ,(lambda (block bindings)
@@ -1360,7 +1488,7 @@
                            (filter-statements '()) (values-statements '()) 
                            (graphs '()) (quads '()))
                   (if (null? statements)
-                      (if (null? quads)
+                      (if (and (null? quads) (pair? values-statements))
                           (match (car values-statements) ;; ** only 1!!
                             ((`VALUES vars . vals)
                              (let ((new-instantiated-values
@@ -1372,10 +1500,11 @@
                                         `((,vars . ,vals)))))
                                (values '()
                                        (update-instantiated-values new-instantiated-values new-bindings)))))
-                          (values (list (filter (not-node? '*graph*) (car rw)))
-                                  (if (null? graphs)
-                                      new-bindings
-                                      (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings)))) 
+                     (let ((rw-non-graphs (filter (not-node? '*graph*) (car rw))))
+                       (values (if (null? rw-non-graphs) '() (list rw-non-graphs))
+                               (if (null? graphs)
+                                   new-bindings
+                                   (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings)))))
                       (case (caar statements)
                         ((*graph*) (loop (cdr statements) filter-statements
 					 values-statements (cons (cdar statements) graphs) quads))

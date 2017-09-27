@@ -1644,3 +1644,30 @@ SELECT ((COUNT (DISTINCT ?uuid)) AS ?count) WHERE {
     <http://mu.semte.ch/school/people/85f517b7-92e6-44e4-8cfd-bb2f69bad958> ^school:gradeRecipient ?resource. ?resource mu:uuid ?uuid.  
 }
 }"))
+
+(define c25 (parse-query "
+PREFIX xmlns: <http://xmlns.com/foaf/0.1/>
+PREFIX app: <http://mu.semte.ch/school/>
+PREFIX school: <http://mu.semte.ch/vocabularies/school/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+SELECT ((COUNT (DISTINCT ?uuid)) AS ?count) WHERE {
+    GRAPH <http://mu.semte.ch/application> {
+    ?s mu:uuid ?uuid; a school:Grade. 
+}
+}
+"))
+
+(define c26 (parse-query "
+WITH <http://mu.semte.ch/application>
+INSERT {
+   <http://mu.semte.ch/school/classes/06536ff9-398e-4f7a-8465-928fce597317> a <http://mu.semte.ch/vocabularies/school/Class>;
+               <http://mu.semte.ch/vocabularies/core/uuid> \"06536ff9-398e-4f7a-8465-928fce597317\";
+               <http://purl.org/dc/terms/title> \"Comparative Fish 201\" 
+   } WHERE {}"))
