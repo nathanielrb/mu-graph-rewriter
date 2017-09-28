@@ -801,10 +801,12 @@
 		   `((@Update
 		      ,@(instantiated-insert-query rw new-bindings)))
 		   new-bindings)
-		  (let ((new-where ;; should do real optimization!
+		  (let* ((new-where ;; should do real optimization!
                          (delete-duplicates  
                           (append (get-child-body 'WHERE rw)
-                                  (get-binding/default* '() 'constraints new-bindings '())))))
+                                  (get-binding/default* '() 'constraints new-bindings '()))))
+                         (insert-block (rewrite  (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
+                         (rw (replace-child-body 'DELETE insert-block rw)))
 		    (if (null? new-where)
 			(values `((@Update ,@(reverse rw))) new-bindings)
 			(values `((@Update ,@(replace-child-body 

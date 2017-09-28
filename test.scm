@@ -1671,3 +1671,5 @@ INSERT {
                <http://mu.semte.ch/vocabularies/core/uuid> \"06536ff9-398e-4f7a-8465-928fce597317\";
                <http://purl.org/dc/terms/title> \"Comparative Fish 201\" 
    } WHERE {}"))
+
+(define c27 (parse-query " DELETE { ?s ?p ?o } WHERE { ?s ?p ?o } "))
