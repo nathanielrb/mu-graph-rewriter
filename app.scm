@@ -312,8 +312,10 @@
 
 (define (rdf-equal? a b)
   (let ((nss (append (query-namespaces) (*namespaces*)))) ; memoize this
-    (equal? (expand-namespace (a->rdf:type a) nss)
-            (expand-namespace (a->rdf:type b) nss))))
+    (if (and (symbol? a) (symbol? b))
+        (equal? (expand-namespace (a->rdf:type a) nss)
+                (expand-namespace (a->rdf:type b) nss))
+        (equal? a b))))
 
 (define (current-substitution var bindings)
   (let ((substitutions (get-binding/default 'constraint-substitutions bindings '())))
@@ -373,64 +375,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
-
-;; don't collect duplicates
-;; (define (collect-functional-properties triples bindings)
-;;   (fold (match-lambda* 
-;;   	  (((s p o) bindings)
-;;   	   (if (member p (*functional-properties*))
-;;   	       (let ((current-value (get-binding s p 'functional-property bindings)))
-;;   		 (cond ((or (not current-value)
-;;   			    (and (sparql-variable? current-value)
-;;   				 (not (sparql-variable? o))))
-;;   			(update-binding s p 'functional-property o bindings))
-;;   		       ((or (sparql-variable? o) (rdf-equal? o current-value))
-;;   			bindings)
-;;   		       (else (abort
-;; 			      (make-property-condition
-;; 			       'exn
-;; 			       'message
-;; 			       (format (conc "Invalid query:"
-;;                                              " ~A is a declared as a functional property"
-;;                                              " but two values are given for subject ~A: ~A and ~A.")
-;; 				       p s o current-value))))))
-;;   	       bindings)))
-;;         bindings
-;;   	triples))
-
-;; (define (update-fproperty-bindings triple bindings)
-;;   (match triple
-;;     ((s p o)
-;;      (let ((fpv (get-binding s p 'functional-property bindings)))
-;;        (if fpv
-;; 	   (cond ((sparql-variable? o)
-;; 		  (cons-binding `(,o . ,fpv)
-;; 				'fproperties-substitutions bindings))
-;; 		 ((or (sparql-variable? fpv) (rdf-equal? o fpv))
-;; 		  bindings)
-;; 		 (else
-;; 		  (abort
-;; 		   (make-property-condition
-;; 		    'exn
-;; 		    'message
-;;                     (format (conc "Invalid query:"
-;;                                   " ~A is a declared as a functional property"
-;;                                   " but two values are given for subject ~A: ~A and ~A.")
-;; 			    p s o fpv)))))
-;; 	   bindings)))))
-
-;; (define (fproperty-replacements block bindings)
-;;   (let ((fp-subs (get-binding 'fproperties-substitutions bindings)))
-;;     (if fp-subs
-;; 	(replace-variables block fp-subs)
-;; 	block)))
-
 (define (optimize block bindings)
   (if (null? block) '()
       (let-values (((rw new-bindings)
-                    (rewrite (list block) ; (fproperty-replacements block bindings)
-                             bindings
-                             optimization-rules)))
+                    (rewrite (list block) bindings optimization-rules)))
         (filter quads? rw))))
 
 (define fprops (make-parameter '((props) (subs))))
@@ -445,12 +393,6 @@
   (and (pair? exp) (equal? (car exp) '*subs*)))
 
 (define quads? (compose not subs?))
-
-(define (append-subs rw)
-  (let-values (((subs quads) (partition subs? rw)))
-    (let ((new-subs (alist-ref 'subs (fprops))))
-      (cons `(*subs* ,(delete-duplicates (append new-subs (join (map second subs)))))
-            quads))))
 
 (define (append-subs rw)
   (let-values (((subs quads) (partition subs? rw)))
@@ -492,22 +434,18 @@
                 ((or (equal? (map (cut filter quads? <>) rw)
                              (list (filter quads? block)))
                      (equal? rw '(#f)))
-                 ;; (values (append-subs rw) new-bindings))
                  (values rw new-bindings))
                 (else (let ((fp (fprops)))
                         (parameterize ((fprops (collect-fprops rw)))
                           (let-values (((rw2 nb2) (rewrite rw new-bindings)))
                             (values (append-subs rw2) nb2)))))))
-                ;;(rewrite rw new-bindings))))
         (values (list #f) bindings))))
 
 (define optimization-rules
   `(((@UpdateUnit @QueryUnit @Update @Query) . ,rw/continue)
     ((@Prologue @Dataset GROUP |GROUP BY| LIMIT ORDER |ORDER BY| OFFSET) . ,rw/copy)
     (,select? . ,rw/copy)
-    ;; ((@SubSelect) . ,rw/subselect)
-    ;; when can we make a direct call to the db?
-    ((@SubSelect) 
+    ((@SubSelect)     ; when can we make a direct call to the db?
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rw/subselect block bindings)))
             (values rw new-bindings))))
@@ -530,10 +468,6 @@
             (values `((GRAPH ,(second block) ,@rw)) new-bindings))))
     ((UNION) ;; . ,rw/union)
      . ,(lambda (block bindings)
-          ;;(let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-          ;; (print "\n\nUnion:")(map print (cdr block))
-          ;; (map (compose print  (cut rewrite <> bindings)) (cdr block))
-          ;;(newline)
           (let ((rw (filter values (map (cut rewrite <> bindings) (map list (cdr block)))) ))
             (let* ((nss (map second (map car (filter pair? (map (cut filter subs? <>) rw)))))
                    (new-subs (if (null? nss) '() (apply lset-intersection equal? nss)))
@@ -542,7 +476,7 @@
             (case (length new-blocks)
               ((0)  (values (list #f) bindings))
               ((1)  (values (append new-subs-block (caar new-blocks)) bindings)) ; * caar?
-              (else (values (append new-subs-block `((UNION ,@new-blocks))) bindings))))))  )
+              (else (values (append new-subs-block `((UNION ,@(join new-blocks)))) bindings))))))  ) ; ? join
     ((WHERE)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
@@ -562,21 +496,6 @@
           (values (list (map replace-fprop triple)) bindings)))
     (,list? . ,optimize-list)
     (,symbol? . ,rw/copy)))
-
-
-;; (define (replace-fprops block)
-;;   (let ((props (alist-ref 'props (fprops))))
-;;     (let loop ((quads block) (rquads '()))
-;;       (cond ((null? quads) (reverse rquads))
-;;             ((triple? (car quads)) (match (car quads)
-;;                                      ((s p o)
-;;                                       (if (and (member p (*functional-properties*))
-;;                                                (sparql-variable? o))
-;;                                           (loop (cdr quads)
-;;                                                 (cons `(,s ,p ,(cdr (assoc `(,s ,p) props)))
-;;                                                       rquads))
-;;                                           (loop (cdr quads) (cons (car quads) rquads))))))
-;;             (else (loop (cdr quads) (cons (car quads) rquads)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Triples Graphs
@@ -602,7 +521,9 @@
     (,triple? 
      . ,(lambda (block bindings)
           (values
-           (if (equal? block triple) (list #t) '())
+           (if (null? (map rdf-equal? block triple))
+               '()
+               (list #t))
            bindings)))
     ((FILTER VALUES BIND) . ,rw/remove)
     (,list?
@@ -836,31 +757,41 @@
      . ,(lambda (triple bindings)
           (let ((graphs (find-triple-graphs triple constraints)))
             (values (map (lambda (graph) `(GRAPH ,graph ,triple)) graphs) bindings))))))
-;;            (values (list triple) bindings))))))
 
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
-    (let* ((insert-block (get-child-body 'INSERT rw))
-           (triples (expand-triples insert-block '() replace-a))
+    (let* ((insert-triples (get-child-body 'INSERT rw))
+           (triples (expand-triples insert-triples '() replace-a))
            (where-block (optimize (or (get-child-body 'WHERE rw) '()) new-bindings))
            (constraints (optimize
                           (get-binding/default* '() 'constraints new-bindings '())
                          new-bindings))) 
       ;; To do: real optimization here!
       ;; Important: test for where-block or constraints = (#f)
-      (print "instantiating " (write-sparql constraints))
-      
-      (print "insert bolck: " insert-block)
-      (print "=>"  (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
+
+      ;; (print "instantiating " (write-sparql constraints))
+
       (let-values (((instantiated-constraints inst-bindings) (instantiate constraints triples)))
         (let* ((new-where (delete-duplicates (append instantiated-constraints where-block)))
-               (insert-block (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
+               ;; this is a bit circuitous and verbose, but works for now.
+               ;; and a big mess. which one to use, when?? values/not values/mixing with quads/contstraint
+               ;; (insert-block (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
+               (insert-block (append
+                              (rewrite insert-triples new-bindings (instantiate-insert-rules instantiated-constraints))
+                              (rewrite insert-triples new-bindings 
+                                       (instantiate-insert-rules 
+                                        (map (lambda (mb)
+                                               (match mb
+                                                 (((quad) _ bindings)
+                                                  (replace-variables quad bindings))))
+                                             (get-binding/default 'instantiated-quads inst-bindings '()))))))
                (instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
 	       (new-insert (if instantiated-values
-			       (instantiate-values insert-block instantiated-values instantiated-graphs)
+			       ;;(instantiate-values insert-triples instantiated-values instantiated-graphs)
+                               (instantiate-values (rewrite insert-triples new-bindings (instantiate-insert-rules constraints))
+                                                   instantiated-values instantiated-graphs)
 			       insert-block)))
-          (print "and these " instantiated-values " / " instantiated-graphs)
           (replace-child-body 'INSERT new-insert 
                               (if (null? new-where)
                                   (reverse rw)
@@ -1004,7 +935,7 @@
        (,list? . ,rw/remove)))))
 
 (define (make-initial-substitutions a b c s p o bindings)
-  (let ((check (lambda (u v) (or (sparql-variable? u) (sparql-variable? v) (equal? u v)))))
+  (let ((check (lambda (u v) (or (sparql-variable? u) (sparql-variable? v) (rdf-equal? u v)))))
     (and (check a s) (check b p) (check c o)
 	 `((,s . ,a) (,p . ,b) (,o . ,c)))))
 
@@ -1415,24 +1346,25 @@
   (let ((where-block (expand-graphs where-block)))
     (let-values (((rw new-bindings)
                   (rewrite where-block '() (get-instantiation-matches-rules triples))))
-      (rewrite rw new-bindings instantiation-union-rules))))
-
+      (rewrite rw new-bindings instantiation-union-rules) )))
+;
 ;; matches a triple against a list of triples, and if successful returns a binding list
 ;; ex: (match-triple '(?s a dct:Agent) '((<a> <b> <c>) (<a> a dct:Agent)) => '((?s . <a>))
 ;; but should differentiate between empty success '() and failure #f
-(define (match-triple triple triples)
-  (if (null? triples) '()
+(define (match-triple triple triples #!optional success?)
+  (if (null? triples) 
+      (and success? '())
       (let loop ((triple1 triple) (triple2 (car triples)) (match-binding '()))
         (cond ((null? triple1) 
                (if (null? match-binding)
-                   (match-triple triple (cdr triples))
-                   (cons match-binding (match-triple triple (cdr triples)))))
+                   (match-triple triple (cdr triples) #t) ; success
+                   (cons match-binding (match-triple triple (cdr triples) #t))))
               ((sparql-variable? (car triple1))
                (loop (cdr triple1) (cdr triple2) (cons (cons (car triple1) (car triple2)) match-binding)))
               ((rdf-equal? (car triple1) (car triple2))
                (loop (cdr triple1) (cdr triple2) match-binding))
-              (else (match-triple triple (cdr triples)))))))
-    
+              (else (match-triple triple (cdr triples) success?))))))
+
 (define (instantiate-triple triple binding)
   (let loop ((triple triple) (new-triple '()))
     (cond ((null? triple) (reverse new-triple))
@@ -1459,16 +1391,16 @@
      . ,(lambda (block bindings)
           (match block
             ((`GRAPH graph triple)
-             (if (member triple triples)
-                 (values `((*graph* . ,graph)) bindings)
-                 (let ((match-bindings (match-triple triple triples)))
-                   (if (null? match-bindings)
-                       (values (list block) bindings)
-                       (values `((*graph* . ,graph))
-                               (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
-					     'instantiated-quads 
-					     append '() 
-                                             bindings)))))))))
+             ;; ;;(if (member triple triples)
+             ;;     (values `((*graph* . ,graph)) bindings)
+             (let ((match-bindings (match-triple triple triples)))
+               (cond ((not match-bindings) (values (list block) bindings))
+                     ((null? match-bindings)  (values `((*graph* . ,graph)) bindings))
+                     (else (values `((*graph* . ,graph))
+                                   (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
+                                                 'instantiated-quads 
+                                                 append '() 
+                                                 bindings)))))))))
     ((OPTIONAL) . ,rw/quads)
     ((UNION) . ,rw/union)
     (,quads-block? 
@@ -1524,12 +1456,12 @@
                         (else (loop (cdr statements) filter-statements
 				    values-statements graphs (cons (car statements) quads))))))))))))
 
-(define (match-instantiated-quads triple bindings)
+(define (match-instantiated-quads quad bindings)
   (filter values
 	  (map (match-lambda
 		 ((a b binding)
 		  (let ((vars (map car binding)))
-		    (and (any values (map (cut member <> vars) triple))
+		    (and (any values (map (cut member <> vars) quad))
 			 (list a b binding)))))
 	       (get-binding/default 'instantiated-quads bindings '()))))
 
@@ -1558,7 +1490,7 @@
      . ,(lambda (block bindings)
           (match block
             ((`GRAPH graph triple)
-             (let ((matching-quads (match-instantiated-quads triple bindings)))
+             (let ((matching-quads (match-instantiated-quads (cons graph triple) bindings)))
                (if (null? matching-quads)
                    (values (list block) bindings)
 		   (union-over-instantiation block matching-quads bindings)))))))
@@ -1626,7 +1558,6 @@
                                    (alist-update-proc graph (lambda (graphs) (cons graph (or graphs '()))) substitutions))
                                  substitutions
                                  graphs))))
-    (print "using subs " substitutions)
     (rewrite block '() (instantiate-values-rules substitutions))))
 
 (define (instantiate-values-rules substitutions)

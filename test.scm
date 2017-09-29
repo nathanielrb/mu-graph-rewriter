@@ -1673,3 +1673,30 @@ INSERT {
    } WHERE {}"))
 
 (define c27 (parse-query " DELETE { ?s ?p ?o } WHERE { ?s ?p ?o } "))
+
+
+(define c28 (parse-query "WITH <http://mu.semte.ch/application> INSERT  {<http://mu.semte.ch/school/grades/3df98433-5c89-4dd3-bb55-637d5947c347> <http://mu.semte.ch/vocabularies/school/gradeRecipient> <http://mu.semte.ch/school/people/505ed3df-21af-4142-86c9-75acb8be8c73> .} WHERE {}"))
+
+(define c29 (parse-query "WITH <http://mu.semte.ch/application> INSERT {
+         <http://mu.semte.ch/school/grades/3df98433-5c89-4dd3-bb55-637d5947c347> rdf:type school:Grade.
+         <http://mu.semte.ch/school/grades/3df98433-5c89-4dd3-bb55-637d5947c347> <http://mu.semte.ch/vocabularies/school/gradeRecipient> <http://mu.semte.ch/school/people/505ed3df-21af-4142-86c9-75acb8be8c73> .
+   } WHERE {}"))
+
+
+(define c29b (parse-query "INSERT {
+ <http://mu.semte.ch/school/grades/71918514-bd1b-40c2-b244-f1df869bef6b> rdf:type <http://mu.semte.ch/vocabularies/school/Grade>;
+    <http://mu.semte.ch/vocabularies/core/uuid> \"71918514-bd1b-40c2-b244-f1df869bef6b\"; 
+    <http://mu.semte.ch/vocabularies/school/points> 9; 
+     <http://mu.semte.ch/vocabularies/school/gradeRecipient> <http://mu.semte.ch/school/people/93b8eecf-5476-41f6-9dd9-54d4ec15f136>.
+}
+WHERE {}"))
+
+(define c29c (parse-query "INSERT {
+ <http://mu.semte.ch/school/grades/71918514-bd1b-40c2-b244-f1df869bef6b> rdf:type school:Grade;
+    <http://mu.semte.ch/vocabularies/core/uuid> \"71918514-bd1b-40c2-b244-f1df869bef6b\"; 
+    <http://mu.semte.ch/vocabularies/school/points> 9; 
+     <http://mu.semte.ch/vocabularies/school/gradeRecipient> <http://mu.semte.ch/school/people/93b8eecf-5476-41f6-9dd9-54d4ec15f136>.
+}
+WHERE {}"))
+
+(define c30 (parse-query "WITH <http://mu.semte.ch/application> INSERT {<http://mu.semte.ch/school/grades/28c52060-6b90-4f0e-ad1f-e1c572aba530> a <http://mu.semte.ch/vocabularies/school/Grade>; <http://mu.semte.ch/vocabularies/core/uuid> \"28c52060-6b90-4f0e-ad1f-e1c572aba530\";<http://mu.semte.ch/vocabularies/school/points> 11 } WHERE {}"))
