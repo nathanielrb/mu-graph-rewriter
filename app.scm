@@ -124,9 +124,10 @@
           ((fail? rw) (values (list #f) new-bindings))
 	  (else (values `((,(car block) ,@(filter pair? rw))) new-bindings)))))
 
+;; this is still a little incorrect (?) wrt failure and empty ()
 (define (rw/union block bindings)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-    (let ((new-blocks (filter values rw)))
+    (let ((new-blocks (filter values rw))) ; (compose not fail?)  ?
       (case (length new-blocks)
 	((0)  (values (list #f) new-bindings))
         ((1)  (values (car new-blocks) new-bindings))
@@ -245,10 +246,11 @@
     ((UNION) . ,rw/union)
     ((GRAPH) 
      . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
 	  (if (flatten-graphs?)
-	      (rewrite (cddr block) bindings)
-	      (values (list block) 
-		      (cons-binding (second block) 'named-graphs bindings)))))
+              (values rw new-bindings)
+	      (values `((GRAPH ,(second block) ,@rw))
+		      (cons-binding (second block) 'named-graphs new-bindings))))))
     (,triple? . ,(expand-triple-rule mapp bindingsp))
     (,list? . ,rw/list)
     (,symbol? . ,rw/copy)))
@@ -481,7 +483,7 @@
                    (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))) ; * !!
                    (new-subs-block (if (null? new-subs) '() `((*subs* ,new-subs)))))
             (case (length new-blocks)
-              ((0)  (values (list #f) bindings))
+              ((0)  (values (list #f) bindings)) ;; ?? (filter (compose not fail?)  ...
               ((1)  (values (append new-subs-block (caar new-blocks)) bindings)) ; * caar?
               (else (values (append new-subs-block `((UNION ,@(join new-blocks)))) bindings))))))  ) ; ? join
     ((WHERE)
@@ -773,16 +775,14 @@
            (constraints (apply-optimizations
                           (get-binding/default* '() 'constraints new-bindings '())
                          new-bindings))) 
-      ;; To do: real optimization here!
-      ;; Important: test for where-block or constraints = (#f)
-
-      ;; (print "instantiating " (write-sparql constraints))
-
       (let-values (((instantiated-constraints inst-bindings) (instantiate constraints triples)))
         (let* ((new-where (delete-duplicates (append instantiated-constraints where-block)))
                ;; this is a bit circuitous and verbose, but works for now.
                ;; and a big mess. which one to use, when?? values/not values/mixing with quads/contstraint
                ;; (insert-block (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
+
+               ;; problem: literal graph has to be in VALUES or it's not applied on instantiation
+               ;; eg GRAPH ?g { s p o } VALUES (?g){ (<G>) }
                (insert-block (append
                               (rewrite insert-triples new-bindings (instantiate-insert-rules instantiated-constraints))
                               (rewrite insert-triples new-bindings 
@@ -857,8 +857,8 @@
 
 (define (define-constraint key constraint)
   (case key
-    ((read) (define-constraint* *read-constraint*))
-    ((write) (define-constraint* *write-constraint*))
+    ((read) (define-constraint* *read-constraint* constraint))
+    ((write) (define-constraint* *write-constraint* constraint))
     ((read/write) 
      (begin
        (define-constraint* *read-constraint* constraint)
@@ -1367,8 +1367,10 @@
   (let ((where-block (expand-graphs where-block)))
     (let-values (((rw new-bindings)
                   (rewrite where-block '() (get-instantiation-matches-rules triples))))
-      (rewrite rw new-bindings instantiation-union-rules) )))
-;
+      (if (fail? rw)
+          (error "Invalid query")
+          (rewrite rw new-bindings instantiation-union-rules) ))))
+
 ;; matches a triple against a list of triples, and if successful returns a binding list
 ;; ex: (match-triple '(?s a dct:Agent) '((<a> <b> <c>) (<a> a dct:Agent)) => '((?s . <a>))
 ;; but should differentiate between empty success '() and failure #f
@@ -1423,7 +1425,15 @@
                                                  append '() 
                                                  bindings)))))))))
     ((OPTIONAL) . ,rw/quads)
-    ((UNION) . ,rw/union)
+    ;;((UNION) . ,rw/union)
+    ((UNION)
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+            (let ((new-blocks (filter values rw))) ; (compose not fail?) 
+              (case (length new-blocks)
+                ((0)  (values (list new-blocks) new-bindings))
+                ((1)  (values `((OPTIONAL ,@(car new-blocks))) new-bindings))
+                (else (values `((UNION ,@new-blocks)) new-bindings)))))))
     (,quads-block? 
      . ,(lambda (block bindings)
 	  (let-values (((rw new-bindings) (rw/quads block bindings)))
@@ -1443,43 +1453,45 @@
             ;; - graphs kept separately, and instantiated only if the corresponding VALUES is used
             ;; and what about the filters?
             ;; and can/should this be abstracted & used elsewhere?
-            (if (null? rw)
-                (values '() new-bindings)
-                (let loop ((statements (car rw)) 
-                           (filter-statements '()) (values-statements '()) 
-                           (graphs '()) (quads '()))
-                  (if (null? statements)
-                      (if (and (null? quads) (pair? values-statements))
-                          (match (car values-statements) ;; ** only 1!!
-                            ((`VALUES vars . vals)
-                             (let ((new-instantiated-values
-                                    (if (pair? vars)
-                                        (map reverse
-                                             (fold (lambda (n r) (map cons n r))
-                                                   (map list vars)
-                                                   vals))
-                                        `((,vars . ,vals)))))
-                               (values '()
-                                       (update-instantiated-values new-instantiated-values new-bindings)))))
-                     (let ((rw-non-graphs (filter (not-node? '*graph*) (car rw))))
-                       (values (if (null? rw-non-graphs) '() (list rw-non-graphs))
-                               (if (null? graphs)
-                                   new-bindings
-                                   (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings)))))
-                      (case (caar statements)
-                        ((*graph*) (loop (cdr statements) filter-statements
-					 values-statements (cons (cdar statements) graphs) quads))
-                        ((FILTER) (loop (cdr statements) (cons (car statements) filter-statements) 
-					values-statements graphs quads))
-                        ((VALUES) (loop (cdr statements) filter-statements 
-					(cons (car statements) values-statements) graphs quads))
-			((BIND) (loop (cdr statements) filter-statements values-statements graphs quads)) ;; ??
-                        (else (loop (cdr statements) filter-statements
-				    values-statements graphs (cons (car statements) quads))))))))))))
+            (cond ((null? rw)
+                   (values '() new-bindings))
+                  ((fail? rw) (values (list #f) new-bindings))
+                  (else
+                   (let loop ((statements (car rw)) 
+                              (filter-statements '()) (values-statements '()) 
+                              (graphs '()) (quads '()))
+                     (if (null? statements)
+                         (if (and (null? quads) (pair? values-statements))
+                             (match (car values-statements) ;; ** only 1!!
+                               ((`VALUES vars . vals)
+                                (let ((new-instantiated-values
+                                       (if (pair? vars)
+                                           (map reverse
+                                                (fold (lambda (n r) (map cons n r))
+                                                      (map list vars)
+                                                      vals))
+                                           `((,vars . ,vals)))))
+                                  (values '()
+                                          (update-instantiated-values new-instantiated-values new-bindings)))))
+                             (let ((rw-non-graphs (filter (not-node? '*graph*) (car rw))))
+                               (values (if (null? rw-non-graphs) '() (list rw-non-graphs))
+                                       (if (null? graphs)
+                                           new-bindings
+                                           (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings)))))
+                         (case (caar statements)
+                           ((*graph*) (loop (cdr statements) filter-statements
+                                            values-statements (cons (cdar statements) graphs) quads))
+                           ((FILTER) (loop (cdr statements) (cons (car statements) filter-statements) 
+                                           values-statements graphs quads))
+                           ((VALUES) (loop (cdr statements) filter-statements 
+                                           (cons (car statements) values-statements) graphs quads))
+                           ((BIND) (loop (cdr statements) filter-statements values-statements graphs quads)) ;; ??
+                           (else (loop (cdr statements) filter-statements
+                                       values-statements graphs (cons (car statements) quads)))))))))))))
 
-(define (match-instantiated-quads quad bindings)
-  (filter values
-	  (map (match-lambda
+  (define (match-instantiated-quads quad bindings)
+    (filter values
+            (map (match-lambda
 		 ((a b binding)
 		  (let ((vars (map car binding)))
 		    (and (any values (map (cut member <> vars) quad))
@@ -1505,7 +1517,7 @@
 	    (let ((new-blocks (filter values rw)))
 	      (case (length new-blocks)
 		((0)  (values '() new-bindings))
-                ((1)  (values  new-blocks new-bindings))
+                ((1)  (values new-blocks new-bindings))
 		(else (values `((UNION ,@new-blocks)) new-bindings)))))))
     ((GRAPH) 
      . ,(lambda (block bindings)
