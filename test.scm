@@ -1153,7 +1153,7 @@ PREFIX nfo: <http://www.semanticdesktop.org/ontologies/2007/03/22/nfo#>
 PREFIX nco: <http://www.semanticdesktop.org/ontologies/2007/03/22/nco#>
 PREFIX nie: <http://www.semanticdesktop.org/ontologies/2007/01/19/nie/#>
 PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
-nPREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
 PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
 PREFIX app: <http://mu.semte.ch/app/>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>

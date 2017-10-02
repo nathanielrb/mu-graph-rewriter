@@ -1889,7 +1889,7 @@
         (intermediate-graph 
          (expand-namespace
           (symbol-append '|rewriter:| (gensym 'graph)))))
-    (print "Creating intermediate graph " intermediate-graph)
+    (log-message "Creating intermediate graph: ~A " intermediate-graph)
     (print
      (sparql-update
       (write-sparql 
@@ -1897,14 +1897,14 @@
         (if (procedure? (*read-constraint*)) ((*read-constraint*)) (*read-constraint*))
         (construct-intermediate-graph-rules intermediate-graph)))))
 
-    (let ((r1 (sparql-select (write-sparql rewritten-query)))
-          (r2 (sparql-select (write-sparql (rewrite-query query (replace-dataset-rules intermediate-graph))))))
-      (print "\n==Expected Results==\n" r2)
-      (print "\n==Actual Results==\n" r1)
-      (print (equal? r1 r2))
-      (when cleanup?
-        (sparql-update (format "DELETE WHERE { GRAPH ~A { ?s ?p ?o } }" intermediate-graph)))
-      (values r1 r2))))
+    (parameterize ((*query-unpacker* sparql-bindings))
+      (let ((r1 (sparql-select (write-sparql rewritten-query)))
+            (r2 (sparql-select (write-sparql (rewrite-query query (replace-dataset-rules intermediate-graph))))))
+        (log-message "~%==Expected Results==~%~A" r2)
+        (log-message "~%==Actual Results==~%~A" r1)
+        (when cleanup?
+          (sparql-update (format "DELETE WHERE { GRAPH ~A { ?s ?p ?o } }" intermediate-graph)))
+        (values r1 r2)))))
 
 (define (test-call _)
   (let* (($$query (request-vars source: 'query-string))
@@ -1913,7 +1913,7 @@
                    (lambda (key)
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string (or ($$query 'query) ($$body 'query) body))
-         (cleanup? (string-ci=? ($$query 'cleanup) "true"))
+         (cleanup? (not (string-ci=? "false" (or ($$query 'cleanup) "true"))))
          (query (parse query-string)))
     (let-values (((actual expected) (test query cleanup?)))
       `((expected . ,(list->vector expected))
