@@ -25,7 +25,14 @@
 ;; Can be a string, an s-sparql expression, 
 ;; or a thunk returning a string or an s-sparql expression.
 ;; Used by (constrain-triple) below.
-(define *constraint*
+(define *read-constraint*
+  (make-parameter
+   `((@QueryUnit
+      ((@Query
+       (CONSTRUCT (?s ?p ?o))
+       (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))))
+
+(define *write-constraint*
   (make-parameter
    `((@QueryUnit
       ((@Query
@@ -375,7 +382,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
-(define (optimize block bindings)
+(define (apply-optimizations block bindings)
   (if (null? block) '()
       (let-values (((rw new-bindings)
                     (rewrite (list block) bindings optimization-rules)))
@@ -704,12 +711,11 @@
 	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
 		(let ((constraints (get-binding/default 'constraints new-bindings '())))
 		  (values `((@Query 
-                             ;; ,@(optimize
-                             ;;     (append-child-body/before 'WHERE constraints rw)
                              ,@(replace-child-body 
                                 'WHERE
-                                (optimize (append constraints (get-child-body 'WHERE rw))
-                                          new-bindings)
+                                (apply-optimizations 
+                                 (append constraints (get-child-body 'WHERE rw))
+                                 new-bindings)
                                 rw)))
 			  new-bindings)))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
@@ -733,7 +739,7 @@
 			(values `((@Update ,@(reverse rw))) new-bindings)
 			(values `((@Update ,@(replace-child-body 
                                               'WHERE 
-                                              `((@SubSelect (SELECT *) (WHERE ,@(optimize new-where new-bindings))))
+                                              `((@SubSelect (SELECT *) (WHERE ,@(apply-optimizations new-where new-bindings))))
                                               (reverse rw))))
 				new-bindings)))))))
     (,select? . ,rw/copy)
@@ -763,8 +769,8 @@
   (parameterize ((flatten-graphs? #t))
     (let* ((insert-triples (get-child-body 'INSERT rw))
            (triples (expand-triples insert-triples '() replace-a))
-           (where-block (optimize (or (get-child-body 'WHERE rw) '()) new-bindings))
-           (constraints (optimize
+           (where-block (apply-optimizations (or (get-child-body 'WHERE rw) '()) new-bindings))
+           (constraints (apply-optimizations
                           (get-binding/default* '() 'constraints new-bindings '())
                          new-bindings))) 
       ;; To do: real optimization here!
@@ -818,7 +824,7 @@
    ((@Prologue @SubSelect WHERE FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
    ((@Dataset) 
     . ,(lambda (block bindings)
-         (let ((graphs (get-all-graphs (*constraint*))))
+         (let ((graphs (get-all-graphs (*read-constraint*))))
 	   (values `((@Dataset ,@(make-dataset 'FROM graphs #f))) 
 		   (update-binding 'all-graphs graphs bindings)))))
    (,select? . ,rw/copy)
@@ -831,12 +837,12 @@
           (parameterize ((*in-where?* (in-where?)))
             (let ((graphs (get-triple-graphs triple bindings)))
               (if (null? graphs)
-                  (apply-constraint triple bindings)
+                  (if (*in-where?*) 
+                      (apply-read-constraint triple bindings)
+                      (apply-write-constraint triple bindings))
 		  (values
 		   (if (*in-where?*) '() 
                        `((*REWRITTEN* ,@(list triple))))
-		       ;; (map (lambda (graph) `(GRAPH ,graph ,triple))
-		       ;;      graphs))
 		   bindings))))))
     (,list? . ,rw/copy)))
 
@@ -849,18 +855,32 @@
 
 ;; (define parse-constraint (memoize parse-constraint*))
 
-(define (define-constraint constraint)
+(define (define-constraint key constraint)
+  (case key
+    ((read) (define-constraint* *read-constraint*))
+    ((write) (define-constraint* *write-constraint*))
+    ((read/write) 
+     (begin
+       (define-constraint* *read-constraint* constraint)
+       (define-constraint* *write-constraint* constraint)))))
+
+(define (define-constraint* C constraint)
   (if (procedure? constraint)
-      (*constraint* (lambda () (parse-constraint (constraint))))
-      (*constraint* (parse-constraint constraint))))
+      (C (lambda () (parse-constraint (constraint))))
+      (C (parse-constraint constraint))))
 
 ;; Apply CONSTRUCT statement as a constraint on a triple a b c
-(define (apply-constraint triple bindings)
+(define (apply-constraint triple bindings C)
   (parameterize ((flatten-graphs? #f))
-    (let ((C (*constraint*)))
-      (if (procedure? C)
-          (rewrite (list (C)) bindings (apply-constraint-rules triple))
-          (rewrite (list C) bindings (apply-constraint-rules triple))))))
+    (if (procedure? C)
+        (rewrite (list (C)) bindings (apply-constraint-rules triple))
+        (rewrite (list C) bindings (apply-constraint-rules triple)))))
+
+(define (apply-read-constraint triple bindings)
+  (apply-constraint triple bindings (*read-constraint*)))
+
+(define (apply-write-constraint triple bindings)
+  (apply-constraint triple bindings (*write-constraint*)))
 
 ;; (define (remove-renaming var bindings)
 ;;  (delete-binding* (keys var bindings) (deps var bindings) bindings))
@@ -1768,7 +1788,7 @@
 (define (log-received-query query-string query)
   (log-headers)
   (log-message "~%==Rewriting Query==~%~A~%" query-string)
-  (log-message "~%==With Constraint==~%~A~%" (write-sparql (if (procedure? (*constraint*)) ((*constraint*)) (*constraint*))))
+  ;; (log-message "~%==With Constraint==~%~A~%" (write-sparql (if (procedure? (*constraint*)) ((*constraint*)) (*constraint*))))
   (log-message "~%==Parsed As==~%~A~%" (write-sparql query)))
 
 (define (log-rewritten-query rewritten-query-string)
@@ -1874,7 +1894,7 @@
      (sparql-update
       (write-sparql 
        (rewrite-query 
-        (if (procedure? (*constraint*)) ((*constraint*)) (*constraint*))
+        (if (procedure? (*read-constraint*)) ((*read-constraint*)) (*read-constraint*))
         (construct-intermediate-graph-rules intermediate-graph)))))
 
     (let ((r1 (sparql-select (write-sparql rewritten-query)))
@@ -1915,9 +1935,9 @@
 (log-message "~%Proxying to SPARQL endpoint: ~A " (*sparql-endpoint*))
 (log-message "~%and SPARQL update endpoint: ~A " (*sparql-update-endpoint*))
 
-(if (procedure? (*constraint*))
-    (log-message "~%with constraint:~%~A" (write-sparql ((*constraint*))))
-    (log-message "~%with constraint:~%~A" (write-sparql (*constraint*))))
+;; (if (procedure? (*constraint*))
+;;     (log-message "~%with constraint:~%~A" (write-sparql ((*constraint*))))
+;;     (log-message "~%with constraint:~%~A" (write-sparql (*constraint*))))
 
 (log-message "Calculating potentials? ~A" (*calculate-potentials?*))
 (*port* 8890)
