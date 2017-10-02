@@ -726,8 +726,9 @@
                          (delete-duplicates  
                           (append (get-child-body 'WHERE rw)
                                   (get-binding/default* '() 'constraints new-bindings '()))))
-                         (insert-block (rewrite  (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
-                         (rw (replace-child-body 'DELETE insert-block rw)))
+                         ;; triples -> quads
+                         (delete-block (rewrite  (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
+                         (rw (replace-child-body 'DELETE delete-block rw)))
 		    (if (null? new-where)
 			(values `((@Update ,@(reverse rw))) new-bindings)
 			(values `((@Update ,@(replace-child-body 
@@ -1829,13 +1830,77 @@
                      (mu-headers headers)
                      result)))))))
 
-
+         
+          
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification
 (define-rest-call 'GET '("sparql") rewrite-call)
 (define-rest-call 'POST '("sparql") rewrite-call)
 
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Test suite
+(define (construct-intermediate-graph-rules graph)
+  `(((@QueryUnit @Query)  . ,rw/quads)
+    ((CONSTRUCT)
+     . ,(lambda (block bindings)
+          (values `((INSERT
+                     (GRAPH ,graph ,@(cdr block))))
+                  bindings)))
+    (,values . ,rw/copy)))
+    
+;; could be abstracted & combined with select-query-rules
+(define (replace-dataset-rules graph)
+  `(((@QueryUnit @Query) . ,rw/quads)
+    ((GRAPH)
+     . ,(rw/lambda (block) (cddr block)))
+    ((@Prologue @SubSelect WHERE FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+    ((@Dataset) 
+     . ,(rw/lambda (block)
+          (parameterize ((*default-graph* graph))
+            `((@Dataset ,@(make-dataset 'FROM '() #f))))))
+    (,select? . ,rw/copy)
+    (,triple? . ,rw/copy)
+    (,list? . ,rw/list)))
+
+(define (test query #!optional (cleanup? #t))
+  (let ((rewritten-query (rewrite-query query top-rules))
+        (intermediate-graph 
+         (expand-namespace
+          (symbol-append '|rewriter:| (gensym 'graph)))))
+    (print "Creating intermediate graph " intermediate-graph)
+    (print
+     (sparql-update
+      (write-sparql 
+       (rewrite-query 
+        (if (procedure? (*constraint*)) ((*constraint*)) (*constraint*))
+        (construct-intermediate-graph-rules intermediate-graph)))))
+
+    (let ((r1 (sparql-select (write-sparql rewritten-query)))
+          (r2 (sparql-select (write-sparql (rewrite-query query (replace-dataset-rules intermediate-graph))))))
+      (print "\n==Expected Results==\n" r2)
+      (print "\n==Actual Results==\n" r1)
+      (print (equal? r1 r2))
+      (when cleanup?
+        (sparql-update (format "DELETE WHERE { GRAPH ~A { ?s ?p ?o } }" intermediate-graph)))
+      (values r1 r2))))
+
+(define (test-call _)
+  (let* (($$query (request-vars source: 'query-string))
+         (body (read-request-body))
+         ($$body (let ((parsed-body (form-urldecode body)))
+                   (lambda (key)
+                     (and parsed-body (alist-ref key parsed-body)))))
+         (query-string (or ($$query 'query) ($$body 'query) body))
+         (cleanup? (string-ci=? ($$query 'cleanup) "true"))
+         (query (parse query-string)))
+    (let-values (((actual expected) (test query cleanup?)))
+      `((expected . ,(list->vector expected))
+        (actual . ,(list->vector actual))
+        (equal . ,(equal? expected actual))))))
+
+(define-rest-call 'POST '("test") test-call)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load
