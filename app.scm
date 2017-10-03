@@ -314,6 +314,13 @@
            ((`GRAPH graph . rest) graph)
            (else #f)))))
 
+(define (update?)
+  ((parent-axis
+    (lambda (context) 
+      (let ((head (context-head context)))
+        (and head (equal? (car head) '@Update)))))
+   (*context*)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Bindings, Substitutions and Renamings
 (define (a->rdf:type b)
@@ -381,6 +388,27 @@
   (filter (lambda (substitution)
             (member (car substitution) vars))
           substitutions))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Temp constraints
+(define *temp-graph* (config-param "TEMP_GRAPH" '<http://mu.semte.ch/rewriter/temp> read-uri))
+
+(define *use-temp?* (config-param "USE_TEMP" #t))
+
+(define temp-rules
+  `(((@QueryUnit @Query) . ,rw/continue)
+    ((@Prologue @Dataset) . ,rw/copy)
+    ((CONSTRUCT) 
+     . ,(lambda (block bindings)
+          (values (list block) (update-binding 'triple (second block) bindings))))
+    ((WHERE)
+     . ,(lambda (block bindings)
+          (let ((triple (get-binding 'triple bindings)))
+            (values `((WHERE
+                       (UNION ,(cdr block)
+                              ((GRAPH ?temp ,triple)
+                               (VALUES (?temp) (,(*temp-graph*)))))))
+                    bindings))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
@@ -782,7 +810,7 @@
                ;; (insert-block (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
 
                ;; problem: literal graph has to be in VALUES or it's not applied on instantiation
-               ;; eg GRAPH ?g { s p o } VALUES (?g){ (<G>) }
+               ;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
                (insert-block (append
                               (rewrite insert-triples new-bindings (instantiate-insert-rules instantiated-constraints))
                               (rewrite insert-triples new-bindings 
@@ -872,9 +900,11 @@
 ;; Apply CONSTRUCT statement as a constraint on a triple a b c
 (define (apply-constraint triple bindings C)
   (parameterize ((flatten-graphs? #f))
-    (if (procedure? C)
-        (rewrite (list (C)) bindings (apply-constraint-rules triple))
-        (rewrite (list C) bindings (apply-constraint-rules triple)))))
+    (let* ((C* (if (procedure? C) (C) C))
+           (C** (if (and (*use-temp?*) (update?))
+                    (rewrite-query C* temp-rules)
+                    C*)))
+      (rewrite (list C**) bindings (apply-constraint-rules triple)))))
 
 (define (apply-read-constraint triple bindings)
   (apply-constraint triple bindings (*read-constraint*)))
