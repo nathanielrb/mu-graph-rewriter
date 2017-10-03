@@ -459,10 +459,10 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
-(define (apply-optimizations block bindings)
+(define (apply-optimizations block)
   (if (null? block) '()
       (let-values (((rw new-bindings)
-                    (rewrite (list block) bindings optimization-rules)))
+                    (rewrite (list block) '() optimization-rules)))
         (filter quads? rw))))
 
 (define fprops (make-parameter '((props) (subs))))
@@ -791,9 +791,7 @@
 		  (values `((@Query 
                              ,@(replace-child-body 
                                 'WHERE
-                                (apply-optimizations 
-                                 (append constraints (get-child-body 'WHERE rw))
-                                 new-bindings)
+                                (apply-optimizations (append constraints (get-child-body 'WHERE rw)))
                                 rw)))
 			  new-bindings)))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
@@ -811,13 +809,13 @@
                           (append (or (get-child-body 'WHERE rw) '())
                                   (get-binding/default 'constraints new-bindings '()))))
                          ;; triples -> quads
-                         (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
+                         (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings (triples-to-quads-rules new-where)))
                          (rw (replace-child-body 'DELETE delete-block rw)))
 		    (if (null? new-where)
 			(values `((@Update ,@(reverse rw))) new-bindings)
 			(values `((@Update ,@(replace-child-body 
                                               'WHERE 
-                                              `((@SubSelect (SELECT *) (WHERE ,@(apply-optimizations new-where new-bindings))))
+                                              `((@SubSelect (SELECT *) (WHERE ,@(apply-optimizations new-where))))
                                               (reverse rw))))
 				new-bindings)))))))
     (,select? . ,rw/copy)
@@ -837,7 +835,10 @@
     (,list? . ,rw/list)
     (,symbol? . ,rw/copy)))   
 
-(define (instantiate-insert-rules constraints)
+(define (triples-to-quads triples constraints)
+  (rewrite triples '() (triples-to-quads-rules constraints)))
+
+(define (triples-to-quads-rules constraints)
   `((,triple?
      . ,(lambda (triple bindings)
           (let* ((graphs (find-triple-graphs triple constraints))
@@ -845,43 +846,34 @@
                               (remove (cut equal? (*temp-graph*) <>) graphs))))
             (values (map (lambda (graph) `(GRAPH ,graph ,triple)) graphs*) bindings))))))
 
+;; this is a bit circuitous and verbose, but works for now.
+;; and a big mess. which one to use, when?? values/not values/mixing with quads/contstraint
+;; (insert-block (rewrite insert-block new-bindings (triples-to-quads-rules constraints)))
+
+;; problem: literal graph has to be in VALUES or it's not applied on instantiation
+;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
     (let* ((insert-triples (get-child-body 'INSERT rw))
            (triples (expand-triples insert-triples '() replace-a))
-           (where-block (apply-optimizations (or (get-child-body 'WHERE rw) '()) new-bindings))
-           (constraints (apply-optimizations
-                          (get-binding/default* '() 'constraints new-bindings '())
-                         new-bindings))) 
+           (where-block (apply-optimizations (or (get-child-body 'WHERE rw) '())))
+           (constraints (apply-optimizations (get-binding/default 'constraints new-bindings '()) )))
       (let-values (((instantiated-constraints inst-bindings) (instantiate constraints triples)))
         (let* ((new-where (delete-duplicates (append instantiated-constraints where-block)))
-               ;; this is a bit circuitous and verbose, but works for now.
-               ;; and a big mess. which one to use, when?? values/not values/mixing with quads/contstraint
-               ;; (insert-block (rewrite insert-block new-bindings (instantiate-insert-rules constraints)))
-
-               ;; problem: literal graph has to be in VALUES or it's not applied on instantiation
-               ;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
-
-               ;; ??
-               ;; (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
-
-               ;; (rw (replace-child-body 'DELETE delete-block rw)))
-               (insert-block (append
-                              (rewrite insert-triples new-bindings (instantiate-insert-rules instantiated-constraints))
-                              (rewrite insert-triples new-bindings 
-                                       (instantiate-insert-rules 
-                                        (map (lambda (mb)
-                                               (match mb
-                                                 (((quad) _ bindings)
-                                                  (replace-variables quad bindings))))
-                                             (get-binding/default 'instantiated-quads inst-bindings '()))))))
                (instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
+               (new-delete (let ((del (get-child-body 'DELETE rw))) ; ??
+                             (and del (triples-to-quads del new-where))))
 	       (new-insert (if instantiated-values
-			       ;;(instantiate-values insert-triples instantiated-values instantiated-graphs)
-                               (instantiate-values (rewrite insert-triples new-bindings (instantiate-insert-rules constraints))
+                               (instantiate-values (triples-to-quads insert-triples constraints)
                                                    instantiated-values instantiated-graphs)
-			       insert-block)))
+                               (append  (triples-to-quads insert-triples instantiated-constraints)
+                                        (triples-to-quads insert-triples 
+                                                          (map (lambda (mb)
+                                                                 (match mb
+                                                                   (((quad) _ bindings)
+                                                                    (replace-variables quad bindings))))
+                                                               (get-binding/default 'instantiated-quads inst-bindings '())))))))
           (replace-child-body 'INSERT new-insert 
                               (if (null? new-where)
                                   (reverse rw)
