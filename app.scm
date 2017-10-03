@@ -808,8 +808,8 @@
 		   new-bindings)
 		  (let* ((new-where ;; should do real optimization!
                          (delete-duplicates  
-                          (append (get-child-body 'WHERE rw)
-                                  (get-binding/default* '() 'constraints new-bindings '()))))
+                          (append (or (get-child-body 'WHERE rw) '())
+                                  (get-binding/default 'constraints new-bindings '()))))
                          ;; triples -> quads
                          (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
                          (rw (replace-child-body 'DELETE delete-block rw)))
