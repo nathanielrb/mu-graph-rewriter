@@ -277,6 +277,26 @@
 (define (expand-graphs statements #!optional (bindings '()))
   (rewrite statements bindings expand-graphs-rules))
 
+(define eg-graph (make-parameter #f))
+
+;; (define expand-graphs-rules
+;;   `(((@SubSelect) . ,rw/subselect)
+;;     (,select? . ,rw/copy)
+;;     ((OPTIONAL WHERE) . ,rw/quads)
+;;     ((UNION) . ,rw/union)
+;;     ((GRAPH) 
+;;      . ,(lambda (block bindings)
+;;           (match block
+;;             ((`GRAPH graph . quads)
+;;              (values (map (lambda (quad)
+;;                             `(GRAPH ,graph ,quad))
+;;                           quads)
+;;                      bindings)))))
+;;     (,triple? . ,rw/copy)
+;;     ((VALUES FILTER BIND MINUS |GROUP BY| OFFSET LIMIT) . ,rw/copy)
+;;     (,list? . ,rw/list)
+;;     (,symbol? . ,rw/copy)))
+
 (define expand-graphs-rules
   `(((@SubSelect) . ,rw/subselect)
     (,select? . ,rw/copy)
@@ -286,11 +306,12 @@
      . ,(lambda (block bindings)
           (match block
             ((`GRAPH graph . quads)
-             (values (map (lambda (quad)
-                            `(GRAPH ,graph ,quad))
-                          quads)
-                     bindings)))))
-    (,triple? . ,rw/copy)
+             (parameterize ((eg-graph graph))
+               (rewrite quads bindings))))))
+    (,triple? 
+     . ,(lambda (triple bindings)
+          (values `((GRAPH ,(eg-graph) ,triple))
+                  bindings)))
     ((VALUES FILTER BIND MINUS |GROUP BY| OFFSET LIMIT) . ,rw/copy)
     (,list? . ,rw/list)
     (,symbol? . ,rw/copy)))
@@ -395,6 +416,8 @@
 
 (define *use-temp?* (config-param "USE_TEMP" #f))
 
+(define *insert-into-temp?* (make-parameter #f))
+
 ;; $query is broken; use header for now, and fix $query
 (define (use-temp?)
   (cond ((or (header 'use-temp-graph) (($query) 'use-temp-graph))
@@ -415,6 +438,24 @@
                               ((GRAPH ?temp ,triple)
                                (VALUES (?temp) (,(*temp-graph*)))))))
                     bindings))))))
+
+(define (sync-temp-query)
+  `(@UpdateUnit
+    (@Update
+     (@Prologue)
+     (DELETE
+      (GRAPH ,(*temp-graph*) (?s ?p ?o)))
+     (INSERT
+      (?s ?p ?o))
+     (WHERE
+      (GRAPH ,(*temp-graph*) (?s ?p ?o))))))
+
+(define (sync-temp)
+  (parameterize ((*rewrite-graph-statements?* #f)
+                 (*use-temp?* #t))
+    (sparql-update
+     (write-sparql
+      (rewrite-query (sync-temp-query) top-rules)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
@@ -552,12 +593,13 @@
             (values
              (if (null? rw)
                  '()
-                 (list (second block)))
+                 (append (list (second block))
+                         (filter symbol? rw)))
              bindings))))
     ((@SubSelect)
      . ,(lambda (block bindings)
           (rewrite (cddr block))))
-    ((UNION OPTIONAL WHERE)
+    ((OPTIONAL WHERE UNION)
      . ,(lambda (block bindings)
           (rewrite (cdr block))))
     ((OPTIONAL) . ,rw/quads)
@@ -769,7 +811,7 @@
                           (append (get-child-body 'WHERE rw)
                                   (get-binding/default* '() 'constraints new-bindings '()))))
                          ;; triples -> quads
-                         (delete-block (rewrite  (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
+                         (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
                          (rw (replace-child-body 'DELETE delete-block rw)))
 		    (if (null? new-where)
 			(values `((@Update ,@(reverse rw))) new-bindings)
@@ -798,8 +840,10 @@
 (define (instantiate-insert-rules constraints)
   `((,triple?
      . ,(lambda (triple bindings)
-          (let ((graphs (find-triple-graphs triple constraints)))
-            (values (map (lambda (graph) `(GRAPH ,graph ,triple)) graphs) bindings))))))
+          (let* ((graphs (find-triple-graphs triple constraints))
+                 (graphs* (if (*insert-into-temp?*) graphs
+                              (remove (cut equal? (*temp-graph*) <>) graphs))))
+            (values (map (lambda (graph) `(GRAPH ,graph ,triple)) graphs*) bindings))))))
 
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
@@ -817,6 +861,11 @@
 
                ;; problem: literal graph has to be in VALUES or it's not applied on instantiation
                ;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
+
+               ;; ??
+               ;; (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings (instantiate-insert-rules new-where)))
+
+               ;; (rw (replace-child-body 'DELETE delete-block rw)))
                (insert-block (append
                               (rewrite insert-triples new-bindings (instantiate-insert-rules instantiated-constraints))
                               (rewrite insert-triples new-bindings 
@@ -906,12 +955,11 @@
 ;; Apply CONSTRUCT statement as a constraint on a triple a b c
 (define (apply-constraint triple bindings C)
   (parameterize ((flatten-graphs? #f))
-    (let* ((C* (if (procedure? C) (C) C))
-           (C** (if (and (use-temp?) (update?))
-                    (rewrite-query C* temp-rules)
-                    C*)))
-      (log-message "using temp? ~A " (use-temp?))
-      (rewrite (list C**) bindings (apply-constraint-rules triple)))))
+    (let* ((C* (if (procedure? C) (C) C)))
+           ;; (C** (if (and (use-temp?) (update?))
+           ;;          (rewrite-query C* temp-rules)
+           ;;          C*)))
+      (rewrite (list C*) bindings (apply-constraint-rules triple)))))
 
 (define (apply-read-constraint triple bindings)
   (apply-constraint triple bindings (*read-constraint*)))
@@ -957,19 +1005,13 @@
                         (constraints (if (equal? (length constraints) 1)
                                          (car constraints)
                                          `((UNION ,@constraints)))))
-
                    (let ((graphs (find-triple-graphs (list a b c) constraints)))
                      (if (*in-where?*)
                          (values `((*REWRITTEN* ,@constraints)) 
                                  (update-triple-graphs graphs (list a b c) 
                                                        new-bindings))
                          (values
-                          ;; (map (lambda (graph)
-                          ;;`(GRAPH ,graph (,a ,b ,c)))
-                          ;; graphs)
                           `((*REWRITTEN* (,a ,b ,c)))
-                          
-                          ;; can we do real optimization here?
                           (fold-binding constraints 'constraints append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
                                                               new-bindings))))))))))
@@ -1071,12 +1113,11 @@
 (define rename-constraint-triple
   (lambda (triple bindings)
     (let ((graph (get-context-graph)))
-      ;; (let-values (((renamed-graph renamed-triple new-bindings) (new-substitutions graph triple bindings)))
       (let-values (((renamed-quad new-bindings) (new-substitutions (cons graph triple) bindings)))
-        (values               
-	 (list (cdr renamed-quad)) ;         (list renamed-triple)
-         ;; (update-fproperty-bindings renamed-triple new-bindings))))))
-	 ;;(update-fproperty-bindings (cdr renamed-quad) new-bindings))))))
+        (values             
+         (if (and (use-temp?) (update?))
+             `((UNION (,(cdr renamed-quad)) ((GRAPH ,(*temp-graph*) ,(cdr renamed-quad)))))
+             (list (cdr renamed-quad)))
          new-bindings)))))
 
 (define (project-substitution-bindings vars bindings)
@@ -1462,7 +1503,6 @@
                                                  append '() 
                                                  bindings)))))))))
     ((OPTIONAL) . ,rw/quads)
-    ;;((UNION) . ,rw/union)
     ((UNION)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
