@@ -393,7 +393,13 @@
 ;; Temp constraints
 (define *temp-graph* (config-param "TEMP_GRAPH" '<http://mu.semte.ch/rewriter/temp> read-uri))
 
-(define *use-temp?* (config-param "USE_TEMP" #t))
+(define *use-temp?* (config-param "USE_TEMP" #f))
+
+;; $query is broken; use header for now, and fix $query
+(define (use-temp?)
+  (cond ((or (header 'use-temp-graph) (($query) 'use-temp-graph))
+         => (lambda (h) (equal? h "true")))
+        (else (*use-temp?*))))
 
 (define temp-rules
   `(((@QueryUnit @Query) . ,rw/continue)
@@ -901,9 +907,10 @@
 (define (apply-constraint triple bindings C)
   (parameterize ((flatten-graphs? #f))
     (let* ((C* (if (procedure? C) (C) C))
-           (C** (if (and (*use-temp?*) (update?))
+           (C** (if (and (use-temp?) (update?))
                     (rewrite-query C* temp-rules)
                     C*)))
+      (log-message "using temp? ~A " (use-temp?))
       (rewrite (list C**) bindings (apply-constraint-rules triple)))))
 
 (define (apply-read-constraint triple bindings)
