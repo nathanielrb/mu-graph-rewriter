@@ -1702,3 +1702,14 @@ WHERE {}"))
 WHERE {}"))
 
 (define c30 (parse-query "WITH <http://mu.semte.ch/application> INSERT {<http://mu.semte.ch/school/grades/28c52060-6b90-4f0e-ad1f-e1c572aba530> a <http://mu.semte.ch/vocabularies/school/Grade>; <http://mu.semte.ch/vocabularies/core/uuid> \"28c52060-6b90-4f0e-ad1f-e1c572aba530\";<http://mu.semte.ch/vocabularies/school/points> 11 } WHERE {}"))
+
+
+(define c31 (parse-query "INSERT DATA {
+ GRAPH <http://mu.semte.ch/application> {
+  <http://mu.semte.ch/school/people/dd14adbb-1f50-4867-b6fd-4e45c5ddb2a4> a <http://xmlns.com/foaf/0.11/Person>;
+           <http://mu.semte.ch/vocabularies/core/uuid> \"dd14adbb-1f50-4867-b6fd-4e45c5ddb2a4\"; 
+           <http://xmlns.com/foaf/0.1/name> \"Milagros Ruley\"; 
+           <http://xmlns.com/foaf/0.1/mbox> \"Milagros.Ruley@gmail.com\"; 
+           <http://mu.semte.ch/vocabularies/school/role> \"student\".
+ }
+}"))

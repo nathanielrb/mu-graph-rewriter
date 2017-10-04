@@ -149,6 +149,11 @@
 (define (replace-child-body label replacement block)
   (alist-update label replacement block))
 
+(define (replace-child-body-if label replacement block)
+  (if replacement
+      (alist-update label replacement block)
+      block))
+
 (define (append-child-body/before label new-statements block)
   (replace-child-body label (append new-statements (or (get-child-body label block) '())) block))
 
@@ -461,9 +466,10 @@
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
   (if (null? block) '()
-      (let-values (((rw new-bindings)
-                    (rewrite (list block) '() optimization-rules)))
-        (filter quads? rw))))
+      (let-values (((rw new-bindings) (rewrite (list block) '() optimization-rules)))
+        (if (equal? '(#f) rw)
+            (error 'optimizations)
+            (filter quads? rw)))))
 
 (define fprops (make-parameter '((props) (subs))))
 
@@ -569,12 +575,14 @@
 		 (make-property-condition
 		  'exn
 		  'message (format "Invalid query: functional property conflict.")))
-		(values `((WHERE ,@(join (filter (compose not subs?) rw)))) new-bindings)))))
+		(values `((WHERE ,@(join (filter quads? rw)))) new-bindings)))))
     (,quads-block? 
      . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+          (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
             (if (fail? rw) (values (list #f) new-bindings)
-                (values `((,(car block) ,@rw)) new-bindings)))))
+                (values `(,@(filter subs? rw)
+                          (,(car block) ,@(join (filter quads? rw))))
+                        new-bindings)))))
     (,triple? 
      . ,(lambda (triple bindings)
           (values (list (map replace-fprop triple)) bindings)))
@@ -854,32 +862,38 @@
 ;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
-    (let* ((insert-triples (get-child-body 'INSERT rw))
-           (triples (expand-triples insert-triples '() replace-a))
-           (where-block (apply-optimizations (or (get-child-body 'WHERE rw) '())))
-           (constraints (apply-optimizations (get-binding/default 'constraints new-bindings '()) )))
-      (let-values (((instantiated-constraints inst-bindings) (instantiate constraints triples)))
-        (let* ((new-where (delete-duplicates (append instantiated-constraints where-block)))
+    (let* ((triples (expand-triples (get-child-body 'INSERT rw) '() replace-a))
+           (where-block (join
+                         (apply-optimizations
+                          (append (or (get-child-body 'WHERE rw) '())
+                                  ;;(get-binding/default 'constraints new-bindings '())))))
+                                  `((OPTIONAL ,@(get-binding/default 'constraints new-bindings '()))))))) )
+
+           ;; (constraints (apply-optimizations (get-binding/default 'constraints new-bindings '()) )))
+      (let-values (((instantiated-constraints inst-bindings) (instantiate where-block triples)))
+        ;;(group-graph-statements 
+        (let* ((new-where (values-to-end (delete-duplicates instantiated-constraints)))
                (instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
                (new-delete (let ((del (get-child-body 'DELETE rw))) ; ??
                              (and del (triples-to-quads del new-where))))
 	       (new-insert (if instantiated-values
-                               (instantiate-values (triples-to-quads insert-triples constraints)
+                               (instantiate-values (triples-to-quads triples where-block) ; constraints
                                                    instantiated-values instantiated-graphs)
-                               (append  (triples-to-quads insert-triples instantiated-constraints)
-                                        (triples-to-quads insert-triples 
+                               (append  (triples-to-quads triples instantiated-constraints)
+                                        (triples-to-quads triples 
                                                           (map (lambda (mb)
                                                                  (match mb
                                                                    (((quad) _ bindings)
                                                                     (replace-variables quad bindings))))
                                                                (get-binding/default 'instantiated-quads inst-bindings '())))))))
-          (replace-child-body 'INSERT new-insert 
-                              (if (null? new-where)
-                                  (reverse rw)
-                                  (replace-child-body 'WHERE
-                                                      `((@SubSelect (SELECT *) (WHERE ,@new-where)))
-                                                      (reverse rw)))))))))
+          (replace-child-body-if 'DELETE new-delete
+                                 (replace-child-body 'INSERT new-insert 
+                                                     (if (null? new-where)
+                                                         (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
+                                                         (replace-child-body 'WHERE
+                                                                             `((@SubSelect (SELECT *) (WHERE ,@new-where)))
+                                                                             (reverse rw))))))))))
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -1452,7 +1466,8 @@
                (if (null? match-binding)
                    (match-triple triple (cdr triples) #t) ; success
                    (cons match-binding (match-triple triple (cdr triples) #t))))
-              ((sparql-variable? (car triple1))
+              ((and (sparql-variable? (car triple1))
+                    (not (equal? (car triple1) (car triple2)))) ; no substitutions '(?s . ?s)
                (loop (cdr triple1) (cdr triple2) (cons (cons (car triple1) (car triple2)) match-binding)))
               ((rdf-equal? (car triple1) (car triple2))
                (loop (cdr triple1) (cdr triple2) match-binding))
@@ -1492,9 +1507,9 @@
                      (else (values `((*graph* . ,graph))
                                    (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
                                                  'instantiated-quads 
-                                                 append '() 
+                                                 append '() ; (compose delete-duplicates 
                                                  bindings)))))))))
-    ((OPTIONAL) . ,rw/quads)
+    ;; ((OPTIONAL) . ,rw/quads)
     ((UNION)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
@@ -1505,9 +1520,9 @@
                 (else (values `((UNION ,@new-blocks)) new-bindings)))))))
     (,quads-block? 
      . ,(lambda (block bindings)
-	  (let-values (((rw new-bindings) (rw/quads block bindings)))
-	    ;; ** unused **
-	    (values rw new-bindings))))
+	  (let-values (((rw new-bindings) (rewrite (list (cdr block)) bindings)))
+            (if (fail? rw) (values (list #f) new-bindings)
+                (values `((,(car block) ,@rw)) new-bindings)))))
     ((VALUES FILTER BIND) . ,rw/copy) ;; ???
     (,symbol? . ,rw/copy)
     (,null? . ,rw/remove)
@@ -1565,7 +1580,7 @@
 		  (let ((vars (map car binding)))
 		    (and (any values (map (cut member <> vars) quad))
 			 (list a b binding)))))
-	       (get-binding/default 'instantiated-quads bindings '()))))
+                 (get-binding/default 'instantiated-quads bindings '()))))
 
 (define instantiation-union-rules
   `(((@SubSelect) 
@@ -1694,6 +1709,15 @@
            bindings)))
 
     (,list? . ,rw/list)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Top
+(define (rew query)
+  (handle-exceptions exn
+      (case exn
+        ((optimizations) (error (format "Invalid query (opt):~%~A" (write-sparql query))))
+        (else (error (format "Invalid query:~%~A" (write-sparql query)))))
+    (rewrite-query query top-rules)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Deltas
@@ -2010,8 +2034,6 @@
 (when (*plugin*) 
   (log-message "~%Loading plugin: ~A " (*plugin*))
   (load (*plugin*)))
-
-(print "RWSQ? " (*rewrite-select-queries?*))
 
 (log-message "~%Proxying to SPARQL endpoint: ~A " (*sparql-endpoint*))
 (log-message "~%and SPARQL update endpoint: ~A " (*sparql-update-endpoint*))
