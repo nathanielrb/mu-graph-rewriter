@@ -1713,3 +1713,5 @@ WHERE {}"))
            <http://mu.semte.ch/vocabularies/school/role> \"student\".
  }
 }"))
+
+(define c32 (parse-query "INSERT { ?s <is> <red> } WHERE { ?s <is> <blue> } "))
