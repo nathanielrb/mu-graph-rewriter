@@ -1602,7 +1602,7 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
    }  
  }"))
 
-(define c21 (parse-query "WITH <http://mu.semte.ch/application> INSERT {<http://mu.semte.ch/school/classes/dc6c981b-d2fc-484a-95f5-4412d8ea1257> a <http://mu.semte.ch/vocabularies/school/Class>; <http://mu.semte.ch/vocabularies/core/uuid> \"dc6c981b-d2fc-484a-95f5-4412d8ea1257\";<http://purl.org/dc/terms/title> \"Categorical Fish 102\" } WHERE {}"))
+(define c21 (parse-query "WITH <http://mu.semte.ch/application> INSERT {<http://mu.semte.ch/school/classes/dc6c981b-d2fc-484a-95f5-4412d8ea1257> a <http://mu.semte.ch/vocabularies/school/Class>; <http://mu.semte.ch/vocabularies/core/uuid> \"dc6c981b-d2fc-484a-95f5-4412d8ea1257\"; dc:title \"Categorical Fish 102\" } WHERE {}"))
 
 (define c21bis (parse-query "WITH <http://mu.semte.ch/application> INSERT {<http://mu.semte.ch/school/classes/dc6c981b-d2fc-484a-95f5-4412d8ea1257> a school:Class; <http://mu.semte.ch/vocabularies/core/uuid> \"dc6c981b-d2fc-484a-95f5-4412d8ea1257\";<http://purl.org/dc/terms/title> \"Categorical Fish 102\" } WHERE {}"))
 
@@ -1714,4 +1714,14 @@ WHERE {}"))
  }
 }"))
 
-(define c32 (parse-query "INSERT { ?s <is> <red> } WHERE { ?s <is> <blue> } "))
+;; except for c33, these work with identical read/write constraint
+;; with removing of lone filters+values blocks (so UNION => OPTIONAL)
+(define c32 (parse-query "INSERT { ?s <is> <blue> } WHERE { ?s <is> <red> } "))
+
+;; unknown table error
+(define c33 (parse-query "DELETE { ?s <is> <purple> } WHERE { ?s <is> <red> } "))
+
+(define c33b (parse-query "DELETE { ?s <is> <blue> } WHERE { ?s <is> <blue> } "))
+
+(define c34 (parse-query "DELETE { ?s <is> <purple> } INSERT { ?s <is> <red> } WHERE { ?s <is> <purple> } "))
+

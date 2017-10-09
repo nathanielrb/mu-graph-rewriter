@@ -265,7 +265,7 @@
   (match constraint
     ((`= a b) (unify a b bindings))
     ((`!= a b) (disunify a b bindings))
-    ((`IN a b) (constraint-member a b bindings))
+    ((`IN a bs) (constraint-member a bs bindings))
     ((`|NOT IN| a b)  (constraint-not-member a b bindings))
     (else '?)))
 
@@ -280,11 +280,12 @@
       '?
       (not (rdf-equal? a b))))
 
-(define (constraint-member a b bindings)
+(define (constraint-member a bs bindings)
   (let ((possible? (lambda (x) (or (sparql-variable? x) (rdf-equal? a x)))))
     (cond ((sparql-variable? a) '?)
-	  ((member a b) #t)
-	  ((null? (filter sparql-variable? b)) #f)
+	  ;; ((member a b) #t)
+          ((not (null? (filter possible? bs))) #t)
+	  ((null? (filter sparql-variable? bs)) #f)
 	  (else '?))))
 
 (define (constraint-not-member a b bindings)
@@ -809,8 +810,8 @@
            (where-block (join
                          (apply-optimizations
                           (append (or (get-child-body 'WHERE rw) '())
-                                  `((OPTIONAL ,@(get-binding/default 'constraints new-bindings '()))))))) )
-
+                                  ;;`((OPTIONAL ,@(get-binding/default 'constraints new-bindings '()))))))) )
+                                  (get-binding/default 'constraints new-bindings '()))))))
       (let-values (((instantiated-constraints inst-bindings) (instantiate where-block triples)))
         (let* ((new-where (values-to-end (delete-duplicates instantiated-constraints)))
                (instantiated-values (get-binding 'instantiated-values inst-bindings))
@@ -831,9 +832,12 @@
                                  (replace-child-body 'INSERT new-insert 
                                                      (if (null? new-where)
                                                          (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
-                                                         (replace-child-body 'WHERE
-                                                                             `((@SubSelect (SELECT *) (WHERE ,@new-where)))
-                                                                             (reverse rw))))))))))
+                                                         (replace-child-body 
+                                                          'WHERE
+                                                          `((@SubSelect 
+                                                             (SELECT *)
+                                                             (WHERE ,@new-where)))
+                                                          (reverse rw))))))))))
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -865,7 +869,7 @@
      . ,(lambda (triple bindings)
           (parameterize ((*in-where?* (in-where?)))
             (let ((graphs (get-triple-graphs triple bindings)))
-              (if (null? graphs)
+              (if (null? graphs) ; this seems wrong, once we have different read/write constraints
                   (if (*in-where?*) 
                       (apply-read-constraint triple bindings)
                       (apply-write-constraint triple bindings))
@@ -1030,7 +1034,6 @@
 
 (define rename-constraint-triple
   (lambda (triple bindings)
-    (print "iw: " (in-where-block?))
     (let ((graph (get-context-graph)))
       (let-values (((renamed-quad new-bindings) (new-substitutions (cons graph triple) bindings)))
         (values             
@@ -1284,7 +1287,7 @@
   (if (null? block) '()
       (let-values (((rw new-bindings) (rewrite (list block) '() optimization-rules)))
         (if (equal? '(#f) rw)
-            (error 'optimizations)
+            (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
             (filter quads? rw)))))
 
 (define fprops (make-parameter '((props) (subs))))
@@ -1412,7 +1415,7 @@
 (define (instantiate where-block triples)
   (let ((where-block (expand-graphs where-block)))
     (let-values (((rw new-bindings)
-                  (rewrite where-block '() (get-instantiation-matches-rules triples))))
+                  (rewrite (list where-block) '() (get-instantiation-matches-rules triples))))
       (if (fail? rw)
           (error "Invalid query")
           (rewrite rw new-bindings instantiation-union-rules) ))))
@@ -1529,6 +1532,7 @@
                      (if (null? statements)
 			 ;; ! really approximate...
                          (if (and (null? quads) (null? filter-statements) (pair? values-statements))
+                         ;; (if (and (null? quads) (pair? values-statements))
                              (match (car values-statements) ;; ** only 1!!
                                ((`VALUES vars . vals)
                                 (let ((new-instantiated-values
