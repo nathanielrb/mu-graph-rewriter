@@ -3,11 +3,12 @@ body {
     font-size: 14px;
 }
 .row {
-    width: 100%
+    min-width: 100%;
+    height: 80%;
 }
 
 .panel {
-    width: 30%;
+    width: 23%;
     padding: 10px;
     float: left;
 }
@@ -18,13 +19,14 @@ h2 {
 h2 small {
     font-weight: normal;
     font-size: .7em;
+    float: right;
 }
 .panel textarea  {
     width: 100%;
     height: 600px;
     padding: 12px;
 }
-.panel textarea#result {
+.panel textarea#result, .panel textarea#results {
     height: 600px;
     margin: 0;
     padding: 12px;

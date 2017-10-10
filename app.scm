@@ -198,8 +198,12 @@
 (define (a->rdf:type b)
   (if (equal? b 'a) 'rdf:type b))
 
+(define *constraint-prologues* (make-parameter '()))
+
 (define (rdf-equal? a b)
-  (let ((nss (append (query-namespaces) (*namespaces*)))) ; memoize this
+  (let ((nss (append (query-namespaces)
+		     ;; (*constraint-namespaces*)
+		     (*namespaces*)))) ; memoize this
     (if (and (symbol? a) (symbol? b))
         (equal? (expand-namespace (a->rdf:type a) nss)
                 (expand-namespace (a->rdf:type b) nss))
@@ -728,12 +732,13 @@
 
 (define top-rules
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
-    ((@Prologue) . ,rw/copy)
-     ;; . ,(lambda (block bindings)
-          ;; (values `((@Prologue
-          ;;            (PREFIX |rewriter:| <http://mu.semte.ch/graphs/>)
-          ;;            ,@(cdr block)))
-          ;;         bindings)))
+    ((@Prologue) 
+     . ,(lambda (block bindings)
+          (values `((@Prologue
+                     ,@(append-unique 
+			(*constraint-prologues*)
+			(cdr block))))
+                  bindings)))
 	  
     ((@Dataset) . ,rw/remove)
     ((@Using) . ,rw/remove)
@@ -747,7 +752,8 @@
                                 'WHERE
                                 (apply-optimizations
 				 (group-graph-statements
-				  (values-to-end (append constraints (get-child-body 'WHERE rw)))))
+				  (values-to-end
+				 (append constraints (get-child-body 'WHERE rw))) ))
                                 rw)))
 			  new-bindings)))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
@@ -755,26 +761,27 @@
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
-	      (if (insert-query? block) 
-		  (values
-		   `((@Update
-		      ,@(instantiated-insert-query rw new-bindings)))
-		   new-bindings)
-		  (let* ((new-where ;; should do real optimization!
-                         (delete-duplicates  
-                          (append (or (get-child-body 'WHERE rw) '())
-                                  (get-binding/default 'constraints new-bindings '()))))
-                         ;; triples -> quads
-                         (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings 
-						(triples-to-quads-rules new-where)))
-                         (rw (replace-child-body 'DELETE delete-block rw)))
-		    (if (null? new-where)
-			(values `((@Update ,@(reverse rw))) new-bindings)
-			(values `((@Update ,@(replace-child-body 
-                                              'WHERE 
-                                              `((@SubSelect (SELECT *) (WHERE ,@(apply-optimizations new-where))))
-                                              (reverse rw))))
-				new-bindings)))))))
+	    (if (insert-query? block) 
+		(values
+		 `((@Update
+		    ,@(instantiated-insert-query rw new-bindings)))
+		 new-bindings)
+		(let* ((new-where
+			(apply-optimizations 
+			 (group-graph-statements
+			  (values-to-end
+			   (append (or (get-child-body 'WHERE rw) '())
+				   (get-binding/default 'constraints new-bindings '()))))))
+		       (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings 
+					      (triples-to-quads-rules new-where)))
+		       (rw (replace-child-body 'DELETE delete-block rw)))
+		  (if (null? new-where)
+		      (values `((@Update ,@(reverse rw))) new-bindings)
+		      (values `((@Update ,@(replace-child-body 
+					    'WHERE 
+					    `((@SubSelect (SELECT *) (WHERE ,@new-where)))
+					    (reverse rw))))
+			      new-bindings)))))))
     (,select? . ,rw/copy)
     ((@SubSelect) . ,rw/subselect)
     ((GRAPH) . ,rw/copy)
@@ -831,13 +838,14 @@
 	       (new-insert (if instantiated-values
                                (instantiate-values (triples-to-quads triples where-block) ; constraints
                                                    instantiated-values instantiated-graphs)
-                               (append  (triples-to-quads triples instantiated-constraints)
-                                        (triples-to-quads triples 
-                                                          (map (lambda (mb)
-                                                                 (match mb
-                                                                   (((quad) _ bindings)
-                                                                    (replace-variables quad bindings))))
-                                                               (get-binding/default 'instantiated-quads inst-bindings '())))))))
+			       (triples-to-quads triples
+						 (append instantiated-constraints
+							 (map (lambda (mb)
+								(match mb
+								  (((quad) _ bindings)
+								   (replace-variables quad bindings))))
+							      (get-binding/default 'instantiated-quads inst-bindings '())))))))
+
           (replace-child-body-if 'DELETE new-delete
                                  (replace-child-body 'INSERT new-insert 
                                                      (if (null? new-where)
@@ -894,7 +902,7 @@
 (define (parse-constraint constraint)
   (let ((constraint
          (if (pair? constraint) constraint (parse-query constraint))))
-    (car (recursive-expand-triples (list constraint)))))
+    (car (recursive-expand-triples (list constraint) '() replace-a))))
 
 ;; (define parse-constraint (memoize parse-constraint*))
 
@@ -1327,19 +1335,23 @@
                (props (alist-ref 'props (fprops)))
                (subs (append (join (map second subs)) (alist-ref 'subs (fprops)))))
     (cond ((null? quads) `((props . ,props) (subs . ,subs)))
-          ((triple? (car quads)) (match (car quads)
-                                   ((s p o) 
-                                    (if (rdf-member p (*functional-properties*))
-                                        (let ((current-value (cdr-when (assoc `(,s ,(a->rdf:type p)) props))))
-                                          (cond ((or (not current-value)
-                                                     (and (sparql-variable? current-value)
-                                                          (not (sparql-variable? o))))
-                                                 (loop (cdr quads) (cons `((,s ,(a->rdf:type p)) . ,o) props) subs))
-                                                ((rdf-equal? o current-value) (loop (cdr quads) props subs))
-                                                ((sparql-variable? o) (loop (cdr quads) props 
-                                                                            (assoc-update o current-value subs)))
-                                                (else #f)))
-                                        (loop (cdr quads) props subs)))))
+          ((triple? (car quads))
+	   (match (car quads)
+	     ((s p o) 
+	      (if (rdf-member p (*functional-properties*))
+		  (let ((current-value (cdr-when (assoc `(,s ,(a->rdf:type p)) props))))
+		    (cond ((not current-value)
+			   (loop (cdr quads) (cons `((,s ,(a->rdf:type p)) . ,o) props) subs))
+			  ((and (sparql-variable? current-value)
+				(not (sparql-variable? o)))
+			   (loop (cdr quads) (cons `((,s ,(a->rdf:type p)) . ,o) props) 
+				 (assoc-update current-value o subs)))
+			  ((rdf-equal? o current-value) (loop (cdr quads) props subs))
+			  ((sparql-variable? o)
+			   (loop (cdr quads) props 
+				 (assoc-update o current-value subs)))
+			  (else #f)))
+		  (loop (cdr quads) props subs)))))
           ((and (not rec?) (graph? (car quads)))
            (let ((inner (collect-fprops (cddr (car quads)) #t)))
              (if inner (loop (cdr quads) (append (alist-ref 'props inner) props) (append (alist-ref 'subs inner) subs)) #f)))
@@ -1384,7 +1396,7 @@
     ((GRAPH)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
-            (values `((GRAPH ,(second block) ,@rw)) new-bindings))))
+            (values `((GRAPH ,(second block) ,@(delete-duplicates rw))) new-bindings))))
     ((UNION) ;; . ,rw/union)
      . ,(lambda (block bindings)
           (let ((rw (filter values (map (cut rewrite <> bindings) (map list (cdr block)))) ))
@@ -2038,13 +2050,25 @@
 	 (write-constraint (parse-constraint write-constraint-string))
          (query (parse query-string))
 	 (fprops (map string->symbol
-		      (string-split (or ($$query 'fprops) ($$body 'fprops)) ","))))
+		      (string-split (or ($$query 'fprops) ($$body 'fprops)) ", "))))
     (parameterize ((*write-constraint*  write-constraint)
     		   (*read-constraint* read-constraint)
-		   (*functional-properties* fprops))
-      `((rewrittenQuery . ,(format (write-sparql (rewrite-query query top-rules)))))))  )
+		   (*functional-properties* fprops)
+		   (*constraint-prologues*
+		    (append-unique
+		     (all-prologues (cdr read-constraint))
+		     (all-prologues (cdr write-constraint)))))
+      `((rewrittenQuery . ,(format (write-sparql (rewrite-query query top-rules))))))))
 
 (define-rest-call 'POST '("sandbox") sandbox-call)
+
+(define-rest-call 'POST '("proxy")
+  (lambda (_)
+    (let ((query (read-request-body)))
+      (proxy-query (add-prefixes query)
+		   (if (update-query? (parse query))
+		       (*sparql-update-endpoint*)
+		       (*sparql-endpoint*))))))
 
 
 (define (serve-file path)
