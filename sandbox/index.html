@@ -1,0 +1,52 @@
+<html>
+  <head>
+    <title>mu-constraint-rewriter sandbox</title>
+
+    <link type="text/css" rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="row">
+      <div class="panel query">
+	<h2>Query</h2>
+	<textarea id="query">
+SELECT *
+WHERE {
+  ?s ?p ?o
+}
+	</textarea>
+      </div>
+      <div class="panel constraint" >
+	<h2>Constraint
+	<small><input type="checkbox" id="separate" disabled=true/>Separate read/write constraints</small>
+</h2>
+	<textarea id="constraint">
+CONSTRUCT {
+  ?a ?b ?c
+}
+WHERE {
+  GRAPH ?graph { 
+    ?a ?b ?c .
+    ?a rdf:type ?type
+  }
+  VALUES (?graph ?type) {
+     (<cars> <Car>) 
+     (<bikes> <Bike>) 
+  }
+}
+	</textarea>
+      </div>
+      <div class="panel result">
+	<h2>Result</h2>
+	<textarea id="result" disabled=true>
+	</textarea>
+      </div>
+      <div class="menu">
+	<p>Functional properties (comma-separated list):
+	  <input type="text" id="fprops" value="rdf:type"/></p>
+	<p><button name="rewrite" id="rewrite">rewrite</button></p>
+      </div>
+    </div>
+    <script type="text/javascript" src="sandbox.js"></script>
+  </body>
+</html>
+
