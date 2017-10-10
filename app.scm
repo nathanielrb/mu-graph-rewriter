@@ -1,4 +1,4 @@
-(use matchable intarweb spiffy spiffy-request-vars
+(use files matchable intarweb spiffy spiffy-request-vars
      uri-common intarweb medea irregex srfi-13 http-client cjson
      memoize)
 
@@ -2048,17 +2048,21 @@
 
 
 (define (serve-file path)
-  (lambda (_)
-    (call-with-input-file path
-      (lambda (port)
-	(read-string #f port)))))
+  (call-with-input-file path
+    (lambda (port)
+      (read-string #f port))))
 
-(define-rest-call 'GET '("sandbox") (serve-file "./sandbox/index.html"))
+(define (sandbox filename)
+  (if (feature? 'docker) 
+      (make-pathname "/app/sandbox/" filename)
+      (make-pathname "./sandbox/" filename)))
 
-(define-rest-call 'GET '("sandbox.js") (serve-file "./sandbox/sandbox.js"))
+(define-rest-call 'GET '("sandbox") (lambda (_) (serve-file (sandbox "index.html"))))
 
-(define-rest-call 'GET '("style.css") (serve-file "./sandbox/style.css"))
-
+(define-rest-call 'GET '("sandbox" file)
+  (rest-call
+   (file)
+   (serve-file (sandbox file))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load
