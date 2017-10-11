@@ -127,7 +127,9 @@
 
 ;; this is still a little incorrect (?) wrt failure and empty ()
 (define (rw/union block bindings)
+  (log-message "block: ~A~%" block)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+  (log-message "rw: ~A~%" rw)
     (let ((new-blocks (filter values rw))) ; (compose not fail?)  ?
       (case (length new-blocks)
 	((0)  (values (list #f) new-bindings))
@@ -498,6 +500,7 @@
 (define (find-triple-graphs triple block)
   (delete-duplicates (rewrite block '() (find-triple-graphs-rules triple))))
 
+;; doesn't work for nested graphs
 (define (find-triple-graphs-rules triple)
   `(((GRAPH)
      . ,(lambda (block bindings)
@@ -517,7 +520,7 @@
     (,triple? 
      . ,(lambda (block bindings)
           (values
-           (if (null? (map rdf-equal? block triple)) '()
+           (if (fail? (map rdf-equal? block triple)) '()
                (list #t))
            bindings)))
     ((FILTER VALUES BIND) . ,rw/remove)
@@ -713,20 +716,19 @@
      (level-quads))))
 
 (define (rewrite-quads-block block bindings)
+  (log-message "~%doing block:~%~A~%~%" block)
   (parameterize ((flatten-graphs? (not (preserve-graphs?))))
     ;; expand triples
-    (let-values (((q1 b1) (expand-triples (cdr block) bindings replace-a)))
+    (let-values (((q1 b1) (expand-triples block bindings replace-a)))
       ;; rewrite-triples
       (let-values (((q2 b2) (rewrite q1 b1 triples-rules)))
         ;; continue in nested quad blocks
         (let-values (((q3 b3)
-		      (parameterize ((level-quads (new-level-quads q2)))
-			(rewrite q2 b2))))
-          (cond ((null? q3) (values '() b3))
+                      (parameterize ((level-quads (new-level-quads q2)))
+                        (rewrite q2 b2))))
+          (cond ((null? q3) (values q3 b3))
                 ((fail? q3) (values (list #f) b3))
-                (else (values `((,(rewrite-block-name (car block)) 
-				 ,@(optimize-duplicates q3)))
-                              b3))))))))
+                (else (values (filter pair? q3) b3))))))))
 
 (define in-where-block? (make-parameter #f))
 
@@ -789,18 +791,42 @@
      . ,(lambda (block bindings)
           (values (cdr block) bindings)))
     ((DELETE |DELETE WHERE| |DELETE DATA| INSERT |INSERT WHERE| |INSERT DATA| MINUS OPTIONAL GRAPH)
-     . ,rewrite-quads-block)
+     ;;. ,rewrite-quads-block)
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
+            (cond ((null? rw) (values '() new-bindings))
+                  ((fail? rw) (values (list #f) new-bindings))
+                  (else (values `((,(rewrite-block-name (car block)) 
+                                   ,@(optimize-duplicates rw)))
+                                new-bindings))))))
     ((WHERE)
      . ,(lambda (block bindings)
 	  (parameterize ((in-where-block? #t))
-	    (rewrite-quads-block block bindings))))
+            (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
+              (cond ((null? rw) (values '() new-bindings))
+                    ((fail? rw) (values (list #f) new-bindings))
+                    (else (values `((,(rewrite-block-name (car block)) 
+                                     ,@(optimize-duplicates rw)))
+                                  new-bindings)))))))
     ;; ((WHERE)
     ;;  . ,(lambda (block bindings)
     ;;       (let-values (((rw new-bindings) (rewrite-quads-block block bindings)
     ;; (,quads-block? . ,rewrite-quads-block)
     ((UNION) . ,rw/union)
     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT| |GROUP BY| OFFSET LIMIT) . ,rw/copy)
-    (,list? . ,rw/list)
+    (,list? 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite-quads-block block bindings)))
+            (cond ((null? rw) (values rw new-bindings))
+                  ((fail? rw) (values (list #f) new-bindings))
+                  (else (values (list (filter pair? rw)) new-bindings))))))
+
+    ;;(,list?  . ,rewrite-quads-block)
+     ;; . ,(lambda (block bindings)
+     ;;      (log-message "~A => ~A" block (expand-triples block bindings replace-a))
+     ;;      (log-message "==> "           (rw/list (expand-triples block bindings replace-a) bindings))
+     ;;      (rw/list (expand-triples block bindings replace-a) bindings)))
+
     (,symbol? . ,rw/copy)))   
 
 (define (triples-to-quads triples constraints)
@@ -836,15 +862,18 @@
                (new-delete (let ((del (get-child-body 'DELETE rw))) ; ??
                              (and del (triples-to-quads del new-where))))
 	       (new-insert (if instantiated-values
-                               (instantiate-values (triples-to-quads triples where-block) ; constraints
-                                                   instantiated-values instantiated-graphs)
-			       (triples-to-quads triples
-						 (append instantiated-constraints
-							 (map (lambda (mb)
-								(match mb
-								  (((quad) _ bindings)
-								   (replace-variables quad bindings))))
-							      (get-binding/default 'instantiated-quads inst-bindings '())))))))
+                               (instantiate-values
+                                (triples-to-quads triples where-block) ; constraints
+                                instantiated-values instantiated-graphs)
+			       ;; (triples-to-quads
+                               ;;  triples
+                               ;;  (append instantiated-constraints
+                               ;;          (map (lambda (mb)
+                               ;;                 (match mb
+                               ;;                   (((quad) _ bindings)
+                               ;;                    (replace-variables quad bindings))))
+                               ;;               (get-binding/default 'instantiated-quads inst-bindings '())))))))
+                               (triples-to-quads triples where-block))))
 
           (replace-child-body-if 'DELETE new-delete
                                  (replace-child-body 'INSERT new-insert 

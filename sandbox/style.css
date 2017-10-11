@@ -12,6 +12,9 @@ body {
     padding: 10px;
     float: left;
 }
+h1 {
+    padding: 10px 10px 0 10px;
+}
 h2 {
     font-size: 1.2em;
     font-family: arial;
