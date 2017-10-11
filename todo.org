@@ -1,0 +1,94 @@
+* To Do
+
+** basic logic
+*** TODO simplifying over UNIONs
+    generalize optimize-duplicates, group-graph-statements et al.
+
+*** TODO does rw/union distinguish between false and empty true?
+*** TODO OPTIONALS and constraints that *should* be inside them
+   what about something like this:
+   
+   #+BEGIN_SRC
+    DELETE {
+      ?s ?p ?o . 
+      ?dataset <D> ?s 
+    }
+    WHERE { 
+      ?s ?p ?o.
+      OPTIONAL { ?s <invD> ?dataset . }
+    }
+   #+END_SRC
+   the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...
+** instantiation
+*** TODO [#A] get instantiation logic correct
+   including find-triples-graphs, instantiated-values, etc.
+
+*** TODO [#A] instantiation with or without UNION
+    ie for DELETE queries (exact triple not needed), and also a delta-subscription
+    service like Esteban wanted
+
+** dependencies
+*** TODO FILTER dependencies
+   what should the dependencies of FILTER( ?b != mu:uuid ) be??
+ 
+*** TODO singleton VALUES statements for ?graph 
+   
+   #+BEGIN_SRC
+    CONSTRUCT { ?s ?p ?o }
+    WHERE {
+      {
+        GRAPH ?graph { ?s ?p ?o }
+        VALUES ?graph { <G1> <G2> }
+        FILTER ( ?p != mu:uuid )
+      }
+      UNION
+      {
+        GRAPH ?graph { ?s ?p ?o }
+        VALUES ( ?graph ?p ) { <GRAPHS/UUID> mu:uuid }
+      }
+    }
+   #+END_SRC
+   
+   Here, ?graph is not exclusively determined, so updates are not well-defined, unless
+   a triple is meant to go into all graphs. But how to define SELECT queries such as:
+   
+   #+BEGIN_SRC
+    SELECT *
+    WHERE { ?a ?b ?c . ?d ?e ?f }
+   #+END_SRC
+   
+   Can ?a ?b ?c and ?d ?e ?f come from different graphs, i.e., ?graph depends on ?s, ?p and ?o?
+   The current assumptions mean that they must be in the same graph for the query to succeed.
+   
+*** TODO BIND in constraint query
+   
+   #+BEGIN_SRC
+    ?s ?p ?o
+    BIND(COUNT(?o) AS ?count)
+   #+END_SRC
+   
+   when ?o is substituted with a value:
+   
+   #+BEGIN_SRC
+    ?s ?p <property>
+    BIND(COUNT(<property>) AS ?count)
+   #+END_SRC
+   
+   One solution(?):
+   
+   #+BEGIN_SRC
+    ?s ?p <property>
+    BIND(COUNT(<property>) AS ?count)
+   #+END_SRC
+   
+*** TODO singleton VALUES statements 
+   how to calculate dependencies? with other singletons...
+   
+** cache keys
+** little things
+*** TODO Fix $query and make it like (headers)
+** sandbox
+*** TODO implement separate read/write constraints
+** temp graphs
+*** TODO handle FILTER NOT EXISTS
+
