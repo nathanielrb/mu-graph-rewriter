@@ -19,8 +19,9 @@
     }
    #+END_SRC
    the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...
+*** TODO Too many nested lists levels
 ** instantiation
-*** TODO [#A] get instantiation logic correct
+*** DONE [#A] get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
 *** TODO [#A] instantiation with or without UNION

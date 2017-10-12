@@ -24,26 +24,26 @@ h2 small {
     font-size: .7em;
     float: right;
 }
-.panel textarea  {
+.panel textarea, .panel pre  {
     width: 100%;
     height: 600px;
     padding: 12px;
+    color: gray;
 }
-.panel textarea#result, .panel textarea#results {
+.panel #result, .panel textarea#results {
     height: 600px;
     margin: 0;
     padding: 12px;
     border: none;
     background: white;
 }
-.panel textarea#result.filled {
+.panel #result.filled {
     border: 1px dotted gray;
     background: beige;
 }
-.panel textarea#result.error {
+.panel #result.error {
     background: pink 
 }
-
 .menu {
     clear: both ;
     padding: 0 10px;

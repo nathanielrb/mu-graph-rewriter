@@ -4,8 +4,13 @@ var constraint = document.getElementById('constraint');
 var fprops = document.getElementById('fprops');
 var result = document.getElementById('result');
 var results = document.getElementById('results');
+var rwquery = false;
 
-
+function encode(e) {
+  return e.replace(/[\<\>\"\^]/g, function(e) {
+	return "&#" + e.charCodeAt(0) + ";";
+  });
+}
 
 button.onclick = function(){
     var request = new XMLHttpRequest();
@@ -16,10 +21,14 @@ button.onclick = function(){
 		console.log('200');
 		var jr = JSON.parse(e.target.responseText);
 		result.className = 'filled';
-		result.value = jr.rewrittenQuery.trim();
+		// result.value = jr.rewrittenQuery.trim();
+                rwquery =  jr.rewrittenQuery.trim();
+                result.innerHTML = encode(rwquery);
 		runButton.disabled = false;
 	    } else {
-		result.value = 'Error';
+		// result.value = 'Error';
+                query = false;
+                result.innerHTML = 'Error';
 		result.className = 'error';
 		runButton.disabled = true;
 	    } 
@@ -33,8 +42,7 @@ button.onclick = function(){
 var runButton = document.getElementById('run');
 
 runButton.onclick = function(){
-    var q = result.value;
-    if( q == 'Error' )
+    if( !rwquery )
 	return 1;
     else {
 	var request = new XMLHttpRequest();
@@ -53,13 +61,6 @@ runButton.onclick = function(){
 	    }
 	}
 	request.open("POST", "/proxy", true);
-	request.send(q);
+	request.send(rwquery);
     }
-}
-
-result.onclick = function() {
-    result.disabled = false;
-    console.log(this);
-    console.log('disabled? ' + this.disabled + ' => ' + !this.disabled);
-
 }
