@@ -15,18 +15,56 @@
     }
     WHERE { 
       ?s ?p ?o.
-      OPTIONAL { ?s <invD> ?dataset . }
+      OPTIONAL { ?s <D> ?dataset . }
     }
    #+END_SRC
    the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...
 *** TODO Too many nested lists levels
+
 ** instantiation
-*** DONE [#A] get instantiation logic correct
+*** DONE get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
-*** TODO [#A] instantiation with or without UNION
+*** TODO instantiation with or without UNION
     ie for DELETE queries (exact triple not needed), and also a delta-subscription
     service like Esteban wanted
+
+*** TODO is instantiation correct for DELETE+INSERT queries?
+    for the DELETE part, probably should *not* instantiate...
+    maybe divide into 2 queries?
+
+*** TODO [#A] edge cases
+    what *should* happen in these cases?
+
+    #+BEGIN_SRC
+    insert { ?s a school:Class }
+    where { ?s a school:Class }
+    #+END_SRC
+
+    currently rewrites to:
+
+    #+BEGIN_SRC
+    INSERT {
+      GRAPH ?graph15098 {
+      ?s rdf:type school:Class.
+     }
+    }
+    WHERE {
+     SELECT *
+     WHERE {
+      {
+       VALUES (?graph15098) { (g:classes) }
+      }
+     }
+    } 
+    #+END_SRC
+
+    #+BEGIN_SRC
+    delete { ?s a school:Class }
+    where { ?s a school:Class }
+    #+END_SRC
+
+
 
 ** dependencies
 *** TODO FILTER dependencies
@@ -86,6 +124,8 @@
    how to calculate dependencies? with other singletons...
    
 ** cache keys
+*** implementation: select vars
+*** implementation: with tags
 ** little things
 *** TODO Fix $query and make it like (headers)
 ** sandbox

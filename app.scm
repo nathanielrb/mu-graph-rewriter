@@ -768,14 +768,15 @@
 		 `((@Update
 		    ,@(instantiated-insert-query rw new-bindings)))
 		 new-bindings)
-		(let* ((new-where
+		(let* ((constraints (get-binding/default 'constraints new-bindings '()))
+                       (new-where
 			(apply-optimizations 
 			 (group-graph-statements
 			  (values-to-end
 			   (append (or (get-child-body 'WHERE rw) '())
-				   (get-binding/default 'constraints new-bindings '()))))))
-		       (delete-block (rewrite (get-child-body 'DELETE rw) new-bindings 
-					      (triples-to-quads-rules new-where)))
+				   constraints)))))
+		       (delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where))  ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
+				     ;;          (triples-to-quads-rules new-where)))
 		       (rw (replace-child-body 'DELETE delete-block rw)))
 		  (if (null? new-where)
 		      (values `((@Update ,@(reverse rw))) new-bindings)
@@ -856,6 +857,8 @@
 			    (append (or (get-child-body 'WHERE rw) '())
                                   ;;`((OPTIONAL ,@(get-binding/default 'constraints new-bindings '()))))))) )
 				    constraints)))))))
+      (log-message "~%where: ~A"  (get-child-body 'WHERE rw))
+      (log-message "~%constraints: ~A" constraints)
       (log-message "~%instantiating: ~A" where-block)
       (let-values (((instantiated-constraints inst-bindings) (instantiate where-block triples)))
         (log-message "~%ivALS: ~A~%"  (get-binding 'instantiated-values inst-bindings))
@@ -863,7 +866,7 @@
                ;;(instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
                (new-delete (let ((del (get-child-body 'DELETE rw))) ; ??
-                             (and del (triples-to-quads del constraints))))
+                             (and del (triples-to-quads del where-block))))
 	       (new-insert ;; (if instantiated-values
                            ;;     (instantiate-values
                            ;;      (triples-to-quads triples where-block) ; constraints
@@ -876,7 +879,7 @@
                            ;;     ;;                   (((quad) _ bindings)
                            ;;     ;;                    (replace-variables quad bindings))))
                            ;;     ;;               (get-binding/default 'instantiated-quads inst-bindings '())))))))
-                (triples-to-quads triples constraints)))
+                (triples-to-quads triples where-block)))
 
           (replace-child-body-if 'DELETE new-delete
                                  (replace-child-body 'INSERT new-insert 
