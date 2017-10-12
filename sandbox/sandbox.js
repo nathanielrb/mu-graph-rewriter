@@ -56,3 +56,10 @@ runButton.onclick = function(){
 	request.send(q);
     }
 }
+
+result.onclick = function() {
+    result.disabled = false;
+    console.log(this);
+    console.log('disabled? ' + this.disabled + ' => ' + !this.disabled);
+
+}

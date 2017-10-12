@@ -848,32 +848,35 @@
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
     (let* ((triples (expand-triples (get-child-body 'INSERT rw) '() replace-a))
+           (constraints (get-binding/default 'constraints new-bindings '()))
            (where-block (join
                          (apply-optimizations
 			  (group-graph-statements
 			   (values-to-end
 			    (append (or (get-child-body 'WHERE rw) '())
                                   ;;`((OPTIONAL ,@(get-binding/default 'constraints new-bindings '()))))))) )
-				    (get-binding/default 'constraints new-bindings '()))))))))
+				    constraints)))))))
+      (log-message "~%instantiating: ~A" where-block)
       (let-values (((instantiated-constraints inst-bindings) (instantiate where-block triples)))
+        (log-message "~%ivALS: ~A~%"  (get-binding 'instantiated-values inst-bindings))
         (let* ((new-where (values-to-end (delete-duplicates instantiated-constraints)))
-               (instantiated-values (get-binding 'instantiated-values inst-bindings))
+               ;;(instantiated-values (get-binding 'instantiated-values inst-bindings))
                (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
                (new-delete (let ((del (get-child-body 'DELETE rw))) ; ??
-                             (and del (triples-to-quads del new-where))))
-	       (new-insert (if instantiated-values
-                               (instantiate-values
-                                (triples-to-quads triples where-block) ; constraints
-                                instantiated-values instantiated-graphs)
-			       ;; (triples-to-quads
-                               ;;  triples
-                               ;;  (append instantiated-constraints
-                               ;;          (map (lambda (mb)
-                               ;;                 (match mb
-                               ;;                   (((quad) _ bindings)
-                               ;;                    (replace-variables quad bindings))))
-                               ;;               (get-binding/default 'instantiated-quads inst-bindings '())))))))
-                               (triples-to-quads triples where-block))))
+                             (and del (triples-to-quads del constraints))))
+	       (new-insert ;; (if instantiated-values
+                           ;;     (instantiate-values
+                           ;;      (triples-to-quads triples where-block) ; constraints
+                           ;;      instantiated-values instantiated-graphs)
+			   ;;     ;; (triples-to-quads
+                           ;;     ;;  triples
+                           ;;     ;;  (append instantiated-constraints
+                           ;;     ;;          (map (lambda (mb)
+                           ;;     ;;                 (match mb
+                           ;;     ;;                   (((quad) _ bindings)
+                           ;;     ;;                    (replace-variables quad bindings))))
+                           ;;     ;;               (get-binding/default 'instantiated-quads inst-bindings '())))))))
+                (triples-to-quads triples constraints)))
 
           (replace-child-body-if 'DELETE new-delete
                                  (replace-child-body 'INSERT new-insert 
@@ -885,6 +888,52 @@
                                                              (SELECT *)
                                                              (WHERE ,@new-where)))
                                                           (reverse rw))))))))))
+
+;;; from below
+
+(define (instantiate-values block substitutions graphs)
+  (let ((substitutions (if (or #t (not graphs)) ; b/c graphs shouldn't be variables...??
+                           substitutions
+                           (fold (lambda (graph substitutions)
+                                   (alist-update-proc graph (lambda (graphs) (cons graph (or graphs '()))) substitutions))
+                                 substitutions
+                                 graphs))))
+    (rewrite block '() (instantiate-values-rules substitutions))))
+
+(define (instantiate-values-rules substitutions)
+  `(((GRAPH) 
+     . ,(lambda (block bindings)
+          (match block
+            ((`GRAPH graph . triples)
+             (let ((new-graphs (alist-ref graph substitutions)))
+               (if new-graphs
+                   (let-values (((rw _) (rewrite triples)))
+                     (values (map (lambda (new-graph)
+                                    `(GRAPH ,new-graph ,@triples))
+                                  new-graphs)
+                             bindings))
+                   (values (list block) bindings)))))))
+    (,triple? 
+     . ,(lambda (triple bindings)
+          (values
+           (let loop ((triple triple) (k list))
+             (if (null? triple) (k '())
+                 (let ((subs (alist-ref (car triple) substitutions)))
+                   (if subs
+                       (loop (cdr triple)
+                             (lambda (rest)
+                               (join
+                                (map
+                                 (lambda (s) (k (cons s rest)))
+                                 subs))))
+                       (loop (cdr triple)
+                             (lambda (rest)
+                               (k (cons (car triple) rest))))))))
+           bindings)))
+
+    (,list? . ,rw/list)))
+ 
+;;;;;
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -1582,24 +1631,24 @@
                               (graphs '()) (quads '()))
                      (if (null? statements)
 			 ;; ! really approximate...
-                         (if (and (null? quads) (null? filter-statements) (pair? values-statements))
-                         ;; (if (and (null? quads) (pair? values-statements))
-                             (match (car values-statements) ;; ** only 1!!
-                               ((`VALUES vars . vals)
-                                (let ((new-instantiated-values
-                                       (if (pair? vars)
-                                           (map reverse
-                                                (fold (lambda (n r) (map cons n r))
-                                                      (map list vars)
-                                                      vals))
-                                           `((,vars . ,vals)))))
-                                  (values '()
-                                          (update-instantiated-values new-instantiated-values new-bindings)))))
+                         ;; (if (and #f (null? quads) (null? filter-statements) (pair? values-statements))
+                         ;; ;; (if (and (null? quads) (pair? values-statements))
+                         ;;     (match (car values-statements) ;; ** only 1!!
+                         ;;       ((`VALUES vars . vals)
+                         ;;        (let ((new-instantiated-values
+                         ;;               (if (pair? vars)
+                         ;;                   (map reverse
+                         ;;                        (fold (lambda (n r) (map cons n r))
+                         ;;                              (map list vars)
+                         ;;                              vals))
+                         ;;                   `((,vars . ,vals)))))
+                         ;;          (values '()
+                         ;;                  (update-instantiated-values new-instantiated-values new-bindings)))))
                              (let ((rw-non-graphs (filter (not-node? '*graph*) (car rw))))
                                (values (if (null? rw-non-graphs) '() (list rw-non-graphs))
                                        (if (null? graphs)
                                            new-bindings
-                                           (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings)))))
+                                           (fold-binding graphs 'instantiated-graphs append-unique '() new-bindings))))  ;)
                          (case (caar statements)
                            ((*graph*) (loop (cdr statements) filter-statements
                                             values-statements (cons (cdar statements) graphs) quads))
@@ -1664,14 +1713,14 @@
 
 ;; didn't I already do this somewhere else?
 ;; and at least do it efficiently...
-(define (update-instantiated-values kvs bindings)
-  (if (null? kvs) bindings
-      (let ((key (caar kvs)) (vals (cdar kvs)))
-        (fold-binding key 'instantiated-values
-                      (lambda (key ivals)
-                        (alist-update key (delete-duplicates (append vals (or (alist-ref key ivals) '()))) ivals))
-                      '()
-                      (update-instantiated-values (cdr kvs) bindings)))))
+;; (define (update-instantiated-values kvs bindings)
+;;   (if (null? kvs) bindings
+;;       (let ((key (caar kvs)) (vals (cdar kvs)))
+;;         (fold-binding key 'instantiated-values
+;;                       (lambda (key ivals)
+;;                         (alist-update key (delete-duplicates (append vals (or (alist-ref key ivals) '()))) ivals))
+;;                       '()
+;;                       (update-instantiated-values (cdr kvs) bindings)))))
 
 (define (union-over-instantiation block matching-quads bindings)
   (match block
@@ -1705,48 +1754,48 @@
               (loop (cdr statements) graph rest))
              (else (cons (car statements) (loop (cdr statements) #f '()))))))))
 
-;; This isn't quite correct. Should be done per-tuple, right?
-(define (instantiate-values block substitutions graphs)
-  (let ((substitutions (if (or #t (not graphs)) ; b/c graphs shouldn't be variables...??
-                           substitutions
-                           (fold (lambda (graph substitutions)
-                                   (alist-update-proc graph (lambda (graphs) (cons graph (or graphs '()))) substitutions))
-                                 substitutions
-                                 graphs))))
-    (rewrite block '() (instantiate-values-rules substitutions))))
+;; ;; This isn't quite correct. Should be done per-tuple, right?
+;; (define (instantiate-values block substitutions graphs)
+;;   (let ((substitutions (if (or #t (not graphs)) ; b/c graphs shouldn't be variables...??
+;;                            substitutions
+;;                            (fold (lambda (graph substitutions)
+;;                                    (alist-update-proc graph (lambda (graphs) (cons graph (or graphs '()))) substitutions))
+;;                                  substitutions
+;;                                  graphs))))
+;;     (rewrite block '() (instantiate-values-rules substitutions))))
 
-(define (instantiate-values-rules substitutions)
-  `(((GRAPH) 
-     . ,(lambda (block bindings)
-          (match block
-            ((`GRAPH graph . triples)
-             (let ((new-graphs (alist-ref graph substitutions)))
-               (if new-graphs
-                   (let-values (((rw _) (rewrite triples)))
-                     (values (map (lambda (new-graph)
-                                    `(GRAPH ,new-graph ,@triples))
-                                  new-graphs)
-                             bindings))
-                   (values (list block) bindings)))))))
-    (,triple? 
-     . ,(lambda (triple bindings)
-          (values
-           (let loop ((triple triple) (k list))
-             (if (null? triple) (k '())
-                 (let ((subs (alist-ref (car triple) substitutions)))
-                   (if subs
-                       (loop (cdr triple)
-                             (lambda (rest)
-                               (join
-                                (map
-                                 (lambda (s) (k (cons s rest)))
-                                 subs))))
-                       (loop (cdr triple)
-                             (lambda (rest)
-                               (k (cons (car triple) rest))))))))
-           bindings)))
+;; (define (instantiate-values-rules substitutions)
+;;   `(((GRAPH) 
+;;      . ,(lambda (block bindings)
+;;           (match block
+;;             ((`GRAPH graph . triples)
+;;              (let ((new-graphs (alist-ref graph substitutions)))
+;;                (if new-graphs
+;;                    (let-values (((rw _) (rewrite triples)))
+;;                      (values (map (lambda (new-graph)
+;;                                     `(GRAPH ,new-graph ,@triples))
+;;                                   new-graphs)
+;;                              bindings))
+;;                    (values (list block) bindings)))))))
+;;     (,triple? 
+;;      . ,(lambda (triple bindings)
+;;           (values
+;;            (let loop ((triple triple) (k list))
+;;              (if (null? triple) (k '())
+;;                  (let ((subs (alist-ref (car triple) substitutions)))
+;;                    (if subs
+;;                        (loop (cdr triple)
+;;                              (lambda (rest)
+;;                                (join
+;;                                 (map
+;;                                  (lambda (s) (k (cons s rest)))
+;;                                  subs))))
+;;                        (loop (cdr triple)
+;;                              (lambda (rest)
+;;                                (k (cons (car triple) rest))))))))
+;;            bindings)))
 
-    (,list? . ,rw/list)))
+;;     (,list? . ,rw/list)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Top
