@@ -1,11 +1,16 @@
 * To Do
 
+** refactoring
+*** minor refactoring
+**** TODO use of axes/parameters
+**** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
+**** TODO abstract UNION-if->1 elements
 ** basic logic
-*** TODO minor refactoring
-    [ ] use of axes/parameters
-    [ ] rewrite-quads-block vs. list vs. cdr vs. quads block...
-    [ ] abstract UNION-if->1 elements
-*** TODO rethink logic of functional property optimization in OPTIONAL
+*** DONE rethink logic of functional property optimization in OPTIONAL
+*** TODO optimizations should introspect into GRAPHs
+    as in:
+    (apply-optimizations '((GRAPH <G> (?s a <Car>)) (GRAPH <H> (?s a ?Car))))
+
 *** TODO simplifying over UNIONs
     generalize optimize-duplicates, group-graph-statements et al.
 
@@ -24,21 +29,20 @@
     }
    #+END_SRC
    the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...
-*** TODO Too many nested lists levels
-
+*** DONE Too many nested lists levels
 ** instantiation
 *** DONE get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
-*** TODO instantiation with or without UNION
-    ie for DELETE queries (exact triple not needed), and also a delta-subscription
+*** TODO do (instantiate ..) with or without UNION
+    ie for DELETE queries (exact triple not needed), and also for a delta-subscription
     service like Esteban wanted
 
-*** TODO is instantiation correct for DELETE+INSERT queries?
+*** DONE is instantiation correct for DELETE+INSERT queries?
     for the DELETE part, probably should *not* instantiate...
     maybe divide into 2 queries?
 
-*** TODO [#A] edge cases
+*** DONE [#A] edge cases
     what *should* happen in these cases?
 
     the most troubling:
@@ -76,7 +80,6 @@
     delete { ?s a school:Class }
     where { ?s a school:Class }
     #+END_SRC
-
 
 ** dependencies
 *** TODO FILTER dependencies
