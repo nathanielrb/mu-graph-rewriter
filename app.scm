@@ -436,7 +436,94 @@
             (values `((@Query
                        ,@(insert-child-before 'WHERE `(|SELECT DISTINCT| ,@graphs) rw)))
                     new-bindings)))))
-    ;; ((WHERE) . ,rw/quads)
+    ((WHERE)
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rw/quads block bindings)))
+            (values rw new-bindings))))
+    ((INSERT DELETE)
+     . ,(lambda (block bindings)
+          (let-values (((_ new-bindings) (rw/quads block bindings)))
+            (values '() new-bindings))))
+    ((@Prologue) . ,rw/copy)
+    ((@Dataset @Using) 
+     . ,(lambda (block bindings)
+          (let ((graphs (map second (cdr block))))
+            (values (list block) (fold-binding graphs 'all-graphs append '() bindings)))))
+    (,select? . ,rw/remove)
+    ((@SubSelect)
+     . ,(lambda (block bindings)
+          (match block
+            ((@SubSelect (label . vars) . rest)
+	     (let* ((dataset (get-child-body '@Dataset rest))
+		    (graphs (and dataset (map second dataset))))
+               (let-values (((rw new-bindings) (rewrite (get-child-body 'WHERE rest) bindings)))
+		 (values
+		  `((@SubSelect (,label ,@vars) ,@(replace-child-body 'WHERE rw rest)))
+		  (if graphs
+		      (fold-binding graphs 'all-graphs append '() new-bindings)
+		      new-bindings))))))))
+    ;; ((CONSTRUCT SELECT INSERT DELETE |INSERT DATA|) . ,rw/remove)
+    ((CONSTRUCT SELECT) . ,rw/remove)
+    ((GRAPH) . ,(lambda (block bindings)
+                  (match block
+                    ((`GRAPH graph . quads)
+                     (let-values (((rw new-bindings) 
+                                   (rewrite quads (cons-binding graph 'all-graphs bindings))))
+                       (values `((GRAPH ,graph ,@rw)) new-bindings))))))
+
+    ((UNION) 
+     . ,(rw/lambda (block)
+          (with-rewrite ((rw (rewrite (cdr block))))
+	    `((UNION ,@rw)))))
+    ((VALUES) ;; order-dependent
+     . ,(lambda (block bindings)
+          (let ((graphs (get-binding/default 'all-graphs bindings '())))
+            (match block
+              ((`VALUES vars . vals)
+               (if (pair? vars)
+                   (values (list block) bindings)
+                   (if (member vars graphs)
+                       (values (list block)
+                               (update-binding 'all-graphs 
+                                               (append vals (delete vars graphs))
+                                               bindings))
+                       (values (list block) bindings))))))))
+    (,quads-block? . ,rw/quads)
+    (,triple? . ,rw/copy)
+    ((VALUES FILTER BIND) . ,rw/copy)
+    ((|GROUP BY| OFFSET LIMIT) . ,rw/copy)
+    (,list? . ,rw/list)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Annotations
+(define (annotation? exp)
+  (and (pair? exp)
+       (equal? (car exp) '@Annotation)))
+
+(define (nulll? block)
+  (null? (remove annotation? block)))
+
+(define (get-annotations  query)
+  (let ((query (if (procedure? query) (query) query)))
+    (let-values (((rewritten-query bindings) (rewrite-query query extract-graphs-rules)))
+      (let ((query-string (write-sparql rewritten-query)))
+        (let-values (((vars iris) (partition sparql-variable? (get-binding/default 'all-graphs bindings '()))))
+          (if (null? vars) iris
+              (delete-duplicates
+               (append iris
+                       (map cdr (join (sparql-select query-string from-graph: #f)))))))))))
+
+(define get-annotations-rules
+  `(((@QueryUnit @UpdateUnit) . ,rw/quads)
+    ((@Query @Update) 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+            (let ((graphs (delete-duplicates
+                           (filter sparql-variable?
+                                   (get-binding/default 'all-graphs new-bindings '())))))
+            (values `((@Query
+                       ,@(insert-child-before 'WHERE `(|SELECT DISTINCT| ,@graphs) rw)))
+                    new-bindings)))))
     ((WHERE)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rw/quads block bindings)))
