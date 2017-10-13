@@ -40,10 +40,10 @@
        (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))))
  
 (define *plugin*
-  (config-param "PLUGIN_PATH" 
-                (if (feature? 'docker)
-                    "/config/plugin.scm"
-                    "./config/rewriter/plugin.scm")))
+  (config-param "PLUGIN_PATH" ))
+                ;; (if (feature? 'docker)
+                ;;     "/config/plugin.scm"
+                ;;     "./config/rewriter/plugin.scm")))
 
 (define *cache* (make-hash-table))
 
@@ -862,13 +862,13 @@
     (let* ((opt (compose apply-optimizations group-graph-statements values-to-end))
            (delete (expand-triples (or (get-child-body 'DELETE rw) '()) '() replace-a))
            (insert (expand-triples (or (get-child-body 'INSERT rw) '()) '() replace-a))
-           (where (or (get-child-body 'WHERE rw) '()))
+           (where (opt (or (get-child-body 'WHERE rw) '())))
            (insert-constraints (opt (get-binding/default 'insert-constraints new-bindings '())))
            (delete-constraints (opt (get-binding/default 'delete-constraints new-bindings '())))
            (instantiated-constraints (instantiate insert-constraints insert))
            (new-delete (triples-to-quads delete (append delete-constraints where)))
            (new-insert (triples-to-quads insert (append insert-constraints where)))
-           (new-where (join (opt (append instantiated-constraints delete-constraints where)))))
+           (new-where (opt (append instantiated-constraints delete-constraints where))))
       (replace-child-body-if 
        'DELETE (and (not (null? new-delete)) new-delete)
        (replace-child-body-if
@@ -1328,9 +1328,9 @@
 (define (apply-optimizations block)
   (if (null? block) '()
       (let-values (((rw new-bindings) (rewrite (list block) '() optimization-rules)))
-        (if (equal? '(#f) rw)
+        (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
-            (filter quads? rw)))))
+            (car (filter quads? rw))))))
 
 (define fprops (make-parameter '((props) (subs))))
 
@@ -1466,7 +1466,7 @@
           (if (fail? rw)
               (error "Invalid query")
               (let-values (((rw2 _) (rewrite rw new-bindings instantiation-union-rules) ))
-                rw2))))))
+                (car rw2)))))))
 
 ;; matches a triple against a list of triples, and if successful returns a binding list
 ;; ex: (match-triple '(?s a dct:Agent) '((<a> <b> <c>) (<a> a dct:Agent)) => '((?s . <a>))

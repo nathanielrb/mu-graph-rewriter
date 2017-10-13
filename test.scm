@@ -18,7 +18,7 @@
 ;; (*subscribers-file* "../config/rewriter/subscribers.json")
 
 (define psp (compose print write-sparql))
-
+(*rewrite-select-queries?* #t)
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; testing
 (use spiffy)
