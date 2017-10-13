@@ -1,6 +1,11 @@
 * To Do
 
 ** basic logic
+*** TODO minor refactoring
+    [ ] use of axes/parameters
+    [ ] rewrite-quads-block vs. list vs. cdr vs. quads block...
+    [ ] abstract UNION-if->1 elements
+*** TODO rethink logic of functional property optimization in OPTIONAL
 *** TODO simplifying over UNIONs
     generalize optimize-duplicates, group-graph-statements et al.
 
@@ -36,6 +41,14 @@
 *** TODO [#A] edge cases
     what *should* happen in these cases?
 
+    the most troubling:
+
+    #+BEGIN_SRC
+    insert { ?s a ex:Frog }
+    delete { ?s a ex:Prince }
+    where { ?s a ex:Prince }
+    #+END_SRC
+
     #+BEGIN_SRC
     insert { ?s a school:Class }
     where { ?s a school:Class }
@@ -63,7 +76,6 @@
     delete { ?s a school:Class }
     where { ?s a school:Class }
     #+END_SRC
-
 
 
 ** dependencies

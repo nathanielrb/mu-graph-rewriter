@@ -1,4 +1,5 @@
 var button = document.getElementById('rewrite');
+var runButton = document.getElementById('run');
 var query = document.getElementById('query');
 var constraint = document.getElementById('constraint');
 var fprops = document.getElementById('fprops');
@@ -12,6 +13,7 @@ function encode(e) {
   });
 }
 
+// rewrite query
 button.onclick = function(){
     var request = new XMLHttpRequest();
     request.onreadystatechange = function(e) {
@@ -27,7 +29,7 @@ button.onclick = function(){
 		runButton.disabled = false;
 	    } else {
 		// result.value = 'Error';
-                query = false;
+                rwquery = false;
                 result.innerHTML = 'Error';
 		result.className = 'error';
 		runButton.disabled = true;
@@ -38,9 +40,7 @@ button.onclick = function(){
     request.send("query=" + query.value + "&constraint=" + constraint.value + "&fprops=" + fprops.value);
 };
 
-
-var runButton = document.getElementById('run');
-
+// run rewritten query
 runButton.onclick = function(){
     if( !rwquery )
 	return 1;

@@ -551,6 +551,14 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Axes
+;; but isn't this a bit inefficient and backwards?
+;; better just use dynamic parameters, I think.
+(define delete? (make-parameter #f))
+
+(define insert? (make-parameter #f))
+
+(define where? (make-parameter #f))
+
 (define *in-where?* (make-parameter #f))
 
 (define (in-where?)
@@ -730,7 +738,13 @@
                 ((fail? q3) (values (list #f) b3))
                 (else (values (filter pair? q3) b3))))))))
 
-(define in-where-block? (make-parameter #f))
+(define (quads-block-rule block bindings)
+  (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
+    (cond ((null? rw) (values '() new-bindings))
+          ((fail? rw) (values (list #f) new-bindings))
+          (else (values `((,(rewrite-block-name (car block)) 
+                           ,@(optimize-duplicates rw)))
+                        new-bindings)))))
 
 (define top-rules
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
@@ -748,18 +762,17 @@
      . ,(lambda (block bindings)
 	  (if (rewrite-select?)
 	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-		(let ((constraints (get-binding/default 'constraints new-bindings '())))
 		  (values `((@Query 
                              ,@(replace-child-body 
                                 'WHERE
                                 (apply-optimizations
 				 (group-graph-statements
 				  (values-to-end
-				 (append constraints (get-child-body 'WHERE rw))) ))
+                                   (get-child-body 'WHERE rw))))
                                 rw)))
 			  new-bindings)))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
-	        `((@Query ,@rw))))))
+	        `((@Query ,@rw)))))
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
@@ -768,13 +781,13 @@
 		 `((@Update
 		    ,@(instantiated-insert-query rw new-bindings)))
 		 new-bindings)
-		(let* ((constraints (get-binding/default 'constraints new-bindings '()))
+		(let* ((delete-constraints (get-binding/default 'delete-constraints new-bindings '()))
                        (new-where
 			(apply-optimizations 
 			 (group-graph-statements
 			  (values-to-end
 			   (append (or (get-child-body 'WHERE rw) '())
-				   constraints)))))
+				   delete-constraints)))))
 		       (delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where))  ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
 				     ;;          (triples-to-quads-rules new-where)))
 		       (rw (replace-child-body 'DELETE delete-block rw)))
@@ -791,18 +804,16 @@
     ((*REWRITTEN*)
      . ,(lambda (block bindings)
           (values (cdr block) bindings)))
-    ((DELETE |DELETE WHERE| |DELETE DATA| INSERT |INSERT WHERE| |INSERT DATA| MINUS OPTIONAL GRAPH)
-     ;;. ,rewrite-quads-block)
+    ((DELETE |DELETE WHERE| |DELETE DATA|)
      . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
-            (cond ((null? rw) (values '() new-bindings))
-                  ((fail? rw) (values (list #f) new-bindings))
-                  (else (values `((,(rewrite-block-name (car block)) 
-                                   ,@(optimize-duplicates rw)))
-                                new-bindings))))))
+          (parameterize ((delete? #t)) (quads-block-rule block bindings))))
+    ((INSERT |INSERT WHERE| |INSERT DATA|)
+     . ,(lambda (block bindings)
+          (parameterize ((insert? #t)) (quads-block-rule block bindings))))
+    ((MINUS OPTIONAL GRAPH) . ,quads-block-rule)
     ((WHERE)
      . ,(lambda (block bindings)
-	  (parameterize ((in-where-block? #t))
+	  (parameterize ((where? #t))
             (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
               (cond ((null? rw) (values '() new-bindings))
                     ((fail? rw) (values (list #f) new-bindings))
@@ -848,95 +859,25 @@
 ;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
-    (let* ((triples (expand-triples (get-child-body 'INSERT rw) '() replace-a))
-           (constraints (get-binding/default 'constraints new-bindings '()))
-           (where-block (join
-                         (apply-optimizations
-			  (group-graph-statements
-			   (values-to-end
-			    (append (or (get-child-body 'WHERE rw) '())
-                                  ;;`((OPTIONAL ,@(get-binding/default 'constraints new-bindings '()))))))) )
-				    constraints)))))))
-      (log-message "~%where: ~A"  (get-child-body 'WHERE rw))
-      (log-message "~%constraints: ~A" constraints)
-      (log-message "~%instantiating: ~A" where-block)
-      (let-values (((instantiated-constraints inst-bindings) (instantiate where-block triples)))
-        (log-message "~%ivALS: ~A~%"  (get-binding 'instantiated-values inst-bindings))
-        (let* ((new-where (values-to-end (delete-duplicates instantiated-constraints)))
-               ;;(instantiated-values (get-binding 'instantiated-values inst-bindings))
-               (instantiated-graphs (get-binding 'instantiated-graphs inst-bindings))
-               (new-delete (let ((del (get-child-body 'DELETE rw))) ; ??
-                             (and del (triples-to-quads del where-block))))
-	       (new-insert ;; (if instantiated-values
-                           ;;     (instantiate-values
-                           ;;      (triples-to-quads triples where-block) ; constraints
-                           ;;      instantiated-values instantiated-graphs)
-			   ;;     ;; (triples-to-quads
-                           ;;     ;;  triples
-                           ;;     ;;  (append instantiated-constraints
-                           ;;     ;;          (map (lambda (mb)
-                           ;;     ;;                 (match mb
-                           ;;     ;;                   (((quad) _ bindings)
-                           ;;     ;;                    (replace-variables quad bindings))))
-                           ;;     ;;               (get-binding/default 'instantiated-quads inst-bindings '())))))))
-                (triples-to-quads triples where-block)))
-
-          (replace-child-body-if 'DELETE new-delete
-                                 (replace-child-body 'INSERT new-insert 
-                                                     (if (null? new-where)
-                                                         (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
-                                                         (replace-child-body 
-                                                          'WHERE
-                                                          `((@SubSelect 
-                                                             (SELECT *)
-                                                             (WHERE ,@new-where)))
-                                                          (reverse rw))))))))))
-
-;;; from below
-
-(define (instantiate-values block substitutions graphs)
-  (let ((substitutions (if (or #t (not graphs)) ; b/c graphs shouldn't be variables...??
-                           substitutions
-                           (fold (lambda (graph substitutions)
-                                   (alist-update-proc graph (lambda (graphs) (cons graph (or graphs '()))) substitutions))
-                                 substitutions
-                                 graphs))))
-    (rewrite block '() (instantiate-values-rules substitutions))))
-
-(define (instantiate-values-rules substitutions)
-  `(((GRAPH) 
-     . ,(lambda (block bindings)
-          (match block
-            ((`GRAPH graph . triples)
-             (let ((new-graphs (alist-ref graph substitutions)))
-               (if new-graphs
-                   (let-values (((rw _) (rewrite triples)))
-                     (values (map (lambda (new-graph)
-                                    `(GRAPH ,new-graph ,@triples))
-                                  new-graphs)
-                             bindings))
-                   (values (list block) bindings)))))))
-    (,triple? 
-     . ,(lambda (triple bindings)
-          (values
-           (let loop ((triple triple) (k list))
-             (if (null? triple) (k '())
-                 (let ((subs (alist-ref (car triple) substitutions)))
-                   (if subs
-                       (loop (cdr triple)
-                             (lambda (rest)
-                               (join
-                                (map
-                                 (lambda (s) (k (cons s rest)))
-                                 subs))))
-                       (loop (cdr triple)
-                             (lambda (rest)
-                               (k (cons (car triple) rest))))))))
-           bindings)))
-
-    (,list? . ,rw/list)))
- 
-;;;;;
+    (let* ((opt (compose apply-optimizations group-graph-statements values-to-end))
+           (delete (expand-triples (or (get-child-body 'DELETE rw) '()) '() replace-a))
+           (insert (expand-triples (or (get-child-body 'INSERT rw) '()) '() replace-a))
+           (where (or (get-child-body 'WHERE rw) '()))
+           (insert-constraints (opt (get-binding/default 'insert-constraints new-bindings '())))
+           (delete-constraints (opt (get-binding/default 'delete-constraints new-bindings '())))
+           (instantiated-constraints (instantiate insert-constraints insert))
+           (new-delete (triples-to-quads delete (append delete-constraints where)))
+           (new-insert (triples-to-quads insert (append insert-constraints where)))
+           (new-where (join (opt (append instantiated-constraints delete-constraints where)))))
+      (replace-child-body-if 
+       'DELETE (and (not (null? new-delete)) new-delete)
+       (replace-child-body-if
+        'INSERT (and (not (null? new-insert)) new-insert)
+        (if (null? new-where)
+            (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
+            (replace-child-body 
+             'WHERE `((@SubSelect (SELECT *) (WHERE ,@new-where)))
+             (reverse rw))))))))
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -966,16 +907,16 @@
 (define triples-rules
   `((,triple? 
      . ,(lambda (triple bindings)
-          (parameterize ((*in-where?* (in-where?)))
+          ;; (parameterize ((*in-where?* (in-where?)))
             (let ((graphs (get-triple-graphs triple bindings)))
-              (if (null? graphs) ; this seems wrong, once we have different read/write constraints
-                  (if (*in-where?*) 
+              (if (or #t (null? graphs)) ; this seems wrong, once we have different read/write constraints
+                  (if (where?) 
                       (apply-read-constraint triple bindings)
                       (apply-write-constraint triple bindings))
 		  (values
-		   (if (*in-where?*) '() 
+		   (if (where?) '() 
                        `((*REWRITTEN* ,@(list triple))))
-		   bindings))))))
+		   bindings)))))
     (,list? . ,rw/copy)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1055,13 +996,15 @@
                                          (car constraints)
                                          `((UNION ,@constraints)))))
                    (let ((graphs (find-triple-graphs (list a b c) constraints)))
-                     (if (*in-where?*)
+                     (if (where?)
                          (values `((*REWRITTEN* ,@constraints)) 
                                  (update-triple-graphs graphs (list a b c) 
                                                        new-bindings))
                          (values
                           `((*REWRITTEN* (,a ,b ,c)))
-                          (fold-binding constraints 'constraints append-unique '() 
+                          (fold-binding constraints 
+                                        (if (insert?) 'insert-constraints 'delete-constraints)
+                                        append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
                                                               new-bindings))))))))))
        ((@Dataset) . ,rw/copy)
@@ -1136,7 +1079,7 @@
     (let ((graph (get-context-graph)))
       (let-values (((renamed-quad new-bindings) (new-substitutions (cons graph triple) bindings)))
         (values             
-         (if (and (use-temp?) (update?) (in-where-block?))
+         (if (and (use-temp?) (update?) (where?))
              `((UNION (,(cdr renamed-quad)) ((GRAPH ,(*temp-graph*) ,(cdr renamed-quad)))))
              (list (cdr renamed-quad)))
          new-bindings)))))
@@ -1516,12 +1459,14 @@
 ;; for INSERT and INSERT DATA
 ;; To do: expand namespaces before checking
 (define (instantiate where-block triples)
-  (let ((where-block (expand-graphs where-block)))
-    (let-values (((rw new-bindings)
-                  (rewrite (list where-block) '() (get-instantiation-matches-rules triples))))
-      (if (fail? rw)
-          (error "Invalid query")
-          (rewrite rw new-bindings instantiation-union-rules) ))))
+  (if (null? where-block) where-block
+      (let ((where-block (expand-graphs where-block)))
+        (let-values (((rw new-bindings)
+                      (rewrite (list where-block) '() (get-instantiation-matches-rules triples))))
+          (if (fail? rw)
+              (error "Invalid query")
+              (let-values (((rw2 _) (rewrite rw new-bindings instantiation-union-rules) ))
+                rw2))))))
 
 ;; matches a triple against a list of triples, and if successful returns a binding list
 ;; ex: (match-triple '(?s a dct:Agent) '((<a> <b> <c>) (<a> a dct:Agent)) => '((?s . <a>))
