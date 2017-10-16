@@ -115,21 +115,19 @@
 
 (define (rw/list block bindings)
   (let-values (((rw new-bindings) (rewrite block bindings)))
-    (cond ((null? rw) (values rw new-bindings))
+    (cond ((nulll? rw) (values '() new-bindings))
           ((fail? rw) (values (list #f) new-bindings))
           (else (values (list (filter pair? rw)) new-bindings)))))
 
 (define (rw/quads block bindings)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-    (cond ((null? rw) (values '() new-bindings))
+    (cond ((nulll? rw) (values '() new-bindings))
           ((fail? rw) (values (list #f) new-bindings))
 	  (else (values `((,(car block) ,@(filter pair? rw))) new-bindings)))))
 
 ;; this is still a little incorrect (?) wrt failure and empty ()
 (define (rw/union block bindings)
-  (log-message "block: ~A~%" block)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-  (log-message "rw: ~A~%" rw)
     (let ((new-blocks (filter values rw))) ; (compose not fail?)  ?
       (case (length new-blocks)
 	((0)  (values (list #f) new-bindings))
@@ -165,7 +163,7 @@
 
 ;; To do: rewrite as cps loop
 (define (insert-child-before head statement statements)
-  (cond ((null? statements) '())
+  (cond ((nulll? statements) '())
         ((equal? (caar statements) head)
          (cons statement statements))
         (else (cons (car statements)
@@ -173,7 +171,7 @@
 
 ;; To do: rewrite as cps loop
 (define (insert-child-after head statement statements)
-  (cond ((null? statements) '())
+  (cond ((nulll? statements) '())
         ((equal? (caar statements) head)
          (cons (car statements)
 	       (cons statement (cdr statements))))
@@ -329,6 +327,48 @@
 (define append-unique (compose delete-duplicates append))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Annotations
+;; bug: annotation in top-level WHERE { @access x . .... }
+;; breaks optimizations
+(define (annotation? exp)
+  (and (pair? exp)
+       (equal? (car exp) '@Annotation)))
+
+(define (nulll? block)
+  (null? (remove annotation? block)))
+
+(define (get-annotations query)
+  (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
+
+;; subselects/projection?
+(define get-annotations-rules
+  `(((@QueryUnit @UpdateUnit @Query @Update WHERE OPTIONAL)
+     . ,(lambda (block bindings)
+          (rewrite (cdr block) bindings)))
+    (,annotation? 
+     . ,(lambda (block bindings)
+          (values
+           (match block
+             ((`@Annotation `access key) (list key))
+             ((`@Annotation `access key var) (list (list key var)))
+             (else '(NOMATCH)))
+           bindings)))
+
+    (,select? . ,rw/remove)
+    ((@SubSelect)
+     . ,(lambda (block bindings)
+          (match block
+            ((@SubSelect (label . vars) . rest)
+             (rewrite rest bindings)))))
+    ((GRAPH)
+     . ,(lambda (block bindings)
+          (rewrite (cddr block) bindings)))
+    (,triple? . ,rw/remove)
+    ((@Prologue @Dataset @Using CONSTRUCT SELECT VALUES FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
+     . ,rw/remove)
+    (,list? . ,rw/list)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Expanding triples and quads
 ;; refactor this a bit, to use #!key for mapp and bindingsp
 ;; and mostly to NOT use a flatten-graphs? parameter, but separate functions & arg passing
@@ -375,6 +415,7 @@
       DELETE INSERT |DELETE WHERE| |INSERT DATA|) . ,rw/quads)
     ((@Prologue @Dataset @Using) . ,rw/copy)
     (,symbol? . ,rw/copy)
+    (,annotation? . ,rw/copy)
     ((MINUS OPTIONAL) . ,rw/quads)
     ((UNION) . ,rw/union)
     (,select? . ,rw/copy)
@@ -397,6 +438,7 @@
 (define expand-graphs-rules
   `(((@SubSelect) . ,rw/subselect)
     (,select? . ,rw/copy)
+    (,annotation? . ,rw/copy)
     ((OPTIONAL WHERE) . ,rw/quads)
     ((UNION) . ,rw/union)
     ((GRAPH) 
@@ -427,94 +469,7 @@
 
 (define extract-graphs-rules
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
-    ((@Query @Update) 
-     . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-            (let ((graphs (delete-duplicates
-                           (filter sparql-variable?
-                                   (get-binding/default 'all-graphs new-bindings '())))))
-            (values `((@Query
-                       ,@(insert-child-before 'WHERE `(|SELECT DISTINCT| ,@graphs) rw)))
-                    new-bindings)))))
-    ((WHERE)
-     . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rw/quads block bindings)))
-            (values rw new-bindings))))
-    ((INSERT DELETE)
-     . ,(lambda (block bindings)
-          (let-values (((_ new-bindings) (rw/quads block bindings)))
-            (values '() new-bindings))))
-    ((@Prologue) . ,rw/copy)
-    ((@Dataset @Using) 
-     . ,(lambda (block bindings)
-          (let ((graphs (map second (cdr block))))
-            (values (list block) (fold-binding graphs 'all-graphs append '() bindings)))))
-    (,select? . ,rw/remove)
-    ((@SubSelect)
-     . ,(lambda (block bindings)
-          (match block
-            ((@SubSelect (label . vars) . rest)
-	     (let* ((dataset (get-child-body '@Dataset rest))
-		    (graphs (and dataset (map second dataset))))
-               (let-values (((rw new-bindings) (rewrite (get-child-body 'WHERE rest) bindings)))
-		 (values
-		  `((@SubSelect (,label ,@vars) ,@(replace-child-body 'WHERE rw rest)))
-		  (if graphs
-		      (fold-binding graphs 'all-graphs append '() new-bindings)
-		      new-bindings))))))))
-    ;; ((CONSTRUCT SELECT INSERT DELETE |INSERT DATA|) . ,rw/remove)
-    ((CONSTRUCT SELECT) . ,rw/remove)
-    ((GRAPH) . ,(lambda (block bindings)
-                  (match block
-                    ((`GRAPH graph . quads)
-                     (let-values (((rw new-bindings) 
-                                   (rewrite quads (cons-binding graph 'all-graphs bindings))))
-                       (values `((GRAPH ,graph ,@rw)) new-bindings))))))
-
-    ((UNION) 
-     . ,(rw/lambda (block)
-          (with-rewrite ((rw (rewrite (cdr block))))
-	    `((UNION ,@rw)))))
-    ((VALUES) ;; order-dependent
-     . ,(lambda (block bindings)
-          (let ((graphs (get-binding/default 'all-graphs bindings '())))
-            (match block
-              ((`VALUES vars . vals)
-               (if (pair? vars)
-                   (values (list block) bindings)
-                   (if (member vars graphs)
-                       (values (list block)
-                               (update-binding 'all-graphs 
-                                               (append vals (delete vars graphs))
-                                               bindings))
-                       (values (list block) bindings))))))))
-    (,quads-block? . ,rw/quads)
-    (,triple? . ,rw/copy)
-    ((VALUES FILTER BIND) . ,rw/copy)
-    ((|GROUP BY| OFFSET LIMIT) . ,rw/copy)
-    (,list? . ,rw/list)))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Annotations
-(define (annotation? exp)
-  (and (pair? exp)
-       (equal? (car exp) '@Annotation)))
-
-(define (nulll? block)
-  (null? (remove annotation? block)))
-
-(define (get-annotations  query)
-  (let ((query (if (procedure? query) (query) query)))
-    (let-values (((rewritten-query bindings) (rewrite-query query extract-graphs-rules)))
-      (let ((query-string (write-sparql rewritten-query)))
-        (let-values (((vars iris) (partition sparql-variable? (get-binding/default 'all-graphs bindings '()))))
-          (if (null? vars) iris
-              (delete-duplicates
-               (append iris
-                       (map cdr (join (sparql-select query-string from-graph: #f)))))))))))
-
-(define get-annotations-rules
-  `(((@QueryUnit @UpdateUnit) . ,rw/quads)
+    (,annotation? . ,rw/copy)
     ((@Query @Update) 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
@@ -593,7 +548,7 @@
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cddr block))))
             (values
-             (if (null? rw) '()
+             (if (nulll? rw) '()
                  (append (list (second block))
                          (filter symbol? rw)))
              bindings))))
@@ -611,6 +566,7 @@
                (list #t))
            bindings)))
     ((FILTER VALUES BIND) . ,rw/remove)
+    (,annotation? . ,rw/copy)
     (,list?
      . ,(lambda (block bindings)
           (rewrite block)))))
@@ -745,6 +701,7 @@
 (define temp-rules
   `(((@QueryUnit @Query) . ,rw/continue)
     ((@Prologue @Dataset) . ,rw/copy)
+    (,annotation? . ,rw/copy)
     ((CONSTRUCT) 
      . ,(lambda (block bindings)
           (values (list block) (update-binding 'triple (second block) bindings))))
@@ -811,7 +768,6 @@
      (level-quads))))
 
 (define (rewrite-quads-block block bindings)
-  (log-message "~%doing block:~%~A~%~%" block)
   (parameterize ((flatten-graphs? (not (preserve-graphs?))))
     ;; expand triples
     (let-values (((q1 b1) (expand-triples block bindings replace-a)))
@@ -821,13 +777,13 @@
         (let-values (((q3 b3)
                       (parameterize ((level-quads (new-level-quads q2)))
                         (rewrite q2 b2))))
-          (cond ((null? q3) (values q3 b3))
+          (cond ((nulll? q3) (values '() b3))
                 ((fail? q3) (values (list #f) b3))
                 (else (values (filter pair? q3) b3))))))))
 
 (define (quads-block-rule block bindings)
   (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
-    (cond ((null? rw) (values '() new-bindings))
+    (cond ((nulll? rw) (values '() new-bindings))
           ((fail? rw) (values (list #f) new-bindings))
           (else (values `((,(rewrite-block-name (car block)) 
                            ,@(optimize-duplicates rw)))
@@ -857,9 +813,9 @@
 				  (values-to-end
                                    (get-child-body 'WHERE rw))))
                                 rw)))
-			  new-bindings)))
+			  new-bindings))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
-	        `((@Query ,@rw)))))
+	        `((@Query ,@rw))))))
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
@@ -878,7 +834,7 @@
 		       (delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where))  ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
 				     ;;          (triples-to-quads-rules new-where)))
 		       (rw (replace-child-body 'DELETE delete-block rw)))
-		  (if (null? new-where)
+		  (if (nulll? new-where)
 		      (values `((@Update ,@(reverse rw))) new-bindings)
 		      (values `((@Update ,@(replace-child-body 
 					    'WHERE 
@@ -902,7 +858,7 @@
      . ,(lambda (block bindings)
 	  (parameterize ((where? #t))
             (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
-              (cond ((null? rw) (values '() new-bindings))
+              (cond ((nulll? rw) (values '() new-bindings))
                     ((fail? rw) (values (list #f) new-bindings))
                     (else (values `((,(rewrite-block-name (car block)) 
                                      ,@(optimize-duplicates rw)))
@@ -913,10 +869,11 @@
     ;; (,quads-block? . ,rewrite-quads-block)
     ((UNION) . ,rw/union)
     ((FILTER BIND |ORDER| |ORDER BY| |LIMIT| |GROUP BY| OFFSET LIMIT) . ,rw/copy)
+    (,annotation? . ,rw/copy)
     (,list? 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite-quads-block block bindings)))
-            (cond ((null? rw) (values rw new-bindings))
+            (cond ((nulll? rw) (values '() new-bindings))
                   ((fail? rw) (values (list #f) new-bindings))
                   (else (values (list (filter pair? rw)) new-bindings))))))
 
@@ -982,6 +939,7 @@
     . ,(rw/lambda (block) 
          (cddr block)))
    ((@Prologue @SubSelect WHERE FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+    (,annotation? . ,rw/copy)
    ((@Dataset) 
     . ,(lambda (block bindings)
          (let ((graphs (get-all-graphs (*read-constraint*))))
@@ -1004,6 +962,7 @@
 		   (if (where?) '() 
                        `((*REWRITTEN* ,@(list triple))))
 		   bindings)))))
+    (,annotation? . ,rw/copy)
     (,list? . ,rw/copy)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1068,6 +1027,7 @@
        ((@QueryUnit) 
         . ,(lambda (block bindings)
              (rewrite (cdr block) bindings)))
+       (,annotation? . ,rw/copy)
        ((@Query)
         . ,(lambda (block bindings)
        	     (parameterize ((constraint-where (list (get-child 'WHERE (cdr block)))))
@@ -1198,6 +1158,13 @@
 (define rename-constraint-rules
   `((,symbol? . ,rw/copy)
     ((CONSTRUCT) . ,rw/remove)
+    (,annotation? 
+     . ,(lambda (block bindings)
+          (match block
+            ((`@Annotation label key) (values (list block) bindings))
+            ((`@Annotation label key var)
+             (let-values (((rw new-bindings) (new-substitutions (list var) bindings)))
+               (values `((@Annotation ,label ,key ,@rw)) new-bindings))))))
     ((@SubSelect)
      . ,(lambda (block bindings) 
           (match block
@@ -1206,7 +1173,7 @@
              (let-values (((rw new-bindings)
 			   (rewrite (get-child-body 'WHERE rest) (project-substitution-bindings subselect-vars bindings))))
                (let ((merged-bindings (merge-substitution-bindings subselect-vars bindings new-bindings)))
-               (if (null? rw)
+               (if (nulll? rw)
                    (values '() merged-bindings)
                    (values `((@SubSelect 
 			      (,label ,@(substituted-subselect-vars vars merged-bindings))
@@ -1221,9 +1188,10 @@
 				    'dependencies (constraint-dependencies block bindings) 
 				    bindings))))
 	      (let ((new-bindings (update-renamings new-bindings)))
-	      (if (null? (filter not rw)) ; abstract (already as fail? ?)
-		  (values `((WHERE ,@rw)) new-bindings)
-		  (values `((WHERE #f)) new-bindings)))))))
+	      (if (fail? rw)
+		  (values `((WHERE #f)) new-bindings)
+                  (values `((WHERE ,@rw)) new-bindings)))))))
+
     ((UNION) . ,rw/union)
     ((GRAPH) 
      . ,(lambda (block bindings)
@@ -1231,7 +1199,7 @@
             ((`GRAPH graph . rest)
              (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
 	       (values
-		(if (null? (cdr rw)) '()
+		(if (nulll? (cdr rw)) '()
                     `((GRAPH ,(substitution-or-value graph new-bindings)
                              ,@(cdr rw))))
                 new-bindings))))))
@@ -1343,6 +1311,7 @@
                      dependencies
 		     vars)
                bindings))))))
+    (,annotation? . ,rw/copy)
      ((GRAPH) . ,(lambda (block bindings)
                    (match block
                      ((`GRAPH graph . rest)
@@ -1413,7 +1382,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
-  (if (null? block) '()
+  (if (nulll? block) '()
       (let-values (((rw new-bindings) (rewrite (list block) '() optimization-rules)))
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
@@ -1470,6 +1439,7 @@
 
 (define (optimize-list block bindings)
   (parameterize ((fprops (collect-fprops block)))
+
     (if (fprops)
         (let-values (((rw new-bindings) (rw/list (filter quads? block) bindings)))
           (cond ((fail? rw) (values (list #f) new-bindings)) ; duplicate #f check... which one is correct?
@@ -1477,7 +1447,7 @@
                              (list (filter quads? block)))
                      (equal? rw '(#f)))
                  (values rw new-bindings))
-                (else (let ((fp (fprops)))
+                (else (let ((fp (fprops))) ; ?
                         (parameterize ((fprops (collect-fprops rw)))
                           (let-values (((rw2 nb2) (rewrite rw new-bindings)))
                             (values (append-subs rw2) nb2)))))))
@@ -1487,6 +1457,13 @@
   `(((@UpdateUnit @QueryUnit @Update @Query) . ,rw/continue)
     ((@Prologue @Dataset GROUP |GROUP BY| LIMIT ORDER |ORDER BY| OFFSET) . ,rw/copy)
     (,select? . ,rw/copy)
+    (,annotation? 
+     . ,(lambda (block bindings)
+          (match block
+            ((`@Annotation `access key var) 
+             (values `((@Annotation access ,key ,(replace-fprop var))) bindings))
+            (else (values (list block) bindings)))))
+
     ((@SubSelect)     ; when can we make a direct call to the db?
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rw/subselect block bindings)))
@@ -1546,7 +1523,7 @@
 ;; for INSERT and INSERT DATA
 ;; To do: expand namespaces before checking
 (define (instantiate where-block triples)
-  (if (null? where-block) where-block
+  (if (nulll? where-block) where-block
       (let ((where-block (expand-graphs where-block)))
         (let-values (((rw new-bindings)
                       (rewrite (list where-block) '() (get-instantiation-matches-rules triples))))
@@ -1559,7 +1536,7 @@
 ;; ex: (match-triple '(?s a dct:Agent) '((<a> <b> <c>) (<a> a dct:Agent)) => '((?s . <a>))
 ;; but should differentiate between empty success '() and failure #f
 (define (match-triple triple triples #!optional success?)
-  (if (null? triples) 
+  (if (nulll? triples) 
       (and success? '())
       (let loop ((triple1 triple) (triple2 (car triples)) (match-binding '()))
         (cond ((null? triple1) 
@@ -1596,6 +1573,7 @@
 ;; To do: abstract out matching for more complex quads patterns
 (define (get-instantiation-matches-rules triples)
   `(((@SubSelect) . ,rw/subselect)
+    (,annotation? . ,rw/copy)
     ((GRAPH) 
      . ,(lambda (block bindings)
           (match block
@@ -1645,7 +1623,7 @@
 	     (values (list block) bindings)))))
     ((VALUES FILTER BIND) . ,rw/copy) ;; ???
     (,symbol? . ,rw/copy)
-    (,null? . ,rw/remove)
+    (,nulll? . ,rw/remove)
     (,list? 
      . ,(lambda (block bindings)
 	  (let-values (((rw new-bindings) (rw/list block bindings)))
@@ -1657,7 +1635,7 @@
             ;; - graphs kept separately, and instantiated only if the corresponding VALUES is used
             ;; and what about the filters?
             ;; and can/should this be abstracted & used elsewhere?
-            (cond ((null? rw)
+            (cond ((nulll? rw)
                    (values '() new-bindings))
                   ((fail? rw) (values (list #f) new-bindings))
                   (else
@@ -1717,6 +1695,7 @@
                               ,@(replace-child-body 'WHERE rw rest)))
                 (merge-subselect-bindings vars new-bindings bindings)))))))
     ((WHERE OPTIONAL MINUS) . ,rw/quads)
+    (,annotation? . ,rw/copy)
     ((UNION)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
@@ -1734,7 +1713,7 @@
                    (values (list block) bindings)
 		   (union-over-instantiation block matching-quads bindings)))))))
     (,symbol? . ,rw/copy)
-    (,null? . ,rw/remove)
+    (,nulll? . ,rw/remove)
     ((VALUES). ,rw/copy) ;; ??
     ((*graph*) . ,rw/remove)    ;; can we remove this?
     ((FILTER) ;; ??
@@ -1771,7 +1750,7 @@
 
 (define (group-graph-statements statements)
   (let loop ((statements statements) (graph #f) (statements-same-graph '()))
-    (cond ((null? statements) 
+    (cond ((nulll? statements) 
            (if graph `((GRAPH ,graph ,@statements-same-graph)) '()))
           (graph
            (match (car statements)
@@ -2171,7 +2150,20 @@
 		    (append-unique
 		     (all-prologues (cdr read-constraint))
 		     (all-prologues (cdr write-constraint)))))
-      `((rewrittenQuery . ,(format (write-sparql (rewrite-query query top-rules))))))))
+      (let* ((rewritten-query (rewrite-query query top-rules))
+             (annotations (get-annotations rewritten-query)))
+        (log-message "~%annotations: ~A~%" annotations)
+        `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
+          (annotations . ,(format-annotations annotations)))))))
+
+(define (format-annotations annotations)
+  (list->vector
+   (map (lambda (annotation)
+          (match annotation
+            ((key var) `((key . ,(symbol->string key))
+                         (var . ,(symbol->string var))))
+            (key `((key . ,(symbol->string key))))))
+        annotations)))
 
 (define-rest-call 'POST '("sandbox") sandbox-call)
 

@@ -139,8 +139,13 @@
    how to calculate dependencies? with other singletons...
    
 ** cache keys
-*** implementation: select vars
-*** implementation: with tags
+*** TODO bug: top-level annotation breaks optimizations
+    where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
+    
+*** finish integrating
+    [ ] group-graphs
+    [ ] expand-graphs
+    [ ] find-triples-graphs (funny insert with top-level annotation)
 ** little things
 *** TODO Fix $query and make it like (headers)
 ** sandbox

@@ -6,7 +6,7 @@ var fprops = document.getElementById('fprops');
 var result = document.getElementById('result');
 var results = document.getElementById('results');
 var rwquery = false;
-
+var annotations = document.getElementById('annotations');
 function encode(e) {
   return e.replace(/[\<\>\"\^]/g, function(e) {
 	return "&#" + e.charCodeAt(0) + ";";
@@ -23,8 +23,21 @@ button.onclick = function(){
 		console.log('200');
 		var jr = JSON.parse(e.target.responseText);
 		result.className = 'filled';
-		// result.value = jr.rewrittenQuery.trim();
                 rwquery =  jr.rewrittenQuery.trim();
+
+                annotations.innerHTML = '';
+                var a, an;
+                for( var i = 0; i < jr.annotations.length; i++){
+                    console.log(jr.annotations[i]);
+                    a = jr.annotations[i];
+                    an = document.createElement("li");
+                    t = a["key"];
+                    if( "var" in a ){
+                        t += "(" + a["var"] + ")";
+                    }
+                    an.appendChild(document.createTextNode(t));
+                    annotations.appendChild(an);
+                }
                 result.innerHTML = encode(rwquery);
 		runButton.disabled = false;
 	    } else {

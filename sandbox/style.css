@@ -30,22 +30,24 @@ h2 small {
     padding: 12px;
     color: gray;
 }
-.panel pre  {
-    width: 98%; 
-    height: 576px;
-    padding: 12px;
+.panel-box {
+    width: 100%;
+    height: 600px;
+    background: beige;
+    border: 1px dotted gray;
     color: gray;
+    overflow: auto;
 }
-.panel #result, .panel textarea#results {
+.panel pre  {
+    padding: 12px;
+    margin: 0;
+}
+.panel textarea#results {
     height: 600px;
     margin: 0;
     padding: 12px;
     border: none;
     background: white;
-}
-.panel #result.filled {
-    border: 1px dotted gray;
-    background: beige;
 }
 .panel #result.error {
     background: pink 
@@ -56,4 +58,15 @@ h2 small {
 }
 input {
     padding: 4px;
+}
+.annotations ul {
+    padding: 0 12px;
+}
+.annotations h3 {
+    padding: 6px 0 0 0;
+    margin: 24px 12px 0 12px;
+    border-top: 1px solid gray;
+}
+.annotations ul li {
+    list-style: none;
 }
