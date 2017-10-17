@@ -35,7 +35,7 @@
 ** DONE get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
-** TODO do (instantiate ..) with or without UNION
+** TODO implement a version of (instantiate ..) without UNION
     ie for DELETE queries (exact triple not needed), and also for a delta-subscription
     service like Esteban wanted
 
@@ -136,14 +136,11 @@
     BIND(COUNT(<property>) AS ?count)
    #+END_SRC
    
-** TODO singleton VALUES statements 
-   how to calculate dependencies? with other singletons...
-   
 * cache keys
-** TODO bug: top-level annotation breaks optimizations
+** DONE bug: top-level annotation breaks optimizations
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
     
-** finish integrating
+** DONE finish integrating
     - [X] group-graphs
     - [X] expand-graphs
     - [X] find-triples-graphs (funny insert with top-level annotation)

@@ -383,10 +383,11 @@
                (rewrite-query 
                 query 
                 (query-annotations-rules (map second pairs)))))
-         (join (map (lambda (row)
-                 (map (lambda (key var) (list (first key) (cdr var)))
-                      pairs row))
-               (sparql-select (write-sparql annotations-query))))))))
+          (append singles
+                  (join (map (lambda (row)
+                               (map (lambda (key var) (list (first key) (cdr var)))
+                                    pairs row))
+                             (sparql-select (write-sparql annotations-query)))))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 
@@ -2227,9 +2228,12 @@
 
 (define (format-queried-annotations queried-annotations)
   (list->vector
-   (map (match-lambda ((key val)
-                       `((key . ,(symbol->string key))
-                         (var . ,(write-uri val)))))
+   (map (lambda (annotation)
+          (match annotation
+            ((key val)
+             `((key . ,(symbol->string key))
+               (var . ,(write-uri val))))
+            (key `((key . ,(symbol->string key))))))
         queried-annotations)))
 
 (define (format-annotations annotations)
