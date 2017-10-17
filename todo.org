@@ -23,14 +23,17 @@
    #+BEGIN_SRC
     DELETE {
       ?s ?p ?o . 
-      ?dataset <D> ?s 
+      ?s <D> ?dataset 
     }
     WHERE { 
       ?s ?p ?o.
       OPTIONAL { ?s <D> ?dataset . }
     }
    #+END_SRC
-   the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...
+   the constraint on ?s <D> ?dataset will be outside of the OPTIONAL statement.
+
+   this is related to separated read/write constraints. otherwise we can just use
+   get-triple-graphs.
 ** DONE Too many nested lists levels
 * instantiation
 ** TODO careful with complicated statements wrt expand-graphs
