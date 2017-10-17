@@ -9,6 +9,9 @@
 ** TODO functional property optimization should introspect into GRAPHs
     as in:
     (apply-optimizations '((GRAPH <G> (?s a <Car>)) (GRAPH <H> (?s a ?Car))))
+    
+    though this begs the question of whether functional properties apply to triples
+    or quads
 
 ** TODO simplifying over UNIONs
     generalize optimize-duplicates, group-graph-statements et al.
@@ -150,4 +153,4 @@
 ** TODO implement separate read/write constraints
 * temp graphs
 ** TODO handle FILTER NOT EXISTS
-    
+* performance
