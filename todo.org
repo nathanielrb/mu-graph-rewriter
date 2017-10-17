@@ -1,21 +1,20 @@
-* To Do
-*
 * refactoring
-*** minor refactoring
-**** TODO use of axes/parameters
-**** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
-**** TODO abstract UNION-if->1 elements
-** basic logic
-*** DONE rethink logic of functional property optimization in OPTIONAL
-*** TODO optimizations should introspect into GRAPHs
+** TODO harmonize clean/opt/optimize-duplicates
+** minor refactoring
+*** TODO use of axes/parameters
+*** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
+*** TODO abstract UNION-if->1 elements
+* basic logic
+** DONE rethink logic of functional property optimization in OPTIONAL
+** TODO functional property optimization should introspect into GRAPHs
     as in:
     (apply-optimizations '((GRAPH <G> (?s a <Car>)) (GRAPH <H> (?s a ?Car))))
 
-*** TODO simplifying over UNIONs
+** TODO simplifying over UNIONs
     generalize optimize-duplicates, group-graph-statements et al.
-
-*** TODO does rw/union distinguish between false and empty true?
-*** TODO OPTIONALS and constraints that *should* be inside them
+    
+** TODO does rw/union distinguish between false and empty true?
+** TODO OPTIONALS and constraints that *should* be inside them
    what about something like this:
    
    #+BEGIN_SRC
@@ -29,22 +28,22 @@
     }
    #+END_SRC
    the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...
-*** DONE Too many nested lists levels
-** instantiation
-*** TODO careful with complicated statements wrt expand-graphs
+** DONE Too many nested lists levels
+* instantiation
+** TODO careful with complicated statements wrt expand-graphs
     mixing graphs, OPTIONAL, annotations...
-*** DONE get instantiation logic correct
+** DONE get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
-*** TODO do (instantiate ..) with or without UNION
+** TODO do (instantiate ..) with or without UNION
     ie for DELETE queries (exact triple not needed), and also for a delta-subscription
     service like Esteban wanted
 
-*** DONE is instantiation correct for DELETE+INSERT queries?
+** DONE is instantiation correct for DELETE+INSERT queries?
     for the DELETE part, probably should *not* instantiate...
     maybe divide into 2 queries?
 
-*** DONE [#A] edge cases
+** DONE [#A] edge cases
     what *should* happen in these cases?
 
     the most troubling:
@@ -83,11 +82,11 @@
     where { ?s a school:Class }
     #+END_SRC
 
-** dependencies
-*** TODO FILTER dependencies
+* dependencies
+** TODO FILTER dependencies
    what should the dependencies of FILTER( ?b != mu:uuid ) be??
  
-*** TODO singleton VALUES statements for ?graph 
+** TODO singleton VALUES statements for ?graph 
    
    #+BEGIN_SRC
     CONSTRUCT { ?s ?p ?o }
@@ -116,7 +115,7 @@
    Can ?a ?b ?c and ?d ?e ?f come from different graphs, i.e., ?graph depends on ?s, ?p and ?o?
    The current assumptions mean that they must be in the same graph for the query to succeed.
    
-*** TODO BIND in constraint query
+** TODO BIND in constraint query
    
    #+BEGIN_SRC
     ?s ?p ?o
@@ -137,21 +136,21 @@
     BIND(COUNT(<property>) AS ?count)
    #+END_SRC
    
-*** TODO singleton VALUES statements 
+** TODO singleton VALUES statements 
    how to calculate dependencies? with other singletons...
    
-** cache keys
-*** TODO bug: top-level annotation breaks optimizations
+* cache keys
+** TODO bug: top-level annotation breaks optimizations
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
     
-*** finish integrating
+** finish integrating
     - [X] group-graphs
     - [X] expand-graphs
     - [X] find-triples-graphs (funny insert with top-level annotation)
-** little things
-*** TODO Fix $query and make it like (headers)
-** sandbox
-*** TODO implement separate read/write constraints
-** temp graphs
-*** TODO handle FILTER NOT EXISTS
+* little things
+** TODO Fix $query and make it like (headers)
+* sandbox
+** TODO implement separate read/write constraints
+* temp graphs
+** TODO handle FILTER NOT EXISTS
     
