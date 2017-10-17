@@ -434,6 +434,9 @@
     ((VALUES FILTER BIND |GROUP BY| OFFSET LIMIT) . ,rw/copy)
     (,list? . ,rw/list)))
 
+;; be careful with optionals etc:
+;; (expand-graphs '((GRAPH <G>  (OPTIONAL (?s ?p ?o)) (?s a <Truck>)))))
+;;             => '((OPTIONAL (GRAPH <G> (?s ?p ?o))) (GRAPH <G> (?s a <Truck>)))
 (define (expand-graphs statements #!optional (bindings '()))
   (rewrite statements bindings expand-graphs-rules))
 
@@ -442,7 +445,6 @@
 (define expand-graphs-rules
   `(((@SubSelect) . ,rw/subselect)
     (,select? . ,rw/copy)
-    (,annotation? . ,rw/copy)
     ((OPTIONAL WHERE) . ,rw/quads)
     ((UNION) . ,rw/union)
     ((GRAPH) 
@@ -454,6 +456,10 @@
     (,triple? 
      . ,(lambda (triple bindings)
           (values `((GRAPH ,(eg-graph) ,triple))
+                  bindings)))
+    (,annotation? 
+     . ,(lambda (annotation bindings)
+          (values `((GRAPH ,(eg-graph) ,annotation))
                   bindings)))
     ((VALUES FILTER BIND MINUS |GROUP BY| OFFSET LIMIT) . ,rw/copy)
     (,list? . ,rw/list)
