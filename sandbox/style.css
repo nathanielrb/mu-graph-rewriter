@@ -59,14 +59,17 @@ h2 small {
 input {
     padding: 4px;
 }
-.annotations ul {
+#annotations-box {
+    display: none;
+}
+#annotations-box ul {
     padding: 0 12px;
 }
-.annotations h3 {
+#annotations-box h3 {
     padding: 6px 0 0 0;
     margin: 24px 12px 0 12px;
     border-top: 1px solid gray;
 }
-.annotations ul li {
+#annotations-box ul li {
     list-style: none;
 }

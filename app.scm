@@ -375,6 +375,40 @@
                   bindings)))
     (,list? . ,rw/list)))
 
+(define (query-annotations annotations query)
+  (let-values (((pairs singles) (partition pair? annotations)))
+    (if (null? pairs)
+        singles
+        (let ((annotations-query
+               (rewrite-query 
+                query 
+                (query-annotations-rules (map second pairs)))))
+         (join (map (lambda (row)
+                 (map (lambda (key var) (list (first key) (cdr var)))
+                      pairs row))
+               (sparql-select (write-sparql annotations-query))))))))
+
+(define (query-annotations-rules vars)
+  `(((@UpdateUnit @QueryUnit) 
+     . ,(lambda (block bindings)
+          (let-values (((rw _) (rewrite (cdr block) bindings)))
+            (values `((@QueryUnit ,@rw)) bindings))))
+    ((@Update @Query) 
+     . ,(lambda (block bindings)
+          (let-values (((rw _) (rewrite (cdr block) bindings)))
+            (values `((@Query
+                       ,@(insert-child-before 'WHERE
+                                              `(SELECT DISTINCT ,@vars)
+                                              rw)))
+                    bindings))))
+    ((@Using) 
+     . ,(lambda (block bindings)
+          (let-values (((rw _) (rewrite (cdr block) bindings)))
+            (values `((@Dataset ,@rw)) bindings))))
+    ((@Dataset @Prologue WHERE) . ,rw/copy)
+    ((INSERT DELETE) . ,rw/remove)
+    (,select? . ,rw/remove)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Expanding triples and quads
 ;; refactor this a bit, to use #!key for mapp and bindingsp
@@ -2182,10 +2216,21 @@
 		     (all-prologues (cdr read-constraint))
 		     (all-prologues (cdr write-constraint)))))
       (let* ((rewritten-query (rewrite-query query top-rules))
-             (annotations (get-annotations rewritten-query)))
-        (log-message "~%annotations: ~A~%" annotations)
+             (annotations (get-annotations rewritten-query))
+             (queried-annotations (query-annotations annotations rewritten-query)))
+        (log-message "~%===Annotations===~%~A~%" annotations)
+        (log-message "~%===Queried Annotations===~%~A~%"
+                     (format-queried-annotations queried-annotations))
         `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
-          (annotations . ,(format-annotations annotations)))))))
+          (annotations . ,(format-annotations annotations))
+          (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
+
+(define (format-queried-annotations queried-annotations)
+  (list->vector
+   (map (match-lambda ((key val)
+                       `((key . ,(symbol->string key))
+                         (var . ,(write-uri val)))))
+        queried-annotations)))
 
 (define (format-annotations annotations)
   (list->vector
