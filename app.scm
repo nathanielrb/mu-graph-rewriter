@@ -780,11 +780,12 @@
                  values-statements annotations)))))
 
 (define (optimize-duplicates block)
-  (reorder
    (lset-difference equal?
      (delete-duplicates 
-       (filter pair? block))
-     (level-quads))))
+      (group-graph-statements
+       (reorder
+        (filter pair? block))))
+     (level-quads)))
 
 (define (rewrite-quads-block block bindings)
   (parameterize ((flatten-graphs? (not (preserve-graphs?))))
@@ -827,10 +828,11 @@
 		  (values `((@Query 
                              ,@(replace-child-body 
                                 'WHERE
+                                (clean
                                 (apply-optimizations
 				 (group-graph-statements
 				  (reorder
-                                   (get-child-body 'WHERE rw))))
+                                   (get-child-body 'WHERE rw)))))
                                 rw)))
 			  new-bindings))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
@@ -845,13 +847,15 @@
 		 new-bindings)
 		(let* ((delete-constraints (get-binding/default 'delete-constraints new-bindings '()))
                        (new-where
-			(apply-optimizations 
-			 (group-graph-statements
-			  (reorder
-			   (append (or (get-child-body 'WHERE rw) '())
-				   delete-constraints)))))
-		       (delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where))  ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
-				     ;;          (triples-to-quads-rules new-where)))
+                        (clean
+                         (apply-optimizations 
+                          (group-graph-statements
+                           (reorder
+                            (append (or (get-child-body 'WHERE rw) '())
+                                    delete-constraints))))))
+		       (delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where)) 
+                       ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
+                       ;;          (triples-to-quads-rules new-where)))
 		       (rw (replace-child-body 'DELETE delete-block rw)))
 		  (if (nulll? new-where)
 		      (values `((@Update ,@(reverse rw))) new-bindings)

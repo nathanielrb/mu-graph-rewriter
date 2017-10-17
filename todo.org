@@ -1,6 +1,6 @@
 * To Do
-
-** refactoring
+*
+* refactoring
 *** minor refactoring
 **** TODO use of axes/parameters
 **** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
@@ -31,6 +31,8 @@
    the constraint on ?dataset <D> ?s will be outside of the OPTIONAL statement...
 *** DONE Too many nested lists levels
 ** instantiation
+*** TODO careful with complicated statements wrt expand-graphs
+    mixing graphs, OPTIONAL, annotations...
 *** DONE get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
@@ -144,7 +146,7 @@
     
 *** finish integrating
     - [X] group-graphs
-    - [ ] expand-graphs
+    - [X] expand-graphs
     - [X] find-triples-graphs (funny insert with top-level annotation)
 ** little things
 *** TODO Fix $query and make it like (headers)
