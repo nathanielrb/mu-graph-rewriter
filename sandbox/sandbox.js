@@ -19,13 +19,14 @@ button.onclick = function(){
     request.onreadystatechange = function(e) {
 	if(request.readyState === 4) {
 	    results.value = '';
+            annotations.innerHTML = '';
+            // annotations => invisible
 	    if(request.status === 200) { 
 		console.log('200');
 		var jr = JSON.parse(e.target.responseText);
 		result.className = 'filled';
                 rwquery =  jr.rewrittenQuery.trim();
 
-                annotations.innerHTML = '';
                 var a, an;
                 for( var i = 0; i < jr.annotations.length; i++){
                     console.log(jr.annotations[i]);
@@ -38,6 +39,7 @@ button.onclick = function(){
                     an.appendChild(document.createTextNode(t));
                     annotations.appendChild(an);
                 }
+                // annotations => visible
                 result.innerHTML = encode(rwquery);
 		runButton.disabled = false;
 	    } else {

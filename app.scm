@@ -366,6 +366,10 @@
     (,triple? . ,rw/remove)
     ((@Prologue @Dataset @Using CONSTRUCT SELECT VALUES FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
      . ,rw/remove)
+    ((UNION)
+     . ,(lambda (block bindings)
+          (values (join (map (cut rewrite <> bindings) (cdr block))) 
+                  bindings)))
     (,list? . ,rw/list)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -566,7 +570,7 @@
                (list #t))
            bindings)))
     ((FILTER VALUES BIND) . ,rw/remove)
-    (,annotation? . ,rw/copy)
+    (,annotation? . ,rw/remove)
     (,list?
      . ,(lambda (block bindings)
           (rewrite block)))))
@@ -751,17 +755,26 @@
 
 ;; Virtuoso bug (?) when VALUES statement is not after all statements
 ;; whose variables it binds. Maybe not a bug at all. To think about.
-(define (values-to-end block)
-  (let loop ((statements block) (values-statements '()))
-    (cond ((null? statements) (delete-duplicates (reverse values-statements)))
+(define (reorder block)
+  (let loop ((statements block) (new-statements '())
+             (values-statements '()) (annotations '()))
+    (cond ((null? statements) (delete-duplicates
+                               (append 
+                                (reverse annotations)
+                                (reverse new-statements)
+                                (reverse values-statements))))
           ((equal? (caar statements) 'VALUES)
-           (loop (cdr statements) (cons (car statements) values-statements)))
+           (loop (cdr statements) new-statements 
+                 (cons (car statements) values-statements) annotations))
+          ((annotation? (car statements))
+           (loop (cdr statements) new-statements
+                 values-statements (cons (car statements) annotations)))
           (else
-           (cons (car statements)
-                 (loop (cdr statements) values-statements))))))
+           (loop (cdr statements) (cons (car statements) new-statements) 
+                 values-statements annotations)))))
 
 (define (optimize-duplicates block)
-  (values-to-end
+  (reorder
    (lset-difference equal?
      (delete-duplicates 
        (filter pair? block))
@@ -810,7 +823,7 @@
                                 'WHERE
                                 (apply-optimizations
 				 (group-graph-statements
-				  (values-to-end
+				  (reorder
                                    (get-child-body 'WHERE rw))))
                                 rw)))
 			  new-bindings))
@@ -828,7 +841,7 @@
                        (new-where
 			(apply-optimizations 
 			 (group-graph-statements
-			  (values-to-end
+			  (reorder
 			   (append (or (get-child-body 'WHERE rw) '())
 				   delete-constraints)))))
 		       (delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where))  ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
@@ -903,7 +916,7 @@
 ;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
-    (let* ((opt (compose apply-optimizations group-graph-statements values-to-end))
+    (let* ((opt (compose delete-duplicates apply-optimizations group-graph-statements reorder))
            (delete (expand-triples (or (get-child-body 'DELETE rw) '()) '() replace-a))
            (insert (expand-triples (or (get-child-body 'INSERT rw) '()) '() replace-a))
            (where (opt (or (get-child-body 'WHERE rw) '())))
@@ -1397,7 +1410,8 @@
         elt))
 
 (define (subs? exp)
-  (and (pair? exp) (equal? (car exp) '*subs*)))
+  (and (pair? exp)
+       (equal? (car exp) '*subs*)))
 
 (define quads? (compose not subs?))
 
@@ -1407,10 +1421,12 @@
           (new-subs (delete-duplicates (filter pair? (append top-subs (join (map second subs)))))))
       (if (null? new-subs) quads
           (cons `(*subs* ,new-subs)
-                (group-graph-statements (values-to-end  quads))))))) ; abstract this!
+                (group-graph-statements (reorder quads))))))) ; abstract this!
 
 (define (collect-fprops block #!optional rec?)
   (let-values (((subs quads) (partition subs? block)))
+    (print "Starting subs:" subs)
+    (print "Starting quads:" quads)
     (let loop ((quads quads)
                (props (alist-ref 'props (fprops)))
                (subs (append (join (map second subs)) (alist-ref 'subs (fprops)))))
@@ -1438,8 +1454,9 @@
           (else (loop (cdr quads) props subs))))))
 
 (define (optimize-list block bindings)
+  (newline)
   (parameterize ((fprops (collect-fprops block)))
-
+    (print "which gets " (fprops))
     (if (fprops)
         (let-values (((rw new-bindings) (rw/list (filter quads? block) bindings)))
           (cond ((fail? rw) (values (list #f) new-bindings)) ; duplicate #f check... which one is correct?

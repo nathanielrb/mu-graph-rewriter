@@ -143,9 +143,9 @@
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
     
 *** finish integrating
-    [ ] group-graphs
-    [ ] expand-graphs
-    [ ] find-triples-graphs (funny insert with top-level annotation)
+    - [ ] group-graphs
+    - [ ] expand-graphs
+    - [X] find-triples-graphs (funny insert with top-level annotation)
 ** little things
 *** TODO Fix $query and make it like (headers)
 ** sandbox
