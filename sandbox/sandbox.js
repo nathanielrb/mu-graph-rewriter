@@ -44,7 +44,7 @@ button.onclick = function(){
                     an.appendChild(document.createTextNode(t));
                     annotations.appendChild(an);
                 }
-                for( var i = 0; i < jr.annotations.length; i++){
+                for( var i = 0; i < jr.queriedAnnotations.length; i++){
                     a = jr.queriedAnnotations[i];
                     an = document.createElement("li");
                     t = a["key"];
