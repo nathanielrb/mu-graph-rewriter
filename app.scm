@@ -66,8 +66,11 @@
 (define *send-deltas?* 
   (config-param "SEND_DELTAS" #f))
 
+(define *calculate-annotations?* 
+  (config-param "CALCULATE_ANNOTATIANS" #t))
+
 (define *calculate-potentials?* 
-  (config-param "CALCULATE_POTENTIALS" #t))
+  (config-param "CALCULATE_POTENTIAL_GRAPHS" #f))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; for RW library, to be cleaned up and abstracted.
@@ -1435,8 +1438,6 @@
 
 (define (collect-fprops block #!optional rec?)
   (let-values (((subs quads) (partition subs? block)))
-    (print "Starting subs:" subs)
-    (print "Starting quads:" quads)
     (let loop ((quads quads)
                (props (alist-ref 'props (fprops)))
                (subs (append (join (map second subs)) (alist-ref 'subs (fprops)))))
@@ -1464,9 +1465,7 @@
           (else (loop (cdr quads) props subs))))))
 
 (define (optimize-list block bindings)
-  (newline)
   (parameterize ((fprops (collect-fprops block)))
-    (print "which gets " (fprops))
     (if (fprops)
         (let-values (((rw new-bindings) (rw/list (filter quads? block) bindings)))
           (cond ((fail? rw) (values (list #f) new-bindings)) ; duplicate #f check... which one is correct?
@@ -1795,6 +1794,8 @@
               (loop (cdr statements) graph rest))
              (else (cons (car statements) (loop (cdr statements) #f '()))))))))
 
+(define clean (compose delete-duplicates group-graph-statements reorder))
+
 ;; ;; This isn't quite correct. Should be done per-tuple, right?
 ;; (define (instantiate-values block substitutions graphs)
 ;;   (let ((substitutions (if (or #t (not graphs)) ; b/c graphs shouldn't be variables...??
@@ -2064,8 +2065,11 @@
                    ((potential-graphs (handle-exceptions exn
                                           (begin (log-message "~%Error getting potential graphs: ~A~%" exn) 
                                                  #f)
-                                        (and (*calculate-potentials?*)
-                                             (get-all-graphs rewritten-query))))
+                                        (cond ((*calculate-potential-graphs?*)
+                                               (get-all-graphs rewritten-query))
+                                              ((*calculate-annotations?*)
+                                               (get-annotations rewritten-query))
+                                              (else #f))))
                     ((result response)
                      (let-values (((result uri response)
                                    (proxy-query (add-prefixes rewritten-query-string)
@@ -2075,8 +2079,8 @@
                        (close-connection! uri)
                        (list result response))))
                    
-                   (when (*calculate-potentials?*)
-                     (log-message "~%==Potential Graphs==~%(Will be sent in headers)~%~A~%"  potential-graphs))
+                   (when (or (*calculate-potential-graphs?*) (*calculate-annotations?*))
+                     (log-message "~%==Potentials==~%(Will be sent in headers)~%~A~%"  potential-graphs))
                    
                    (let ((headers (headers->list (response-headers response))))
                      (log-results result)
@@ -2235,7 +2239,6 @@
 ;;     (log-message "~%with constraint:~%~A" (write-sparql ((*constraint*))))
 ;;     (log-message "~%with constraint:~%~A" (write-sparql (*constraint*))))
 
-(log-message "Calculating potentials? ~A" (*calculate-potentials?*))
 (*port* 8890)
 
 ;; (use slime)
