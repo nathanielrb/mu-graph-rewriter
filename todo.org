@@ -88,6 +88,20 @@
     where { ?s a school:Class }
     #+END_SRC
 
+* optimizations
+** TODO query subselects
+   what about
+   
+   (*subselect-vars* '(?graph))
+   so collect binding: (?graph . (?graph123 ?graph425))
+
+   and if
+   { select ?graph ?type ?p where { ... ?type ?p ...} }
+   =>
+   { select ?graph123 where { ... <type> <p> ... } }
+   then run query
+
+** TODO is it possible to do something similar for `?type`?
 * dependencies
 ** TODO FILTER dependencies
    what should the dependencies of FILTER( ?b != mu:uuid ) be??
