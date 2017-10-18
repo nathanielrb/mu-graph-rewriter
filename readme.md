@@ -11,7 +11,6 @@ One example application is using multiple graphs to model data in such a way tha
 
 ### Running Natively
 
-
 ## Describing Constraints
 
 ## Writing Custom Plugins

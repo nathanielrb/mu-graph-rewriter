@@ -341,6 +341,7 @@
   (null? (remove annotation? block)))
 
 (define (get-annotations query)
+  (log-message "YUP: ~A~%"   (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
   (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
 
 ;; subselects/projection?
@@ -354,9 +355,8 @@
            (match block
              ((`@Annotation `access key) (list key))
              ((`@Annotation `access key var) (list (list key var)))
-             (else '(NOMATCH)))
+             (else (error (format "Invalid annotation: ~A" block))))
            bindings)))
-
     (,select? . ,rw/remove)
     ((@SubSelect)
      . ,(lambda (block bindings)
@@ -367,27 +367,69 @@
      . ,(lambda (block bindings)
           (rewrite (cddr block) bindings)))
     (,triple? . ,rw/remove)
-    ((@Prologue @Dataset @Using CONSTRUCT SELECT VALUES FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
-     . ,rw/remove)
-    ((UNION)
+    ((VALUES)
      . ,(lambda (block bindings)
-          (values (join (map (cut rewrite <> bindings) (cdr block))) 
-                  bindings)))
-    (,list? . ,rw/list)))
+          (match block
+            ((`VALUES vars . vals)
+             (values
+              (if (pair? vars)
+                  `((*values*
+                    ,(apply
+                      merge-alists
+                      (map (lambda (vallst)
+                             (map (lambda (var val)
+                                    (list var val))
+                                  vars vallst))
+                           vals))))
+                  `((*values*
+                     ,(map (lambda (val)
+                             (,vars ,val)))
+                     vals)))
+              bindings)))))
+    ((@Prologue @Dataset @Using CONSTRUCT SELECT FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
+     . ,rw/remove)
+    ((UNION) . ,rw/union) ; ok?
+     ;; . ,(lambda (block bindings)
+     ;;      (values (join (map (cut rewrite <> bindings) (cdr block))) 
+     ;;              bindings)))
+    (,list?
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rw/list block bindings)))
+            (let-values (((quads vals) (partition values? rw)))
+              (values (append quads `((*values* ,(merge-alists (map second vals)))))
+                      new-bindings)))))))
+
+;; merges alists whose values must be lists
+;; e.g., '((a . (1 2 3))) '((a . (4)))
+(define (merge-alists #!rest alists)
+  (let loop ((alists alists) (accum '()))
+    (if (null? alists) accum
+        (let inner ((alist (car alists)) (accum accum))
+          (if (null? alist) (loop (cdr alists) accum)
+              (let ((kv (car alist)))
+                (inner (cdr alist)
+                       (alist-update-proc (car kv) 
+                                          (lambda (current)
+                                            (append-unique (or current '()) (cdr kv)))
+                                          accum))))))))
+
+(define (values? exp)
+  (and (pair? exp) (equal? (car exp) '*values*)))
 
 (define (query-annotations annotations query)
   (let-values (((pairs singles) (partition pair? annotations)))
-    (if (null? pairs)
-        singles
-        (let ((annotations-query
-               (rewrite-query 
-                query 
-                (query-annotations-rules (map second pairs)))))
-          (append singles
-                  (join (map (lambda (row)
-                               (map (lambda (key var) (list (first key) (cdr var)))
-                                    pairs row))
-                             (sparql-select (write-sparql annotations-query)))))))))
+    (let ((pairs (remove values? pairs)))
+      (if (null? pairs)
+          singles
+          (let ((annotations-query
+                 (rewrite-query 
+                  query 
+                  (query-annotations-rules (map second pairs)))))
+            (append singles
+                    (join (map (lambda (row)
+                                 (map (lambda (key var) (list (first key) (cdr var)))
+                                      pairs row))
+                               (sparql-select (write-sparql annotations-query))))))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 
@@ -2218,13 +2260,29 @@
 		     (all-prologues (cdr write-constraint)))))
       (let* ((rewritten-query (rewrite-query query top-rules))
              (annotations (get-annotations rewritten-query))
+             (qt-annotations (query-time-annotations annotations))
              (queried-annotations (query-annotations annotations rewritten-query)))
         (log-message "~%===Annotations===~%~A~%" annotations)
         (log-message "~%===Queried Annotations===~%~A~%"
                      (format-queried-annotations queried-annotations))
         `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
-          (annotations . ,(format-annotations annotations))
+          (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
+
+(define (query-time-annotations annotations)
+   (let-values (((vals as) (partition values? annotations))) ; or do with find/member/..
+     (log-message "vals/as: ~A ~A~%" vals as)
+     (let ((vals (and (not (null? vals)) (cadar vals)))) ; a bit too specific
+       (log-message "VALS: ~A~%" vals)
+      (map (lambda (a)
+             (if (pair? a)
+                 (match a
+                   ((key var)
+                    (log-message "searching for ~A in ~A~%" var vals)
+                    (let ((vs (alist-ref var vals)))
+                      (if vs `(,key ,(apply symbol-append vs)) a)))) ; CHEATING :-)
+                 a))
+           as))))
 
 (define (format-queried-annotations queried-annotations)
   (list->vector
@@ -2240,6 +2298,7 @@
   (list->vector
    (map (lambda (annotation)
           (match annotation
+            ((`*values* rest) `((key . ,(format "~A" rest)))) ; fudging
             ((key var) `((key . ,(symbol->string key))
                          (var . ,(symbol->string var))))
             (key `((key . ,(symbol->string key))))))
