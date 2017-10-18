@@ -1,19 +1,39 @@
 body {
     font-family: arial;
     font-size: 14px;
+    margin: 0;
+    padding-bottom: 20px;
+}
+.menu {
+    width: 100%;
+    margin: 0;
+    padding: 20px 12px;
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    background: #424;
 }
 .row {
-    min-width: 100%;
-    height: 80%;
+    width: 100%;
+    height: 100%;
+    box-shadow: 0 5px 5px #888888
 }
-
 .panel {
-    width: 23%;
-    padding: 10px;
+    width: 21%;
+    padding: 12px;
     float: left;
 }
+.panel-separator {
+    width: 1%;
+    float: left;
+    font-size: 38px;
+    font-weight: bold;
+    text-align: center;
+    padding: 420px 12px 0 4px;
+}
 h1 {
-    padding: 10px 10px 0 10px;
+    padding: 0px 12px 0 12px;
+    margin: 18px 0 0 0;
 }
 h2 {
     font-size: 1.2em;
@@ -26,13 +46,16 @@ h2 small {
 }
 .panel textarea {
     width: 100%;
-    height: 600px;
+    height: 700px;
     padding: 12px;
     color: gray;
 }
+.panel textarea.constraint {
+    height: 326px;
+}
 .panel-box {
     width: 100%;
-    height: 600px;
+    height: 700px;
     background: beige;
     border: 1px dotted gray;
     color: gray;
@@ -43,7 +66,7 @@ h2 small {
     margin: 0;
 }
 .panel textarea#results {
-    height: 600px;
+    height: 770px;
     margin: 0;
     padding: 12px;
     border: none;
@@ -52,10 +75,7 @@ h2 small {
 .panel #result.error {
     background: pink 
 }
-.menu {
-    clear: both ;
-    padding: 0 10px;
-}
+
 input {
     padding: 4px;
 }
@@ -72,4 +92,7 @@ input {
 }
 #annotations-box ul li {
     list-style: none;
+}
+.clear {
+    clear: both
 }

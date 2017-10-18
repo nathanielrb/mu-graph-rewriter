@@ -5,15 +5,14 @@
     <link type="text/css" rel="stylesheet" href="/sandbox/style.css" />
   </head>
   <body>
-    <h1>mu-constraint-rewriter Sandbox</h1>
     <div class="menu">
+      <div class="title">constraint rewriter sandbox</div>
     </div>
     <div class="row">
+    <h1>Query Rewriter</h1>
       <div class="panel constraint" >
-	<h2>Constraint
-	<small><input type="checkbox" id="separate" disabled=true/>Separate read/write constraints</small>
-</h2>
-	<textarea id="constraint">
+	<h2>Read Constraint</h2>
+	<textarea class="constraint" id="read-constraint">
 prefix g: <http://mu.semte.ch/school/graphs/>
 prefix foaf: <http://xmlns.com/foaf/0.1/>
 
@@ -30,10 +29,28 @@ WHERE {
     (g:people foaf:Person) 
   }
 }</textarea>
-	<h3>Optimizations</h3>
-	<p><label>Functional properties:</label>
+	<h2>Write Constraint</h2>
+	<textarea class="constraint" id="write-constraint">
+prefix g: <http://mu.semte.ch/school/graphs/>
+prefix foaf: <http://xmlns.com/foaf/0.1/>
+
+CONSTRUCT {
+  ?a ?b ?c
+}
+WHERE {
+  GRAPH ?graph { 
+    ?a ?b ?c .
+    ?a a ?type
+  }
+  VALUES (?graph ?type) {
+    (g:classes school:Class) 
+    (g:people foaf:Person) 
+  }
+}</textarea>
+	<h2>Functional Properties:</h2>
 	<input type="text" id="fprops" value="rdf:type"/></p>
       </div>
+      <div class="panel-separator">+</div>
       <div class="panel query">
 	<h2>Query <small><button name="rewrite" id="rewrite">rewrite</button></small></h2>
 	<textarea id="query">
@@ -43,7 +60,7 @@ WHERE {
 }
 	</textarea>
       </div>
-
+      <div class="panel-separator">=</div>
       <div class="panel result">
 	<h2>Rewritten Query <small><button name="run" id="run" disabled=true>run</button></small></h2>
         <div class="panel-box">
@@ -57,13 +74,34 @@ WHERE {
           </div>
         </div>
       </div>
+      <div class="panel-separator">&gt;</div>
       <div class="panel results">
 	<h2>Query Results</h2>
 	<textarea id="results" disabled=true></textarea>
       </div>
     </div>
 
+    <br class="clear"/>
+    <div class="row">
+    <h1>Model</h1>
+      <div class="panel-separator">+</div>
+      <div class="panel auth">
+        <h2>Insert Authorization Triples</h2>
+	<textarea class="auth" id="authorization-insert">
+INSERT DATA {
+  GRAPH <http://mu.semte.ch/authorization> {
+    <session0> <session> "root".
+  }
+}</textarea>
+      </div>
 
+      <div class="panel generate">
+        <h2>Generate Model</h2>
+        <p><i>Using session id "root"</i></p>
+        <button id="generate">Generate Model</button>        
+        <h2><a id="preview" href="/preview">Preview Model &raquo;</a></h2>
+      </div>
+    </div>
     <script type="text/javascript" src="/sandbox/sandbox.js"></script>
   </body>
 </html>
