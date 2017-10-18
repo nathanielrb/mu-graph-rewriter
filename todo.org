@@ -164,6 +164,15 @@
     - [X] group-graphs
     - [X] expand-graphs
     - [X] find-triples-graphs (funny insert with top-level annotation)
+** TODO get value from VALUES
+   @access graph(?graph)
+   and
+   WHERE {
+    GRAPH ?graph16366 { ?s rdf:type foaf:Person. }
+    VALUES (?graph16366) { (g:people) }
+   }
+
+   should resolve to '(graph g:people)
 * little things
 ** TODO Fix $query and make it like (headers)
 * sandbox
