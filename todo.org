@@ -35,6 +35,9 @@
    this is related to separated read/write constraints. otherwise we can just use
    get-triple-graphs.
 ** DONE Too many nested lists levels
+** TODO read/write constraints not working on same triple in insert/delete and where blocks
+   DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }
+	
 * instantiation
 ** TODO careful with complicated statements wrt expand-graphs
     mixing graphs, OPTIONAL, annotations...
@@ -102,6 +105,7 @@
    then run query
 
 ** TODO is it possible to do something similar for `?type`?
+** TODO bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
 ** TODO FILTER dependencies
    what should the dependencies of FILTER( ?b != mu:uuid ) be??

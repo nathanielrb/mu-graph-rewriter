@@ -1,15 +1,18 @@
 var button = document.getElementById('rewrite');
 var runButton = document.getElementById('run');
 var query = document.getElementById('query');
-var constraint = document.getElementById('read-constraint');
+var readConstraint = document.getElementById('read-constraint');
 var writeConstraint = document.getElementById('write-constraint');
 var fprops = document.getElementById('fprops');
 var result = document.getElementById('result');
 var results = document.getElementById('results');
+var resultsPanel = document.querySelector('.results');
 var rwquery = false;
 var annotationsBox = document.getElementById('annotations-box');
 var annotations = document.getElementById('annotations');
 var queriedAnnotations = document.getElementById('queried-annotations');
+var authorizationInsert = document.getElementById('authorization-insert');
+var sessionID = document.getElementById('session-id');
 
 function encode(e) {
   return e.replace(/[\<\>\"\^]/g, function(e) {
@@ -23,6 +26,7 @@ button.onclick = function(){
     request.onreadystatechange = function(e) {
 	if(request.readyState === 4) {
 	    results.value = '';
+            resultsPanel.style.display = "none";
             annotations.innerHTML = '';
             queriedAnnotations.innerHTML = '';
             annotationsBox.style.display = 'none';
@@ -69,7 +73,12 @@ button.onclick = function(){
 	}
     }
     request.open("POST", "/sandbox", true);
-    request.send("query=" + query.value + "&constraint=" + constraint.value + "&fprops=" + fprops.value);
+    request.send("query=" + query.value 
+                 + "&readconstraint=" + readConstraint.value
+                 + "&writeconstraint=" + writeConstraint.value
+                 + "&fprops=" + fprops.value
+                 + "&session-id=" + sessionID.value
+                + "&authorization-insert=" + authorizationInsert.value);
 };
 
 // run rewritten query
@@ -86,6 +95,7 @@ runButton.onclick = function(){
 		    
 		    results.className = 'filled';
 		    results.value = JSON.stringify(jr.results.bindings, null, 2);
+                    resultsPanel.style.display = "block";
 		} else {
 		    results.value = 'Error';
 		    results.className = 'error';

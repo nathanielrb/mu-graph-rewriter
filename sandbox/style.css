@@ -2,7 +2,6 @@ body {
     font-family: arial;
     font-size: 14px;
     margin: 0;
-    padding-bottom: 20px;
 }
 .menu {
     width: 100%;
@@ -13,15 +12,39 @@ body {
     color: white;
     background: #424;
 }
+.column {
+    float: left;
+
+}
+.column.left {
+    width: 30%;
+    background: #eee;
+}
+.column.right {
+    width: 70%;
+}
 .row {
     width: 100%;
     height: 100%;
-    box-shadow: 0 5px 5px #888888
 }
 .panel {
-    width: 21%;
-    padding: 12px;
+    padding: 0 18px;
     float: left;
+}
+.right .panel.generate {
+    background: #cdc;
+    width: 100%;
+}
+.left .panel {
+    width: 100%;
+}
+.right .panel {
+    width: 45%;
+    padding-left: 24px;
+}
+.right .panel.results {
+    width: 93%;
+    display: none;
 }
 .panel-separator {
     width: 1%;
@@ -39,24 +62,40 @@ h2 {
     font-size: 1.2em;
     font-family: arial;
 }
-h2 small {
+h3 small {
     font-weight: normal;
     font-size: .7em;
     float: right;
 }
-.panel textarea {
-    width: 100%;
-    height: 700px;
+h3 {
+    font-size: 1.1em;
+}
+textarea {
+    font-size: 1em;
+}
+.left .panel textarea {
+    width: 93%;
+    height: 400px;
     padding: 12px;
     color: gray;
 }
-.panel textarea.constraint {
-    height: 326px;
+.right .panel textarea {
+    width: 100%;
+    height: 500px;
+    padding: 12px;
+    color: gray;
 }
+.left .panel textarea.auth {
+    height: 250px;
+}
+.left .panel.auth pre {
+    color: gray;
+}
+
 .panel-box {
     width: 100%;
-    height: 700px;
-    background: beige;
+    height: 500px;
+    background: #cdc;
     border: 1px dotted gray;
     color: gray;
     overflow: auto;
@@ -65,8 +104,8 @@ h2 small {
     padding: 12px;
     margin: 0;
 }
-.panel textarea#results {
-    height: 770px;
+.panel #results {
+    height: 660px;
     margin: 0;
     padding: 12px;
     border: none;
@@ -95,4 +134,7 @@ input {
 }
 .clear {
     clear: both
+}
+#preview {
+    display: none;
 }
