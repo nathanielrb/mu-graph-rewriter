@@ -105,6 +105,9 @@
    then run query
 
 ** TODO is it possible to do something similar for `?type`?
+** TODO big minor problem: what if SELECT ?type and ?type is optimized?
+   silly example, but could there be realistic examples of this?
+   select ?t where { ?s a ?t . ?s a <school> }
 ** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
 ** TODO FILTER dependencies
@@ -160,7 +163,7 @@
     BIND(COUNT(<property>) AS ?count)
    #+END_SRC
    
-* cache keys
+* cache keys and annotations
 ** DONE bug: top-level annotation breaks optimizations
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
     
@@ -168,7 +171,7 @@
     - [X] group-graphs
     - [X] expand-graphs
     - [X] find-triples-graphs (funny insert with top-level annotation)
-** TODO get value from VALUES
+** DONE get value from VALUES
    @access graph(?graph)
    and
    WHERE {
