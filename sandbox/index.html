@@ -38,7 +38,7 @@ WHERE {
 </div>
       <div class="panel constraint">
 	<h3>Write Constraint <small><input checked=true type="checkbox" id="read-write"/>Same as read constraint</small></h3>
-	<textarea class="constraint" id="write-constraint">
+	<textarea class="constraint" id="write-constraint" disabled=true>
         </textarea>
       </div>
       <div class="panel">
@@ -63,12 +63,12 @@ INSERT DATA {
   <div class="row generate">
     <div class="column half">
       <div class="panel">
-        <p><b>Generate model</b> with <code>&lt;SESSION_ID&gt; = "root"</code>
-          <button id="generate">Generate</button>        
+        <h2>Generate Model</h2>
+        <p><button id="generate">Generate Model</button>  with <code>&lt;SESSION_ID&gt; = "root"</code>
           <a id="preview" href="/preview">Preview Model &raquo;</a>
         </p>
-      </div>
-    </div>
+      </div> <!-- .panel -->
+    </div>   <!-- .column.half -->
     <br style="clear"/>  
   </div>
 
@@ -80,6 +80,9 @@ INSERT DATA {
       </div>
     </div>
     <br class="clear"/>
+  </div>
+
+  <div class="row">
     <div class="column half">
       <div class="panel query">
         <h3>Query <small><button name="rewrite" id="rewrite">Rewrite</button></small></h3>
@@ -91,6 +94,7 @@ WHERE {
         </textarea>
       </div>
     </div>
+
     <div class="column half">
       <div class="panel result">
         <h3>Rewritten Query <small><button name="run" id="run" disabled=true>Run</button></small></h3>
@@ -103,9 +107,10 @@ WHERE {
             <h3>Queried Annotations</h3>
             <ul id="queried-annotations"></ul>
           </div>
-        </div>
-      </div>
+        </div><!-- .panel-box -->
+      </div><!-- .panel.result -->
     </div>
+    <br class="clear"/>
   </div>
   
   <div class="panel results">

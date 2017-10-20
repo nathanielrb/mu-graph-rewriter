@@ -2,12 +2,13 @@ body {
     font-family: arial;
     font-size: 14px;
     margin: 0;
+    color: #666
 }
 .menu {
     width: 100%;
     margin: 0;
     padding: 20px 1.2%;
-    font-size: 18px;
+    font-size: 16px;
     font-weight: bold;
     color: white;
     background: #424;
@@ -35,14 +36,15 @@ body {
     float: left;
 }
 .right .generate {
-    background: #cdc;
+
     width: 100%;
-    height: 4em;
+    height: 7em;
 }
 .panel {
     width: 92%;
 }
-.right .panel {
+.right .row {
+    padding-left: 2%
 }
 .right .panel.results {
     width: 100%;
@@ -54,16 +56,21 @@ h1 {
     margin: 18px 0 0 0;
 }
 h2 {
-    font-size: 1.2em;
+    font-size: 1.3em;
+    font-weight: bold;
     font-family: arial;
+    color: #424;
+    margin-top: 1.4em;
+}
+h3 {
+    font-size: 1.3em;
+    font-weight: normal;
+    color: #424;
 }
 h3 small {
     font-weight: normal;
     font-size: .7em;
     float: right;
-}
-h3 {
-    font-size: 1.1em;
 }
 textarea {
     font-size: 1em;
@@ -72,7 +79,7 @@ textarea {
     width: 100%;
     height: 400px;
     padding: 12px;
-    color: gray;
+    color: #888;
 }
 .left .panel textarea#write-constraint {
     background: #eee;
@@ -82,13 +89,13 @@ textarea {
     width: 100%;
     height: 500px;
     padding: 12px;
-    color: gray;
+    color: #888;
 }
 .left .panel textarea.auth {
     height: 250px;
 }
 .left .panel.auth pre {
-    color: gray;
+    color: #888;
 }
 
 .panel-box {
@@ -96,7 +103,7 @@ textarea {
     height: 500px;
     background: #eee;
     border: 1px dotted gray;
-    color: gray;
+    color: #888;
     overflow: auto;
 }
 .panel pre  {
