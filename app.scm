@@ -423,7 +423,7 @@
           (let ((annotations-query
                  (rewrite-query 
                   query 
-                  (query-annotations-rules (map second pairs)))))
+                  (query-annotations-rules (delete-duplicates (map second pairs))))))
             (append singles
                     (join (map (lambda (row)
                                  (map (lambda (key var) (list (first key) (cdr var)))

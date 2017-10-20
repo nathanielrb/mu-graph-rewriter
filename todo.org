@@ -174,6 +174,27 @@
 ** TODO clean up and rename and document dependency functions for easier code maintenance
    'cause it's a mess
 * cache keys and annotations
+** TODO bug: VALUES + UNIONS gives wrong results
+   CONSTRUCT {
+     ?a ?b ?c
+   }
+   WHERE {
+   { 
+     @access Class(?graph)
+     GRAPH ?graph { 
+     ?a ?b ?c .
+     ?a a ?type
+     }
+     VALUES (?graph ?type) { (g:classes school:Class)  }
+   } UNION {
+   @access Person(?graph)
+   GRAPH ?graph { 
+     ?a ?b ?c .
+     ?a a ?type
+   }
+   VALUES (?graph ?type) { (g:people foaf:Person) }
+  }
+ }
 ** DONE bug: top-level annotation breaks optimizations
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
     
