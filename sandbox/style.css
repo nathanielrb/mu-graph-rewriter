@@ -93,6 +93,8 @@ textarea {
 }
 .left .panel textarea.auth {
     height: 250px;
+    width: 90%;
+    margin-left: 10%;
 }
 .left .panel.auth pre {
     color: #888;

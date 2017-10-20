@@ -46,13 +46,20 @@ WHERE {
 	<h3>Functional properties</h3><p> <input type="text" id="fprops" value="rdf:type"/></p>
       </div>
       <div class="panel auth">
-  <h2>Insert Authorization Triples</h2>
+  <h2>Authorization and Login</h2>
   <pre>
 INSERT DATA {
   GRAPH &lt;http://mu.semte.ch/authorization&gt; {
 </pre>
   <textarea class="auth" id="authorization-insert">
-    <session0> <session> "root".
+<user0> <loggedInSesson> "root-session".
+<user0> <isRoot> true.
+
+<user1> <loggedInSession> "user01-session".
+<user1> <isUser> <http://mu.semte.ch/school/123>.
+
+<user2> <loggedInSession> "user02-session".
+<user1> <isUser> <http://mu.semte.ch/school/456>.
 </textarea>
 <pre>
   }
@@ -64,7 +71,7 @@ INSERT DATA {
     <div class="column half">
       <div class="panel">
         <h2>Generate Model</h2>
-        <p><button id="generate">Generate Model</button>  with <code>&lt;SESSION_ID&gt; = "root"</code>
+        <p><button id="generate">Generate Model</button>  with <code>&lt;SESSION_ID&gt; = "root-session"</code>
           <a id="preview" href="/preview">Preview Model &raquo;</a>
         </p>
       </div> <!-- .panel -->
@@ -76,7 +83,7 @@ INSERT DATA {
     <div class="column half">
       <div class="panel">
         <h2>Queries</h2>
-        <p>Using SESSION_ID <select id="session-id"><option>root</option><option>user01-session</option><option>user02-session</option></select></p>
+        <p>Using SESSION_ID <select id="session-id"><option>root-session</option><option>user01-session</option><option>user02-session</option></select></p>
       </div>
     </div>
     <br class="clear"/>
