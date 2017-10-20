@@ -6,13 +6,12 @@ body {
     font-size: 14px;
     margin: 0;
     color: #666;
-    height: 100%;
-    background: #eee
+    background: #eee;
 }
 .menu {
     width: 100%;
     margin: 0;
-    padding: 20px 1.2%;
+    padding: 20px 1.7%;
     font-size: 16px;
     font-weight: bold;
     color: white;
@@ -22,21 +21,21 @@ body {
     float: left;
 }
 .row.main {
-
+    margin-top: -2em;
+    padding-top: 2em;
 }
 .column.left {
     width: 30%;
     background: #eee;
-    min-height: 100%;
-    display: table-cell;
+    height: 100%;
 }
 .column.right {
     width: 66%;
-    min-height: 100%;
     display: table-cell;
     background: #fff;
     padding-bottom: 2em;
-    box-shadow: 5px 5px 5px #ddd
+    box-shadow: 5px 5px 5px #ddd;
+    margin-bottom: 2em;
 }
 .column.half {
     width: 50%;
@@ -63,8 +62,9 @@ body {
     /*    padding-left: 2%*/
 }
 .right .panel.results {
-    padding-left: 2%;
+    padding-left: 3%;
     display: none;
+    width: 95%;
 }
 h1 {
     padding: 0px 12px 0 12px;
@@ -115,8 +115,8 @@ textarea {
 }
 .left .panel textarea.auth {
     height: 250px;
-    width: 90%;
-    margin-left: 10%;
+    width: 94%;
+    margin-left: 6%;
 }
 .left .panel.auth pre {
     color: #888;

@@ -71,7 +71,7 @@ INSERT DATA {
     <div class="column ">
       <div class="panel">
         <h2>Generate Model</h2>
-        <p><button id="generate">Generate Model</button>  with <code>&lt;SESSION_ID&gt; = "root-session"</code>
+        <p><button id="generate" disabled=true>Generate Model</button>  with <code>&lt;SESSION_ID&gt; = "root-session"</code>
           <a id="preview" href="/preview">Preview Model &raquo;</a>
         </p>
       </div> <!-- .panel -->
@@ -116,18 +116,20 @@ WHERE {
           </div>
         </div><!-- .panel-box -->
       </div><!-- .panel.result -->
-    </div>
+    </div>  <!-- .column.half -->
     <br class="clear"/>
-  </div>
+  </div> <!-- .row -->
   
-  <div class="panel results">
-    <h2>Query Results</h2>
-    <textarea id="results" disabled=true></textarea>
+  <div class="row">
+    <br class="clear"/>
+    <div class="panel results">
+      <h2>Query Results</h2>
+      <textarea id="results" disabled=true></textarea>
+    </div>
   </div>
+</div>
 </div>
 
-<br class="clear"/>
-</div>
 </div>
 <script type="text/javascript" src="/sandbox/sandbox.js"></script>
 </body>
