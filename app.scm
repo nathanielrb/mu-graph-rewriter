@@ -1356,10 +1356,10 @@
    (list constraint-where-block) 
    (map car (dependency-substitutions)))) ;; (get-binding 'dependency-substitutions bindings))))
 
-(define (get-dependencies* query bound-vars)
+(define (get-dependencies query bound-vars)
   (rewrite query '() (dependency-rules bound-vars)))
     
-(define get-dependencies (memoize get-dependencies*))
+;; (define get-dependencies (memoize get-dependencies*))
 
 (define (minimal-dependency-paths source? sink? dependencies)
   (let-values (((sources nodes) (partition (compose source? car) dependencies)))
@@ -1395,33 +1395,40 @@
                        dependencies
                        rest)))))))
 
+(define constraint-graph (make-parameter #f))
+
 ;; To do: better use of return values & bindings
 (define (dependency-rules bound-vars)
   `((,triple? 
      . ,(lambda (triple bindings)
+          
          (let* ((dependencies (or (get-binding 'dependency-paths bindings) '()))
                 (bound? (lambda (var) (member var bound-vars)))
-                (vars (filter sparql-variable? triple)))
+                (vars* (filter sparql-variable? triple))
+                (vars (if (equal? vars* bound-vars)
+                          vars*
+                          (cons (constraint-graph) vars*)))
+                (update-dependency-var
+                 (lambda (var deps) 
+                   (alist-update 
+                    var (delete-duplicates
+                         (append (delete var vars)
+                                 (or (alist-ref var deps) '())))
+                    deps))))
            (let-values (((bound unbound) (partition bound? vars)))
              (values
               (list triple)
               (update-binding
                'dependency-paths
-               (fold (lambda (var deps)
-                       (alist-update 
-                        var (delete-duplicates
-                             (append (delete var vars)
-                                     (or (alist-ref var deps) '())))
-                        deps))
-                     dependencies
-		     vars)
+               (fold update-dependency-var dependencies vars)
                bindings))))))
     (,annotation? . ,rw/copy)
-     ((GRAPH) . ,(lambda (block bindings)
+    ((GRAPH) . ,(lambda (block bindings)
                    (match block
                      ((`GRAPH graph . rest)
-                      (rewrite rest 
-                               (cons-binding graph 'constraint-graphs bindings))))))
+                      (parameterize ((constraint-graph graph))
+                        (rewrite rest 
+                                 (cons-binding graph 'constraint-graphs bindings)))))))
      ((UNION) . ,rw/union)
      ((OPTIONAL) . ,rw/quads)
      ((VALUES)
@@ -1440,7 +1447,7 @@
                        '()
                        (update-binding
                         'dependency-paths
-                        (fold (lambda (var deps)
+                        (fold (lambda (var deps) ; same function as above?
                                 (alist-update 
                                  var (delete-duplicates
                                       (append (delete var vars)
@@ -1478,6 +1485,10 @@
             (let* ((paths (get-binding 'dependency-paths new-bindings))
                    (source? (lambda (var) (member var bound-vars)))
                    (sink? (lambda (x) (member x (get-binding/default 'constraint-graphs new-bindings '())))))
+              (log-message "~%Paths: ~A => ~A => ~A~%" 
+                           paths
+                           (minimal-dependency-paths source? sink? paths)
+                           (concat-dependency-paths (minimal-dependency-paths source? sink? paths)))
               (values
                (concat-dependency-paths (minimal-dependency-paths source? sink? paths))
                bindings)))))

@@ -28,7 +28,7 @@
    two solutions:
    - instantiate-w/o-union for DELETE queries
    - put DELETE constraints in an OPTIONAL (what about INSERTs... similar logic?)
-** TODO read/write constraints doesn't work when the same triple is in insert/delete and where blocks
+** DONE read/write constraints doesn't work when the same triple is in insert/delete and where blocks
    DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }
 	
 ** DONE rethink logic of functional property optimization in OPTIONAL
@@ -36,12 +36,12 @@
 * instantiation
 ** TODO careful with complicated statements wrt expand-graphs
     mixing graphs, OPTIONAL, annotations...
-** DONE get instantiation logic correct
-   including find-triples-graphs, instantiated-values, etc.
-
 ** TODO implement a version of (instantiate ..) without UNION
     ie for DELETE queries (exact triple not needed), and also for a delta-subscription
     service like Esteban wanted
+
+** DONE get instantiation logic correct
+   including find-triples-graphs, instantiated-values, etc.
 
 ** DONE is instantiation correct for DELETE+INSERT queries?
     for the DELETE part, probably should *not* instantiate...
@@ -115,8 +115,12 @@
 ** TODO FILTER dependencies
    what should the dependencies of FILTER( ?b != mu:uuid ) be??
  
-** TODO singleton VALUES statements for ?graph 
-   
+** TODO verify logic of graphs + non-bound vars
+   graph ?g { ?a ?b ?c . ?a ?other ?vars }
+   => ?g depends on ?a, ?other and ?vars but not ?b and ?c
+   because ?a ?b ?c is the "bound" triple
+
+** DONE singleton VALUES statements for ?graph 
    #+BEGIN_SRC
     CONSTRUCT { ?s ?p ?o }
     WHERE {
@@ -165,6 +169,7 @@
     BIND(COUNT(<property>) AS ?count)
    #+END_SRC
    
+** TODO clean up and rename dependency functions for easier code maintenance
 * cache keys and annotations
 ** DONE bug: top-level annotation breaks optimizations
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
