@@ -5,16 +5,9 @@
 *** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
 *** TODO abstract UNION-if->1 elements
 * basic logic
-** DONE rethink logic of functional property optimization in OPTIONAL
-** TODO functional property optimization should introspect into GRAPHs
-    as in:
-    (apply-optimizations '((GRAPH <G> (?s a <Car>)) (GRAPH <H> (?s a ?Car))))
-    
-    though this begs the question of whether functional properties apply to triples
-    or quads
-
 ** TODO simplifying over UNIONs
     generalize optimize-duplicates, group-graph-statements et al.
+    for UNIONs we could do a `collect-duplicates-over-union`
     
 ** TODO does rw/union distinguish between false and empty true?
 ** TODO OPTIONALS and constraints that *should* be inside them
@@ -32,12 +25,14 @@
    #+END_SRC
    the constraint on ?s <D> ?dataset will be outside of the OPTIONAL statement.
 
-   this is related to separated read/write constraints. otherwise we can just use
-   get-triple-graphs.
-** DONE Too many nested lists levels
+   two solutions:
+   - instantiate-w/o-union for DELETE queries
+   - put DELETE constraints in an OPTIONAL (what about INSERTs... similar logic?)
 ** TODO read/write constraints doesn't work when the same triple is in insert/delete and where blocks
    DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }
 	
+** DONE rethink logic of functional property optimization in OPTIONAL
+** DONE Too many nested lists levels
 * instantiation
 ** TODO careful with complicated statements wrt expand-graphs
     mixing graphs, OPTIONAL, annotations...
@@ -108,6 +103,13 @@
 ** TODO big minor problem: what if SELECT ?type and ?type is optimized?
    silly example, but could there be realistic examples of this?
    select ?t where { ?s a ?t . ?s a <school> }
+** TODO functional property optimization should introspect into GRAPHs
+    as in:
+    (apply-optimizations '((GRAPH <G> (?s a <Car>)) (GRAPH <H> (?s a ?Car))))
+    
+    though this begs the question of whether functional properties apply to triples
+    or quads
+
 ** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
 ** TODO FILTER dependencies
@@ -183,7 +185,7 @@
 * little things
 ** TODO Fix $query and make it like (headers)
 * sandbox
-** TODO implement separate read/write constraints
+** DONE implement separate read/write constraints
 * temp graphs
 ** TODO handle FILTER NOT EXISTS
 * performance

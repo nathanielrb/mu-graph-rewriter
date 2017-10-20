@@ -42,6 +42,7 @@ button.onclick = function(){
     var request = new XMLHttpRequest();
     request.onreadystatechange = function(e) {
 	if(request.readyState === 4) {
+            result.className = '';
 	    results.value = '';
             resultsPanel.style.display = "none";
             annotations.innerHTML = '';
