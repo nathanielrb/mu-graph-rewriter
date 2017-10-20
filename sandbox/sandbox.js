@@ -25,13 +25,13 @@ readwrite.onchange = function(e){
     if(e.target.checked){
         writeConstraint.value = '';
         writeConstraint.disabled = true;
-        writeConstraint.style.background = '#eee';
+        writeConstraint.style.background = '#ddd';
         writeConstraint.style.height = '40px';
     }
     else { 
         writeConstraint.value = readConstraint.value;
         writeConstraint.disabled = false;
-        writeConstraint.style.background = '#fff';
+        writeConstraint.style.background = '#eee';
         writeConstraint.style.height = '400px';
     }
 }
@@ -54,28 +54,30 @@ button.onclick = function(){
                 rwquery =  jr.rewrittenQuery.trim();
 
                 var a, an;
-                for( var i = 0; i < jr.annotations.length; i++){
-                    console.log(jr.annotations[i]);
-                    a = jr.annotations[i];
-                    an = document.createElement("li");
-                    t = a["key"];
-                    if( "var" in a ){
-                        t += " (" + a["var"] + ")";
+                if( jr.annotations.length > 0 || jr.queriedAnnotations.length > 0 ){
+                    for( var i = 0; i < jr.annotations.length; i++){
+                        console.log(jr.annotations[i]);
+                        a = jr.annotations[i];
+                        an = document.createElement("li");
+                        t = a["key"];
+                        if( "var" in a ){
+                            t += " (" + a["var"] + ")";
+                        }
+                        an.appendChild(document.createTextNode(t));
+                        annotations.appendChild(an);
                     }
-                    an.appendChild(document.createTextNode(t));
-                    annotations.appendChild(an);
-                }
-                for( var i = 0; i < jr.queriedAnnotations.length; i++){
-                    a = jr.queriedAnnotations[i];
-                    an = document.createElement("li");
-                    t = a["key"];
-                    if( "var" in a ){
-                        t += ": " + a["var"];
+                    for( var i = 0; i < jr.queriedAnnotations.length; i++){
+                        a = jr.queriedAnnotations[i];
+                        an = document.createElement("li");
+                        t = a["key"];
+                        if( "var" in a ){
+                            t += ": " + a["var"];
+                        }
+                        an.appendChild(document.createTextNode(t));
+                        queriedAnnotations.appendChild(an);
                     }
-                    an.appendChild(document.createTextNode(t));
-                    queriedAnnotations.appendChild(an);
+                    annotationsBox.style.display = 'block';
                 }
-                annotationsBox.style.display = 'block';
 
                 result.innerHTML = encode(rwquery);
 		runButton.disabled = false;

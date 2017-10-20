@@ -35,7 +35,7 @@
    this is related to separated read/write constraints. otherwise we can just use
    get-triple-graphs.
 ** DONE Too many nested lists levels
-** TODO read/write constraints not working on same triple in insert/delete and where blocks
+** TODO read/write constraints doesn't work when the same triple is in insert/delete and where blocks
    DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }
 	
 * instantiation

@@ -1067,7 +1067,7 @@
      . ,(lambda (triple bindings)
           ;; (parameterize ((*in-where?* (in-where?)))
             (let ((graphs (get-triple-graphs triple bindings)))
-              (if (or #f (null? graphs)) ; this seems wrong, once we have different read/write constraints
+              (if (or #t (null? graphs)) ; this seems wrong, once we have different read/write constraints
                   (if (where?) 
                       (apply-read-constraint triple bindings)
                       (apply-write-constraint triple bindings))

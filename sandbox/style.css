@@ -1,8 +1,13 @@
+html {
+    height: 100%;
+}
 body {
     font-family: arial;
     font-size: 14px;
     margin: 0;
-    color: #666
+    color: #666;
+    height: 100%;
+    background: #eee
 }
 .menu {
     width: 100%;
@@ -15,39 +20,49 @@ body {
 }
 .column {
     float: left;
+}
+.row.main {
 
 }
 .column.left {
     width: 30%;
     background: #eee;
+    min-height: 100%;
+    display: table-cell;
 }
 .column.right {
-    width: 70%;
+    width: 66%;
+    min-height: 100%;
+    display: table-cell;
+    background: #fff;
+    padding-bottom: 2em;
+    box-shadow: 5px 5px 5px #ddd
 }
 .column.half {
-    width: 45%;
+    width: 50%;
 }
 .row {
     width: 100%;
     clear: both;
 }
 .panel {
-    padding: 0 4%;
+    padding: 0 6%;
     float: left;
 }
-.right .generate {
-
+.right .generate .column{
     width: 100%;
     height: 7em;
 }
+.right .generate .column .panel {
+    padding: 0 2.5%;
+}
 .panel {
-    width: 92%;
+    width: 88%;
 }
 .right .row {
-    padding-left: 2%
+    /*    padding-left: 2%*/
 }
 .right .panel.results {
-    width: 100%;
     padding-left: 2%;
     display: none;
 }
@@ -72,6 +87,11 @@ h3 small {
     font-size: .7em;
     float: right;
 }
+input {
+    background: #eee;
+    border: 1px solid gray;
+    padding: 8px
+}
 textarea {
     font-size: 1em;
 }
@@ -80,9 +100,11 @@ textarea {
     height: 400px;
     padding: 12px;
     color: #888;
+    background: #eee;
+    border: 1px solid gray;
 }
 .left .panel textarea#write-constraint {
-    background: #eee;
+    background: #ddd;
     height: 40px;
 }
 .right .panel textarea {
@@ -121,10 +143,6 @@ textarea {
 }
 .panel #result.error {
     background: pink 
-}
-
-input {
-    padding: 4px;
 }
 #annotations-box {
     display: none;
