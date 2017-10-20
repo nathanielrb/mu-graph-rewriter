@@ -10,7 +10,7 @@
     for UNIONs we could do a `collect-duplicates-over-union`
     
 ** TODO does rw/union distinguish between false and empty true?
-** TODO OPTIONALS and constraints that *should* be inside them
+** TODO OPTIONALS and update constraints that *should* be inside them
    what about something like this:
    
    #+BEGIN_SRC
@@ -23,11 +23,13 @@
       OPTIONAL { ?s <D> ?dataset . }
     }
    #+END_SRC
+   
    the constraint on ?s <D> ?dataset will be outside of the OPTIONAL statement.
 
    two solutions:
    - instantiate-w/o-union for DELETE queries
    - put DELETE constraints in an OPTIONAL (what about INSERTs... similar logic?)
+     or should it be an OPTIONAL per triple-constraint?
 ** DONE read/write constraints doesn't work when the same triple is in insert/delete and where blocks
    DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }
 	
@@ -169,7 +171,8 @@
     BIND(COUNT(<property>) AS ?count)
    #+END_SRC
    
-** TODO clean up and rename dependency functions for easier code maintenance
+** TODO clean up and rename and document dependency functions for easier code maintenance
+   'cause it's a mess
 * cache keys and annotations
 ** DONE bug: top-level annotation breaks optimizations
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }

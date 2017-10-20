@@ -341,7 +341,6 @@
   (null? (remove annotation? block)))
 
 (define (get-annotations query)
-  (log-message "~%~%YUP: ~A~%"   (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
   (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
 
 ;; subselects/projection?
@@ -353,7 +352,7 @@
      . ,(lambda (block bindings)
           (values
            (match block
-             ((`@Annotation `access key) (list key))
+             ((`@Annotation `access key)  (list key))
              ((`@Annotation `access key var) (list (list key var)))
              (else (error (format "Invalid annotation: ~A" block))))
            bindings)))
@@ -368,10 +367,8 @@
           (rewrite (cddr block) bindings)))
     ((UNION) 
      . ,(lambda (block bindings)
-          (rewrite (cdr block))))
-          ;; (let-values (((rw _) (rewrite (cdr block))))
-          ;;   (log-message "~%zup: ~A~%" rw)
-          ;;   (values (join rw) bindings))))
+          (let-values (((r b) (rewrite (cdr block))))
+            (values r b))))
     (,triple? . ,rw/remove)
     ((VALUES)
      . ,(lambda (block bindings)
@@ -394,11 +391,10 @@
               bindings)))))
     ((@Prologue @Dataset @Using CONSTRUCT SELECT FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
      . ,rw/remove)
-    ((UNION) . ,rw/union) ; ok?
     (,list?
      . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rw/list block bindings)))
-            (let-values (((vals quads) (partition values? (join rw))))
+          (let-values (((rw new-bindings) (rewrite block bindings)))
+            (let-values (((vals quads) (partition values? rw))) ;(join rw))))
               (values (append quads `((*values* ,@(merge-alists (map second vals)))))
                       new-bindings)))))))
 
