@@ -6,7 +6,7 @@ body {
 .menu {
     width: 100%;
     margin: 0;
-    padding: 20px 12px;
+    padding: 20px 1.2%;
     font-size: 18px;
     font-weight: bold;
     color: white;
@@ -23,36 +23,31 @@ body {
 .column.right {
     width: 70%;
 }
+.column.half {
+    width: 45%;
+}
 .row {
     width: 100%;
-    height: 100%;
+    clear: both;
 }
 .panel {
-    padding: 0 18px;
+    padding: 0 4%;
     float: left;
 }
-.right .panel.generate {
+.right .generate {
     background: #cdc;
     width: 100%;
+    height: 4em;
 }
-.left .panel {
-    width: 100%;
+.panel {
+    width: 92%;
 }
 .right .panel {
-    width: 45%;
-    padding-left: 24px;
 }
 .right .panel.results {
-    width: 93%;
+    width: 100%;
+    padding-left: 2%;
     display: none;
-}
-.panel-separator {
-    width: 1%;
-    float: left;
-    font-size: 38px;
-    font-weight: bold;
-    text-align: center;
-    padding: 420px 12px 0 4px;
 }
 h1 {
     padding: 0px 12px 0 12px;
@@ -74,10 +69,14 @@ textarea {
     font-size: 1em;
 }
 .left .panel textarea {
-    width: 93%;
+    width: 100%;
     height: 400px;
     padding: 12px;
     color: gray;
+}
+.left .panel textarea#write-constraint {
+    background: #eee;
+    height: 40px;
 }
 .right .panel textarea {
     width: 100%;
@@ -95,7 +94,7 @@ textarea {
 .panel-box {
     width: 100%;
     height: 500px;
-    background: #cdc;
+    background: #eee;
     border: 1px dotted gray;
     color: gray;
     overflow: auto;

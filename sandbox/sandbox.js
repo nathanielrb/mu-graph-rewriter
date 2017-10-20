@@ -3,6 +3,7 @@ var runButton = document.getElementById('run');
 var query = document.getElementById('query');
 var readConstraint = document.getElementById('read-constraint');
 var writeConstraint = document.getElementById('write-constraint');
+var readwrite = document.getElementById('read-write');
 var fprops = document.getElementById('fprops');
 var result = document.getElementById('result');
 var results = document.getElementById('results');
@@ -18,6 +19,21 @@ function encode(e) {
   return e.replace(/[\<\>\"\^]/g, function(e) {
 	return "&#" + e.charCodeAt(0) + ";";
   });
+}
+
+readwrite.onchange = function(e){ 
+    if(e.target.checked){
+        writeConstraint.value = '';
+        writeConstraint.disabled = true;
+        writeConstraint.style.background = '#eee';
+        writeConstraint.style.height = '40px';
+    }
+    else { 
+        writeConstraint.value = readConstraint.value;
+        writeConstraint.disabled = false;
+        writeConstraint.style.background = '#fff';
+        writeConstraint.style.height = '400px';
+    }
 }
 
 // rewrite query
@@ -75,7 +91,7 @@ button.onclick = function(){
     request.open("POST", "/sandbox", true);
     request.send("query=" + query.value 
                  + "&readconstraint=" + readConstraint.value
-                 + "&writeconstraint=" + writeConstraint.value
+                 + "&writeconstraint=" + (readwrite.checked ? readConstraint.value : writeConstraint.value)
                  + "&fprops=" + fprops.value
                  + "&session-id=" + sessionID.value
                 + "&authorization-insert=" + authorizationInsert.value);

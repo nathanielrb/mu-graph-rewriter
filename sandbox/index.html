@@ -9,11 +9,12 @@
       <div class="title">Constraint Rewriter Sandbox</div>
     </div>
 
+    <div class="row">
     <div class="column left">
 
       <div class="panel constraint" >
 	<h2>Constraints</h2>
-        <p>Use <i>&lt;SESSION_ID&gt;</i> for the 'mu-session-id' header.</p>
+        <p>Use <code>&lt;SESSION_ID&gt;</code> for the 'mu-session-id' header.</p>
         <p>Graphs should be variables (use VALUES or BIND when necessary).</p>
         <h3>Read Constraint</h3>
 	<textarea class="constraint" id="read-constraint">
@@ -35,31 +36,16 @@ WHERE {
 }</textarea> 
 
 </div>
-<div class="panel constraint">
-	<h3>Write Constraint</h3>
+      <div class="panel constraint">
+	<h3>Write Constraint <small><input checked=true type="checkbox" id="read-write"/>Same as read constraint</small></h3>
 	<textarea class="constraint" id="write-constraint">
-prefix g: <http://mu.semte.ch/school/graphs/>
-prefix foaf: <http://xmlns.com/foaf/0.1/>
-
-CONSTRUCT {
-  ?a ?b ?c
-}
-WHERE {
-  GRAPH ?graph { 
-    ?a ?b ?c .
-    ?a a ?type
-  }
-  VALUES (?graph ?type) {
-    (g:classes school:Class) 
-    (g:people foaf:Person) 
-  }
-}</textarea>
-</div>
-<div class="panel">
+        </textarea>
+      </div>
+      <div class="panel">
 	<h2>Optimizations</h2>
 	<h3>Functional properties</h3><p> <input type="text" id="fprops" value="rdf:type"/></p>
-</div>
-<div class="panel auth">
+      </div>
+      <div class="panel auth">
   <h2>Insert Authorization Triples</h2>
   <pre>
 INSERT DATA {
@@ -74,34 +60,43 @@ INSERT DATA {
 </div>
 </div>
 <div class="column right">
-<div class="panel generate">
-  <p><b>Generate model</b> using session_id "root":
-
-    <button id="generate">Generate</button>        
-    <a id="preview" href="/preview">Preview Model &raquo;</a>
-    </p>
+  <div class="row generate">
+    <div class="column half">
+      <div class="panel">
+        <p><b>Generate model</b> with <code>&lt;SESSION_ID&gt; = "root"</code>
+          <button id="generate">Generate</button>        
+          <a id="preview" href="/preview">Preview Model &raquo;</a>
+        </p>
       </div>
-
-
-`  <div class="panel">
-<h2>Queries</h2>
-    <p>Using SESSION_ID <select id="session-id"><option>root</option><option>user01-session</option><option>user02-session</option></select></p>
+    </div>
+    <br style="clear"/>  
   </div>
-<br class="clear"/>
+
+  <div class="row">
+    <div class="column half">
+      <div class="panel">
+        <h2>Queries</h2>
+        <p>Using SESSION_ID <select id="session-id"><option>root</option><option>user01-session</option><option>user02-session</option></select></p>
+      </div>
+    </div>
+    <br class="clear"/>
+    <div class="column half">
       <div class="panel query">
-	<h3>Query <small><button name="rewrite" id="rewrite">Rewrite</button></small></h3>
-	<textarea id="query">
+        <h3>Query <small><button name="rewrite" id="rewrite">Rewrite</button></small></h3>
+        <textarea id="query">
 SELECT *
 WHERE {
   ?s ?p ?o
 }
-	</textarea>
+        </textarea>
       </div>
+    </div>
+    <div class="column half">
       <div class="panel result">
-	<h3>Rewritten Query <small><button name="run" id="run" disabled=true>Run</button></small></h3>
+        <h3>Rewritten Query <small><button name="run" id="run" disabled=true>Run</button></small></h3>
         <div class="panel-box">
-	  <pre id="result">
-	  </pre>
+          <pre id="result">
+          </pre>
           <div id="annotations-box">
             <h3>Query Annotations</h3>
             <ul id="annotations"></ul>
@@ -110,17 +105,19 @@ WHERE {
           </div>
         </div>
       </div>
-
-      <div class="panel results">
-	<h2>Query Results</h2>
-	<textarea id="results" disabled=true></textarea>
-      </div>
     </div>
+  </div>
+  
+  <div class="panel results">
+    <h2>Query Results</h2>
+    <textarea id="results" disabled=true></textarea>
+  </div>
+</div>
 
-    <br class="clear"/>
-
-    </div>
-    <script type="text/javascript" src="/sandbox/sandbox.js"></script>
-  </body>
+<br class="clear"/>
+</div>
+</div>
+<script type="text/javascript" src="/sandbox/sandbox.js"></script>
+</body>
 </html>
 
