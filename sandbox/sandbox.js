@@ -5,9 +5,10 @@ var readConstraint = document.getElementById('read-constraint');
 var writeConstraint = document.getElementById('write-constraint');
 var readwrite = document.getElementById('read-write');
 var fprops = document.getElementById('fprops');
+var resultPanel = document.querySelector('.panel-box');
 var result = document.getElementById('result');
-var results = document.getElementById('results');
 var resultsPanel = document.querySelector('.results');
+var results = document.getElementById('results');
 var rwquery = false;
 var annotationsBox = document.getElementById('annotations-box');
 var annotations = document.getElementById('annotations');
@@ -50,7 +51,7 @@ button.onclick = function(){
 	    if(request.status === 200) { 
 		console.log('200');
 		var jr = JSON.parse(e.target.responseText);
-		result.className = 'filled';
+		resultPanel.className = 'panel-box filled';
                 rwquery =  jr.rewrittenQuery.trim();
 
                 var a, an;
