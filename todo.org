@@ -105,7 +105,7 @@
    then run query
 
 ** TODO is it possible to do something similar for `?type`?
-** TODO bug: functional properties incorrect for types in OPTIONALS and UNIONS
+** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
 ** TODO FILTER dependencies
    what should the dependencies of FILTER( ?b != mu:uuid ) be??

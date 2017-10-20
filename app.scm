@@ -341,7 +341,7 @@
   (null? (remove annotation? block)))
 
 (define (get-annotations query)
-  (log-message "YUP: ~A~%"   (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
+  (log-message "~%~%YUP: ~A~%"   (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
   (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
 
 ;; subselects/projection?
@@ -395,17 +395,10 @@
     ((@Prologue @Dataset @Using CONSTRUCT SELECT FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
      . ,rw/remove)
     ((UNION) . ,rw/union) ; ok?
-     ;; . ,(lambda (block bindings)
-     ;;      (values (join (map (cut rewrite <> bindings) (cdr block))) 
-     ;;              bindings)))
     (,list?
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rw/list block bindings)))
             (let-values (((vals quads) (partition values? (join rw))))
-              (log-message "~%rw: ~A~%" rw)
-              (log-message "~%quads: ~A~%" quads)
-              (log-message "~%VAOLS: ~A~%" vals)
-              (log-message "~%=> ~A~%"  (append (list quads) `((*values* ,@(merge-alists (map second vals))))))
               (values (append quads `((*values* ,@(merge-alists (map second vals)))))
                       new-bindings)))))))
 
@@ -1065,16 +1058,15 @@
 (define triples-rules
   `((,triple? 
      . ,(lambda (triple bindings)
-          ;; (parameterize ((*in-where?* (in-where?)))
-            (let ((graphs (get-triple-graphs triple bindings)))
-              (if (or #t (null? graphs)) ; this seems wrong, once we have different read/write constraints
-                  (if (where?) 
-                      (apply-read-constraint triple bindings)
-                      (apply-write-constraint triple bindings))
-		  (values
-		   (if (where?) '() 
-                       `((*REWRITTEN* ,@(list triple))))
-		   bindings)))))
+          (let ((graphs (get-triple-graphs triple bindings)))
+            (if (or #t (null? graphs)) ; this seems wrong, once we have different read/write constraints,
+                (if (where?)           ; so I turned it off... but is optimize-duplicates enough?
+                    (apply-read-constraint triple bindings)
+                    (apply-write-constraint triple bindings))
+                (values
+                 (if (where?) '() 
+                     `((*REWRITTEN* ,@(list triple))))
+                 bindings)))))
     (,annotation? . ,rw/copy)
     (,list? . ,rw/copy)))
 
@@ -1622,7 +1614,7 @@
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
             (if (fail? rw) (values (list #f) new-bindings)
-                (values `(,@(filter subs? rw)
+                (values `(;,@(filter subs? rw) ; can we just take this out? or needs more thinking...
                           (,(car block) ,@(join (filter quads? rw))))
                         new-bindings)))))
     (,triple? 
