@@ -10,7 +10,11 @@
     for UNIONs we could do a `collect-duplicates-over-union`
     
 ** TODO does rw/union distinguish between false and empty true?
-** TODO OPTIONALS and update constraints that *should* be inside them
+** DONE duplicates in OPTIONAL constraints
+   do level-quads and the whole bit on appending constraints
+** DONE simplify duplicate VALUES as well as quads
+   ... possibl?elo
+** DONE OPTIONALS and update constraints that *should* be inside them
    what about something like this:
    
    #+BEGIN_SRC
@@ -114,8 +118,6 @@
     though this begs the question of whether functional properties apply to triples
     or quads
 
-** DONE simplifying in OPTIONAL constraints
-   do level-quads and the whole bit on appending constraints
 ** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
 ** TODO FILTER dependencies

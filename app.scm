@@ -1546,14 +1546,6 @@
              (if inner (loop (cdr quads) (append (alist-ref 'props inner) props) (append (alist-ref 'subs inner) subs)) #f)))
           (else (loop (cdr quads) props subs))))))
 
-;; (define (optimize-duplicates block)
-;;    (lset-difference equal?
-;;      (delete-duplicates 
-;;       (group-graph-statements
-;;        (reorder
-;;         (filter pair? block))))
-;;      (level-quads)))
-
 (define collect-level-quads-rules
   `(((GRAPH)
      . ,(lambda (block bindings)
@@ -1564,7 +1556,9 @@
                     (cons graph triple))
                   (filter triple? rest)) ; not quite right; what about GRAPH ?g1 { GRAPH ?g2 { s p o } } ?
              bindings)))))
+    ((VALUES BIND FILTER) . ,rw/copy)
     (,list? . ,rw/remove)))
+
 
 (define (collect-level-quads block)
   (rewrite block '() collect-level-quads-rules))
@@ -1614,16 +1608,24 @@
     ((*subs*) . ,rw/copy)
     ((VALUES) 
      . ,(lambda (block bindings)
-          (match block
-            ((`VALUES vars . vals)
-             (values
-              (list (simplify-values (map replace-fprop vars) vals bindings))
-              bindings)))))
+          (if (member block (last-level-quads))
+              (values '() bindings)
+              (match block
+                     ((`VALUES vars . vals)
+                      (values
+                       (list (simplify-values (map replace-fprop vars) vals bindings))
+                       bindings))))))
     ((FILTER) 
      . ,(lambda (block bindings)
-          (let ((subs (alist-ref 'subs (fprops))))
-            (validate-filter (replace-variables block subs) bindings))))
-    ((BIND) . ,rw/copy) ;;?
+          (if (member block (last-level-quads))
+              (values '() bindings)
+              (let ((subs (alist-ref 'subs (fprops))))
+                (validate-filter (replace-variables block subs) bindings)))))
+    ((BIND) 
+     . ,(lambda (block bindings)
+          (if (member block (last-level-quads))
+              (values '() bindings)
+              (values (list block) bindings)))) ; enough?
     ((GRAPH)
      . ,(lambda (block bindings)
           (parameterize ((optimizations-graph (second block)))
@@ -1654,10 +1656,11 @@
     (,quads-block? 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
-            (if (fail? rw) (values (list #f) new-bindings)
-                (values `(;,@(filter subs? rw) ; can we just take this out? or needs more thinking...
-                          (,(car block) ,@(join (filter quads? rw))))
-                        new-bindings)))))
+            (cond ((fail? rw) (values (list #f) new-bindings))
+                  ((null? rw) (values '() new-bindings))
+                  (else
+                   (values `((,(car block) ,@(join (filter quads? rw))))
+                           new-bindings))))))
     (,triple? 
      . ,(lambda (triple bindings)
           (if (member (cons (optimizations-graph) triple) (last-level-quads))
