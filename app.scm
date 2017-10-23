@@ -1059,7 +1059,7 @@
                 (if (where?)           ; so I turned it off... but is optimize-duplicates enough?
                     (apply-read-constraint triple bindings)
                     (apply-write-constraint triple bindings))
-                (values
+                (values ; not used!
                  (if (where?) '() 
                      `((*REWRITTEN* ,@(list triple))))
                  bindings)))))
@@ -1140,17 +1140,17 @@
                              (expand-triples (cdr block)))))
                (let-values (((rw new-bindings) (rewrite triples bindings)))
                  (let* ((constraints (filter (compose not fail?) rw))
-                        (constraints (if (equal? (length constraints) 1)
+                        (constraints (if (equal? (length constraints) 1) ; what's this?
                                          (car constraints)
-                                         `((UNION ,@constraints)))))
-                   (let ((graphs (find-triple-graphs (list a b c) constraints)))
+                                         `((UNION ,@constraints))))) ; and this?
+                   (let ((graphs (find-triple-graphs (list a b c) constraints))) ; is this still used?
                      (if (where?)
                          (values `((*REWRITTEN* ,@constraints)) 
                                  (update-triple-graphs graphs (list a b c) 
                                                        new-bindings))
                          (values
                           `((*REWRITTEN* (,a ,b ,c)))
-                          (fold-binding constraints 
+                          (fold-binding `((OPTIONAL ,@constraints ))
                                         (if (insert?) 'insert-constraints 'delete-constraints)
                                         append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
@@ -1481,10 +1481,6 @@
             (let* ((paths (get-binding 'dependency-paths new-bindings))
                    (source? (lambda (var) (member var bound-vars)))
                    (sink? (lambda (x) (member x (get-binding/default 'constraint-graphs new-bindings '())))))
-              (log-message "~%Paths: ~A => ~A => ~A~%" 
-                           paths
-                           (minimal-dependency-paths source? sink? paths)
-                           (concat-dependency-paths (minimal-dependency-paths source? sink? paths)))
               (values
                (concat-dependency-paths (minimal-dependency-paths source? sink? paths))
                bindings)))))
@@ -1550,9 +1546,40 @@
              (if inner (loop (cdr quads) (append (alist-ref 'props inner) props) (append (alist-ref 'subs inner) subs)) #f)))
           (else (loop (cdr quads) props subs))))))
 
+;; (define (optimize-duplicates block)
+;;    (lset-difference equal?
+;;      (delete-duplicates 
+;;       (group-graph-statements
+;;        (reorder
+;;         (filter pair? block))))
+;;      (level-quads)))
+
+(define collect-level-quads-rules
+  `(((GRAPH)
+     . ,(lambda (block bindings)
+          (match block
+           ((`GRAPH graph . rest)
+            (values
+             (map (lambda (triple)
+                    (cons graph triple))
+                  (filter triple? rest)) ; not quite right; what about GRAPH ?g1 { GRAPH ?g2 { s p o } } ?
+             bindings)))))
+    (,list? . ,rw/remove)))
+
+(define (collect-level-quads block)
+  (rewrite block '() collect-level-quads-rules))
+
+(define this-level-quads (make-parameter '()))
+
+(define last-level-quads (make-parameter '()))
+
 (define (optimize-list block bindings)
-  (parameterize ((fprops (collect-fprops block)))
-    (if (fprops)
+  (let ((saved-llq (last-level-quads)) ; a bit... awkward
+        (saved-tlq (this-level-quads))) 
+  (parameterize ((fprops (collect-fprops block))
+                 (last-level-quads (this-level-quads))
+                 (this-level-quads (append (last-level-quads)  (collect-level-quads block))))
+     (if (fprops)
         (let-values (((rw new-bindings) (rw/list (filter quads? block) bindings)))
           (cond ((fail? rw) (values (list #f) new-bindings)) ; duplicate #f check... which one is correct?
                 ((or (equal? (map (cut filter quads? <>) rw)
@@ -1560,10 +1587,14 @@
                      (equal? rw '(#f)))
                  (values rw new-bindings))
                 (else (let ((fp (fprops))) ; ?
-                        (parameterize ((fprops (collect-fprops rw)))
+                        (parameterize ((fprops (collect-fprops rw)) 
+                                       (this-level-quads saved-tlq)
+                                       (last-level-quads saved-llq))
                           (let-values (((rw2 nb2) (rewrite rw new-bindings)))
                             (values (append-subs rw2) nb2)))))))
-        (values (list #f) bindings))))
+        (values (list #f) bindings))) ) )
+
+(define optimizations-graph (make-parameter #f))
 
 (define optimization-rules
   `(((@UpdateUnit @QueryUnit @Update @Query) . ,rw/continue)
@@ -1595,8 +1626,11 @@
     ((BIND) . ,rw/copy) ;;?
     ((GRAPH)
      . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
-            (values `((GRAPH ,(second block) ,@(delete-duplicates rw))) new-bindings))))
+          (parameterize ((optimizations-graph (second block)))
+            (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
+              (let ((rw (delete-duplicates rw)))
+                (if (null? rw) (values '() new-bindings)
+                    (values `((GRAPH ,(second block) ,@rw)) new-bindings)))))))
     ((UNION) ;; . ,rw/union)
      . ,(lambda (block bindings)
           (let ((rw (filter values (map (cut rewrite <> bindings) (map list (cdr block)))) ))
@@ -1626,7 +1660,9 @@
                         new-bindings)))))
     (,triple? 
      . ,(lambda (triple bindings)
-          (values (list (map replace-fprop triple)) bindings)))
+          (if (member (cons (optimizations-graph) triple) (last-level-quads))
+              (values '() bindings)
+              (values (list (map replace-fprop triple)) bindings))))
     (,list? . ,optimize-list)
     (,symbol? . ,rw/copy)))
 
@@ -1713,7 +1749,7 @@
      . ,(lambda (block bindings)
 	  (let-values (((rw new-bindings) (rewrite (list (cdr block)) bindings)))
             (if (fail? rw) (values (list #f) new-bindings)
-                (values `((,(car block) ,@rw)) new-bindings)))))
+                (values `((,(car block) ,@(join rw))) new-bindings)))))
     ((FILTER)
      . ,(lambda (block bindings)
     	  (match block

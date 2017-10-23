@@ -30,6 +30,8 @@
    - instantiate-w/o-union for DELETE queries
    - put DELETE constraints in an OPTIONAL (what about INSERTs... similar logic?)
      or should it be an OPTIONAL per triple-constraint?
+** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
+   possible?
 ** DONE read/write constraints doesn't work when the same triple is in insert/delete and where blocks
    DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }
 	
@@ -112,6 +114,8 @@
     though this begs the question of whether functional properties apply to triples
     or quads
 
+** DONE simplifying in OPTIONAL constraints
+   do level-quads and the whole bit on appending constraints
 ** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
 ** TODO FILTER dependencies
