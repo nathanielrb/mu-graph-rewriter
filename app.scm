@@ -1559,7 +1559,6 @@
     ((VALUES BIND FILTER) . ,rw/copy)
     (,list? . ,rw/remove)))
 
-
 (define (collect-level-quads block)
   (rewrite block '() collect-level-quads-rules))
 
@@ -1631,11 +1630,14 @@
           (parameterize ((optimizations-graph (second block)))
             (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
               (let ((rw (delete-duplicates rw)))
-                (if (null? rw) (values '() new-bindings)
+                (if (nulll? rw) (values '() new-bindings)
                     (values `((GRAPH ,(second block) ,@rw)) new-bindings)))))))
     ((UNION) ;; . ,rw/union)
      . ,(lambda (block bindings)
-          (let ((rw (filter values (map (cut rewrite <> bindings) (map list (cdr block)))) ))
+          (log-message "~%doing the union~%~A~% with fprops~% ~A~%" block (fprops))
+          ;; (let ((rw (filter values (map (cut rewrite <> bindings) (map list (cdr block)))) ))
+          (let ((rw (filter values (map (cut optimize-list <> bindings) (cdr block)))))
+            (log-message "~%which got us:~%~A~%" rw)
             (let* ((nss (map second (map car (filter pair? (map (cut filter subs? <>) rw)))))
                    (new-subs (if (null? nss) '() (apply lset-intersection equal? nss)))
                    (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))) ; * !!
@@ -1657,7 +1659,7 @@
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
             (cond ((fail? rw) (values (list #f) new-bindings))
-                  ((null? rw) (values '() new-bindings))
+                  ((nulll? rw) (values '() new-bindings))
                   (else
                    (values `((,(car block) ,@(join (filter quads? rw))))
                            new-bindings))))))

@@ -10,6 +10,8 @@
     for UNIONs we could do a `collect-duplicates-over-union`
     
 ** TODO does rw/union distinguish between false and empty true?
+** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
+   possible?
 ** DONE duplicates in OPTIONAL constraints
    do level-quads and the whole bit on appending constraints
 ** DONE simplify duplicate VALUES as well as quads
@@ -34,8 +36,6 @@
    - instantiate-w/o-union for DELETE queries
    - put DELETE constraints in an OPTIONAL (what about INSERTs... similar logic?)
      or should it be an OPTIONAL per triple-constraint?
-** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
-   possible?
 ** DONE read/write constraints doesn't work when the same triple is in insert/delete and where blocks
    DELETE { ?s ?p ?o } WHERE { ?s ?p ?o }
 	
@@ -108,7 +108,7 @@
    then run query
 
 ** TODO is it possible to do something similar for `?type`?
-** TODO big minor problem: what if SELECT ?type and ?type is optimized?
+** TODO big minor problem: what if we're selecting ?type and ?type is optimized?
    silly example, but could there be realistic examples of this?
    select ?t where { ?s a ?t . ?s a <school> }
 ** TODO functional property optimization should introspect into GRAPHs
