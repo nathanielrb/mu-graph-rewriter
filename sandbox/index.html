@@ -37,13 +37,13 @@ WHERE {
 
 </div>
       <div class="panel constraint">
-	<h3>Write Constraint <small><input checked=true type="checkbox" id="read-write"/>Same as read constraint</small></h3>
+	<h3>Write Constraint <small><input checked=true type="checkbox" id="read-write"/>Same as Read Constraint</small></h3>
 	<textarea class="constraint" id="write-constraint" disabled=true>
         </textarea>
       </div>
       <div class="panel">
 	<h2>Optimizations</h2>
-	<h3>Functional properties</h3><p> <input type="text" id="fprops" value="rdf:type"/></p>
+	<h3>Functional properties</h3><p>Comma or space separated list</p><p> <input type="text" id="fprops" value="rdf:type"/></p>
       </div>
       <div class="panel auth">
   <h2>Authorization and Login</h2>
@@ -52,14 +52,14 @@ INSERT DATA {
   GRAPH &lt;http://mu.semte.ch/authorization&gt; {
 </pre>
   <textarea class="auth" id="authorization-insert">
-<user0> <loggedInSesson> "root-session".
-<user0> <isRoot> true.
+<rootSession> mu:uuid "root-session";
+              mu:account <http://mu.semte.ch/users/root>.
 
-<user1> <loggedInSession> "user01-session".
-<user1> <isUser> <http://mu.semte.ch/school/123>.
+<user01Session> mu:uuid "user01-session";
+                mu:account <http://mu.semte.ch/users/user01>.
 
-<user2> <loggedInSession> "user02-session".
-<user1> <isUser> <http://mu.semte.ch/school/456>.
+<user02Session> mu:uuid "user02-session";
+                mu:account <http://mu.semte.ch/users/user02>.
 </textarea>
 <pre>
   }
@@ -70,9 +70,9 @@ INSERT DATA {
   <div class="row generate">
     <div class="column ">
       <div class="panel">
-        <h2>Generate Model</h2>
-        <p><button id="generate" disabled=true>Generate Model</button>  with <code>&lt;SESSION_ID&gt; = "root-session"</code>
-          <a id="preview" href="/preview">Preview Model &raquo;</a>
+        <h2>Apply Model</h2>
+        <p>Apply Constraints and ...</p>
+        <p><button name="model" id="model">Apply</button> <a id="preview" href="/preview">Sample Application &raquo;</a></p>
         </p>
       </div> <!-- .panel -->
     </div>   <!-- .column.half -->

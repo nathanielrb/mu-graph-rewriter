@@ -98,6 +98,9 @@
 
 * optimizations
 ** TODO query subselects
+   note that this also supposes that functional property optimization works
+   over subselects (is this the case?)
+
    what about
    
    (*subselect-vars* '(?graph))

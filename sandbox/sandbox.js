@@ -1,5 +1,7 @@
 var button = document.getElementById('rewrite');
 var runButton = document.getElementById('run');
+var modelButton = document.getElementById('model');
+var viewModel =  document.getElementById('preview');
 var query = document.getElementById('query');
 var readConstraint = document.getElementById('read-constraint');
 var writeConstraint = document.getElementById('write-constraint');
@@ -125,4 +127,35 @@ runButton.onclick = function(){
 	request.open("POST", "/proxy", true);
 	request.send(rwquery);
     }
-}
+};
+
+modelButton.onclick = function(){
+    var request = new XMLHttpRequest();
+    request.onreadystatechange = function(e) {
+	if(request.readyState === 4) {
+            result.className = '';
+	    results.value = '';
+            resultsPanel.style.display = "none";
+            annotations.innerHTML = '';
+            queriedAnnotations.innerHTML = '';
+            annotationsBox.style.display = 'none';
+
+	    if(request.status === 200) { 
+		console.log('200');
+                jr = JSON.parse(e.target.responseText);
+                alert(jr.endpoint);
+                preview.style.display="inline";
+	    } else {
+		// result.value = 'Error';
+                preview.style.display="none";
+                alert('model error');
+	    } 
+	}
+    }
+    request.open("POST", "/model", true);
+    request.send("&readconstraint=" + readConstraint.value
+                 + "&writeconstraint=" + (readwrite.checked ? readConstraint.value : writeConstraint.value)
+                 + "&fprops=" + fprops.value
+                 + "&session-id=" + sessionID.value
+                + "&authorization-insert=" + authorizationInsert.value);
+};

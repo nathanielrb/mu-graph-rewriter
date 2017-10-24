@@ -468,7 +468,7 @@
                                        (list (first annotation) val)
                                        '()))))
                               pairs row)))
-                       (sparql-select (write-sparql annotations-query))))))))))
+                       (sparql-select (write-sparql annotations-query)))))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 
@@ -2196,7 +2196,8 @@
 (define (log-results result)
   (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result)))))
 
-(define (rewrite-call _)
+(define (rewrite-call)
+  (lambda (_)
   (let* (($$query (request-vars source: 'query-string))
          (body (read-request-body))
          ($$body (let ((parsed-body (form-urldecode body)))
@@ -2250,14 +2251,14 @@
                    (let ((headers (headers->list (response-headers response))))
                      (log-results result)
                      (mu-headers headers)
-                     result)))))))
+                     result))))))))
 
          
           
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification
-(define-rest-call 'GET '("sparql") rewrite-call)
-(define-rest-call 'POST '("sparql") rewrite-call)
+(define-rest-call 'GET '("sparql") (rewrite-call))
+(define-rest-call 'POST '("sparql") (rewrite-call))
 
 (define-namespace rewriter "http://mu.semte.ch/graphs/")
 
@@ -2362,6 +2363,38 @@
           (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
 
+;((*write-constraint*))
+
+(define (model-call _)
+  (let* ((body (read-request-body))
+         ($$body (let ((parsed-body (form-urldecode body)))
+                   (lambda (key)
+                     (and parsed-body (alist-ref key parsed-body)))))
+	 (read-constraint-string ($$body 'readconstraint))
+	 (write-constraint-string ($$body 'writeconstraint))
+	 (read-constraint (parse-constraint read-constraint-string))
+	 (write-constraint (parse-constraint write-constraint-string))
+	 (fprops (map string->symbol
+		      (string-split (or ($$body 'fprops) "") ", ")))
+         (authorization-insert ($$body 'authorization-insert)))
+
+    (define-constraint 
+      'write
+     (lambda ()
+       (irregex-replace/all "<SESSION_ID>" write-constraint (header 'mu-session-id))))
+
+    (define-constraint
+      'read
+     (lambda ()
+       (irregex-replace/all "<SESSION_ID>" read-constraint (header 'mu-session-id))))
+    (let ((endpoint (symbol->string (gensym 'sparql))))
+      (define-rest-call 'POST `(,endpoint)  (rewrite-call))
+      (*functional-properties* fprops)
+      (sparql-update "DROP ALL")
+      (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert)
+      `((success .  "true")
+        (endpoint . ,endpoint)))))
+
 (define (format-queried-annotations queried-annotations)
   (list->vector
    (map (lambda (annotation)
@@ -2383,6 +2416,8 @@
         annotations)))
 
 (define-rest-call 'POST '("sandbox") sandbox-call)
+
+(define-rest-call 'POST '("model") model-call)
 
 (define-rest-call 'POST '("proxy")
   (lambda (_)
