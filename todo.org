@@ -8,6 +8,8 @@
 ** TODO simplifying over UNIONs
     generalize optimize-duplicates, group-graph-statements et al.
     for UNIONs we could do a `collect-duplicates-over-union`
+
+    though this might be too complicated given we're dealing with quads.
     
 ** TODO does rw/union distinguish between false and empty true?
 ** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads

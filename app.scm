@@ -2225,7 +2225,7 @@
 
           (plet-if (not (update-query? query))
                    ((potential-graphs (handle-exceptions exn
-                                          (begin (log-message "~%Error getting potential graphs: ~A~%" exn) 
+                                          (begin (log-message "~%Error getting potential graphs or annotations: ~A~%" exn) 
                                                  #f)
                                         (cond ((*calculate-potential-graphs?*)
                                                (get-all-graphs rewritten-query))
@@ -2358,24 +2358,6 @@
         `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
           (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
-
-;; (define (query-time-annotations annotations)
-;;   (log-message "~%qt annotations ~A~%" annotations)
-;;    (let-values (((vals as) (partition values? annotations))) ; or do with find/member/..
-;;      (log-message "vals/as: ~A /// ~A~%" vals as)
-;;      (let ((vals (and (not (null? vals)) (cadar vals)))) ; a bit too specific
-;;        (log-message "q-time-annotations vals: ~A~%" vals)
-;;       (map (lambda (a)
-;;              (log-message "~%doing ~A~%" a)
-;;              (if (pair? a)
-;;                  (match a
-;;                    ((key var)
-;;                     (log-message "searching for ~A in ~A~%" var vals)
-;;                     (let ((vs (alist-ref var vals)))
-;;                       (if vs `(,key ,(string->symbol (string-join (map symbol->string vs)))) a)))) ; CHEATING :-)
-;;                  a))
-;;            as))))
-
 
 (define (format-queried-annotations queried-annotations)
   (list->vector
