@@ -367,8 +367,11 @@
           (rewrite (cddr block) bindings)))
     ((UNION) 
      . ,(lambda (block bindings)
-          (let-values (((r b) (rewrite (cdr block))))
-            (values r b))))
+          (let-values (((rw b) (rewrite (cdr block))))
+            (let ((vals (apply merge-alists (map second (filter values? rw))))
+                  (quads (filter (compose not values?) rw)))
+            (values (append quads `((*values* ,vals)))
+                    b)))))
     (,triple? . ,rw/remove)
     ((VALUES)
      . ,(lambda (block bindings)
@@ -382,7 +385,7 @@
                       (map (lambda (vallst)
                              (map (lambda (var val)
                                     (list var val))
-                                  vars vallst))
+                                  vars vallst)) 
                            vals))))
                   `((*values*
                      ,(map (lambda (val)
@@ -394,9 +397,19 @@
     (,list?
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite block bindings)))
-            (let-values (((vals quads) (partition values? rw))) ;(join rw))))
-              (values (append quads `((*values* ,@(merge-alists (map second vals)))))
-                      new-bindings)))))))
+            (let-values (((vals annotations) (partition values? rw))) ; generalize this
+              (let ((merged-vals (apply merge-alists (map second vals))))
+              (values (append (map (lambda (a)
+                                     (update-annotation-values a merged-vals))
+                                   annotations)
+                              `((*values* ,merged-vals)))
+                      new-bindings))))))))
+
+(define (update-annotation-values annotation valss)
+  (match annotation
+    ((key var)
+     `(,key ,var ,(alist-ref var valss)))
+    (else annotation)))
 
 ;; merges alists whose values must be lists
 ;; e.g., '((a . (1 2 3))) '((a . (4)))
@@ -2324,21 +2337,30 @@
           (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
 
+;; (define (query-time-annotations annotations)
+;;   (log-message "~%qt annotations ~A~%" annotations)
+;;    (let-values (((vals as) (partition values? annotations))) ; or do with find/member/..
+;;      (log-message "vals/as: ~A /// ~A~%" vals as)
+;;      (let ((vals (and (not (null? vals)) (cadar vals)))) ; a bit too specific
+;;        (log-message "q-time-annotations vals: ~A~%" vals)
+;;       (map (lambda (a)
+;;              (log-message "~%doing ~A~%" a)
+;;              (if (pair? a)
+;;                  (match a
+;;                    ((key var)
+;;                     (log-message "searching for ~A in ~A~%" var vals)
+;;                     (let ((vs (alist-ref var vals)))
+;;                       (if vs `(,key ,(string->symbol (string-join (map symbol->string vs)))) a)))) ; CHEATING :-)
+;;                  a))
+;;            as))))
+
 (define (query-time-annotations annotations)
-   (let-values (((vals as) (partition values? annotations))) ; or do with find/member/..
-     (log-message "vals/as: ~A ~A~%" vals as)
-     (let ((vals (and (not (null? vals)) (cadar vals)))) ; a bit too specific
-       (log-message "q-time-annotations vals: ~A~%" vals)
-      (map (lambda (a)
-             (log-message "~%doing ~A~%" a)
-             (if (pair? a)
-                 (match a
-                   ((key var)
-                    (log-message "searching for ~A in ~A~%" var vals)
-                    (let ((vs (alist-ref var vals)))
-                      (if vs `(,key ,(string->symbol (string-join (map symbol->string vs)))) a)))) ; CHEATING :-)
-                 a))
-           as))))
+  (map (lambda (a)
+         (match a
+                ((key var vals)
+                 `(,key ,(string->symbol (string-join (map symbol->string vals)))))
+                (else a)))
+       (remove values? annotations)))
 
 (define (format-queried-annotations queried-annotations)
   (list->vector

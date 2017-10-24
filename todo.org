@@ -220,6 +220,8 @@
 * little things
 ** TODO Fix $query and make it like (headers)
 * sandbox
+** TODO save constraints and queries
+   like Postman
 ** DONE implement separate read/write constraints
 * temp graphs
 ** TODO handle FILTER NOT EXISTS
