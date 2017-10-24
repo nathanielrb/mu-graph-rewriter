@@ -180,7 +180,11 @@
 ** TODO clean up and rename and document dependency functions for easier code maintenance
    'cause it's a mess
 * cache keys and annotations
-** TODO bug: VALUES + UNIONS gives wrong results
+** TODO get values from FILTER and BIND
+** DONE bug: VALUES + UNIONS gives wrong results for queried annotations
+   same as below... need to *filter* queried results through rewrite-time values
+
+** DONE bug: VALUES + UNIONS gives wrong results at rewrite time
    CONSTRUCT {
      ?a ?b ?c
    }

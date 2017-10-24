@@ -341,11 +341,15 @@
   (null? (remove annotation? block)))
 
 (define (get-annotations query)
-  (delete-duplicates (rewrite (list query) '() get-annotations-rules)))
+  (delete-duplicates (rewrite-query query (get-annotations-rules))))
 
 ;; subselects/projection?
-(define get-annotations-rules
-  `(((@QueryUnit @UpdateUnit @Query @Update WHERE OPTIONAL)
+(define (get-annotations-rules)
+  `(((@QueryUnit @UpdateUnit)
+     . ,(lambda (block bindings)
+          (let-values (((rw b) (rewrite (cdr block) bindings)))
+            (values (list rw) b))))
+    ((@Query @Update WHERE OPTIONAL)
      . ,(lambda (block bindings)
           (rewrite (cdr block) bindings)))
     (,annotation? 
@@ -384,12 +388,13 @@
                       merge-alists
                       (map (lambda (vallst)
                              (map (lambda (var val)
-                                    (list var val))
+                                    (list var
+                                          (expand-namespace val (append (*namespaces*) (query-namespaces)))))
                                   vars vallst)) 
                            vals))))
                   `((*values*
                      ,(map (lambda (val)
-                             (,vars ,val)))
+                             (,vars ,(expand-namespace val))))
                      vals)))
               bindings)))))
     ((@Prologue @Dataset @Using CONSTRUCT SELECT FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
@@ -428,6 +433,16 @@
 (define (values? exp)
   (and (pair? exp) (equal? (car exp) '*values*)))
 
+
+(define (query-time-annotations annotations)
+  (map (lambda (a)
+         (match a
+                ((key var vals)
+                 `(,key ,(string->symbol (string-join (map symbol->string vals)))))
+                (else a)))
+       (remove values? annotations)))
+
+;; filter through values with rdf-equal?
 (define (query-annotations annotations query)
   (let-values (((pairs singles) (partition pair? annotations)))
     (let ((pairs (remove values? pairs)))
@@ -437,11 +452,20 @@
                  (rewrite-query 
                   query 
                   (query-annotations-rules (delete-duplicates (map second pairs))))))
-            (append singles
-                    (join (map (lambda (row)
-                                 (map (lambda (key var) (list (first key) (cdr var)))
-                                      pairs row))
-                               (sparql-select (write-sparql annotations-query))))))))))
+            (join
+             (map (lambda (row)
+                    (filter pair?
+                         (map (lambda (annotation binding)
+                                (match binding
+                                  ((var . val)
+                                   (if (and (equal? (->string var)
+                                                    (substring (->string (second annotation)) 1))
+                                            (or (null? (cddr annotation))
+                                                (member val (third annotation))))
+                                       (list (first annotation) val)
+                                       '()))))
+                              pairs row)))
+                       (sparql-select (write-sparql annotations-query))))))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 
@@ -1647,10 +1671,8 @@
                     (values `((GRAPH ,(second block) ,@rw)) new-bindings)))))))
     ((UNION) ;; . ,rw/union)
      . ,(lambda (block bindings)
-          (log-message "~%doing the union~%~A~% with fprops~% ~A~%" block (fprops))
           ;; (let ((rw (filter values (map (cut rewrite <> bindings) (map list (cdr block)))) ))
           (let ((rw (filter values (map (cut optimize-list <> bindings) (cdr block)))))
-            (log-message "~%which got us:~%~A~%" rw)
             (let* ((nss (map second (map car (filter pair? (map (cut filter subs? <>) rw)))))
                    (new-subs (if (null? nss) '() (apply lset-intersection equal? nss)))
                    (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))) ; * !!
@@ -2354,13 +2376,6 @@
 ;;                  a))
 ;;            as))))
 
-(define (query-time-annotations annotations)
-  (map (lambda (a)
-         (match a
-                ((key var vals)
-                 `(,key ,(string->symbol (string-join (map symbol->string vals)))))
-                (else a)))
-       (remove values? annotations)))
 
 (define (format-queried-annotations queried-annotations)
   (list->vector
