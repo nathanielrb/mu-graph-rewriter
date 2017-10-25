@@ -18,20 +18,54 @@
         <p>Graphs should be variables (use VALUES or BIND when necessary).</p>
         <h3>Read Constraint</h3>
 	<textarea class="constraint" id="read-constraint">
-prefix g: <http://mu.semte.ch/school/graphs/>
+prefix graphs: <http://mu.semte.ch/school/graphs/>
 prefix foaf: <http://xmlns.com/foaf/0.1/>
 
 CONSTRUCT {
   ?a ?b ?c
 }
 WHERE {
-  GRAPH ?graph { 
-    ?a ?b ?c .
-    ?a a ?type
+  GRAPH <http://mu.semte.ch/authorization> {
+    ?session mu:uuid <SESSION_ID>;
+             mu:account ?user.
+  }
+
+  {
+    FILTER ( ?type != school:Grade )
+    GRAPH ?graph { 
+      ?a ?b ?c;
+         a ?type
+    }
+  }
+  UNION {
+    FILTER ( ?type = school:Grade )
+    GRAPH ?graph { 
+      ?a ?b ?c;
+         a ?type;
+         school:gradeRecipient ?student .
+    }
+    { 
+      GRAPH graphs:people { ?user school:role "principle" }
+    }
+    UNION {
+      GRAPH graphs:people { ?user school:role "teacher" }
+      GRAPH graphs:classes {
+        ?class school:teacher ?user;
+               school:student ?student
+      }
+    }
+    UNION {
+      GRAPH graphs:people { ?user school:role "student" }
+      GRAPH graphs:classes {
+        ?class school:student ?user
+      }
+    }
   }
   VALUES (?graph ?type) {
-    (g:classes school:Class) 
-    (g:people foaf:Person) 
+    (graphs:grades school:Grade)
+    (graphs:subjects school:Subject) 
+    (graphs:classes school:Class) 
+    (graphs:people foaf:Person) 
   }
 }</textarea> 
 
@@ -43,15 +77,15 @@ WHERE {
       </div>
       <div class="panel">
 	<h2>Optimizations</h2>
-	<h3>Functional properties</h3><p>Comma or space separated list</p><p> <input type="text" id="fprops" value="rdf:type"/></p>
+	<h3>Functional properties</h3><p>Comma- or space-separated list</p><p> <input type="text" id="fprops" value="rdf:type"/></p>
       </div>
       <div class="panel auth">
-  <h2>Authorization and Login</h2>
-  <pre>
+        <h2>Authorization and Login</h2>
+        <pre>
 INSERT DATA {
   GRAPH &lt;http://mu.semte.ch/authorization&gt; {
 </pre>
-  <textarea class="auth" id="authorization-insert">
+        <textarea class="auth" id="authorization-insert">
 <rootSession> mu:uuid "root-session";
               mu:account <http://mu.semte.ch/users/root>.
 
@@ -60,19 +94,74 @@ INSERT DATA {
 
 <user02Session> mu:uuid "user02-session";
                 mu:account <http://mu.semte.ch/users/user02>.
-</textarea>
-<pre>
+        </textarea>
+        <pre>
   }
 }</pre>
-</div>
-</div>
-<div class="column right">
-  <div class="row generate">
-    <div class="column ">
+      </div>
       <div class="panel">
+        <h2>The Model</h2>
+        <pre>
+(define-resource person ()
+  :class (s-prefix "xmlns:Person")
+  :properties `((:name :string ,(s-prefix "xmlns:name"))
+                (:email :string ,(s-prefix "xmlns:mbox"))
+                (:role :string ,(s-prefix "school:role")))
+  :has-many `((class :via ,(s-prefix "school:hasTeacher")
+                             :as "classesTaught"
+                             :inverse t)
+              (class :via ,(s-prefix "school:hasStudent")
+                            :as "classesTaken"
+                            :inverse t)
+              (grade :via ,(s-prefix "gradeRecipient")
+                      :as "earnedGrades"
+                      :inverse t))
+  :resource-base (s-url "http://mu.semte.ch/school/people/")
+  :on-path "people")
+
+(define-resource subject ()
+  :class (s-prefix "school:Subject")
+  :properties `((:name :string ,(s-prefix "dct:title")))
+  :resource-base (s-url "http://mu.semte.ch/school/subjects/")
+  :has-many `((class :via ,(s-prefix "dct:subject")
+                     :as "classes"
+                     :inverse t))
+  :on-path "subjects")
+
+(define-resource class ()
+  :class (s-prefix "school:Class")
+  :properties `((:name :string ,(s-prefix "dct:title"))
+                (:subject :string ,(s-prefix "dct:subject")))
+  :has-many `((person :via ,(s-prefix "school:teacher")
+                      :as  "teachers")
+              (person :via ,(s-prefix "school:student")
+                      :as  "students")
+              (grade :via ,(s-prefix "school:classGrade")
+                     :as  "grades"))
+  :resource-base (s-url "http://mu.semte.ch/school/classes/")
+  :on-path "classes")
+
+(define-resource grade ()
+  :class (s-prefix "school:Grade")
+  :properties `((:points :number ,(s-prefix "school:gradePoints")))
+  :resource-base (s-url "http://mu.semte.ch/school/grades/")
+  :has-one `((person :via ,(s-prefix "school:gradeRecipient")
+                     :as "student")
+             (class :via ,(s-prefix "school:classGrade")
+                    :as "class"
+                    :inverse t))
+  :on-path "grades")
+        </pre>
+      </div>
+    </div>
+    <div class="column right">
+      <div class="row generate">
+        <div class="column ">
+          <div class="panel">
         <h2>Apply Model</h2>
-        <p>Apply Constraints and ...</p>
-        <p><button name="model" id="model">Apply</button> <a id="preview" href="/preview">Sample Application &raquo;</a></p>
+        <p>Load current Read and Write Constraints in the Query Rewriter (all triples will be deleted).</p>
+        <p><button name="model" id="model">Apply</button> <span id="model-message"></span> <a id="preview" href="/preview">Sample Application &raquo;</a></p>
+        
         </p>
       </div> <!-- .panel -->
     </div>   <!-- .column.half -->

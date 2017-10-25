@@ -1,6 +1,7 @@
 var button = document.getElementById('rewrite');
 var runButton = document.getElementById('run');
 var modelButton = document.getElementById('model');
+var modelMessage = document.getElementById('model-message');
 var viewModel =  document.getElementById('preview');
 var query = document.getElementById('query');
 var readConstraint = document.getElementById('read-constraint');
@@ -95,12 +96,12 @@ button.onclick = function(){
 	}
     }
     request.open("POST", "/sandbox", true);
-    request.send("query=" + query.value 
-                 + "&readconstraint=" + readConstraint.value
-                 + "&writeconstraint=" + (readwrite.checked ? readConstraint.value : writeConstraint.value)
-                 + "&fprops=" + fprops.value
-                 + "&session-id=" + sessionID.value
-                + "&authorization-insert=" + authorizationInsert.value);
+    request.send("query=" + escape(query.value)
+                 + "&readconstraint=" + escape(readConstraint.value)
+                 + "&writeconstraint=" + escape((readwrite.checked ? readConstraint.value : writeConstraint.value))
+                 + "&fprops=" + escape(fprops.value)
+                 + "&session-id=" + escape(sessionID.value)
+                + "&authorization-insert=" + escape(authorizationInsert.value));
 };
 
 // run rewritten query
@@ -143,12 +144,12 @@ modelButton.onclick = function(){
 	    if(request.status === 200) { 
 		console.log('200');
                 jr = JSON.parse(e.target.responseText);
-                alert(jr.endpoint);
+                modelMessage.style.display = "inline";
+                modelMessage.innerHTML = 'Model applied.';
                 preview.style.display="inline";
 	    } else {
-		// result.value = 'Error';
                 preview.style.display="none";
-                alert('model error');
+                modelMessage.innerHTML = 'Error applying model.';
 	    } 
 	}
     }
