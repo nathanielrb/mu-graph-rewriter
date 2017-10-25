@@ -18,6 +18,8 @@ var annotations = document.getElementById('annotations');
 var queriedAnnotations = document.getElementById('queried-annotations');
 var authorizationInsert = document.getElementById('authorization-insert');
 var sessionID = document.getElementById('session-id');
+var domainButton = document.getElementById('toggle-domain');
+var domain = document.getElementById('domain');
 
 function encode(e) {
   return e.replace(/[\<\>\"\^]/g, function(e) {
@@ -38,6 +40,10 @@ readwrite.onchange = function(e){
         writeConstraint.style.background = '#eee';
         writeConstraint.style.height = '400px';
     }
+}
+
+domainButton.onclick = function() {
+    domain.style.display = domain.style.display == 'block' ? 'none' : 'block';
 }
 
 // rewrite query
@@ -66,7 +72,7 @@ button.onclick = function(){
                         an = document.createElement("li");
                         t = a["key"];
                         if( "var" in a ){
-                            t += " (" + a["var"] + ")";
+                            t += ": " + a["var"];
                         }
                         an.appendChild(document.createTextNode(t));
                         annotations.appendChild(an);

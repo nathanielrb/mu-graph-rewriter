@@ -29,13 +29,20 @@ body {
     background: #eee;
     height: 100%;
 }
-.column.right {
-    width: 56%;
+.column.middle {
+    width: 33%;
     display: table-cell;
     background: #fff;
     padding-bottom: 2em;
     box-shadow: 5px 5px 5px #ddd;
     margin-bottom: 2em;
+}
+.column.right {
+    width: 35%;
+    display: table-cell;
+}
+
+.column.middle  {
 }
 .column.half {
     width: 50%;
@@ -48,19 +55,19 @@ body {
     padding: 0 6%;
     float: left;
 }
-.right .generate .column {
-    width: 100%;
-}
-.right .generate .column .panel {
+/* .middle .generate .column { */
+/*     width: 100%; */
+/* } */
+.middle .column .panel {
     padding: 0 2.5%;
 }
 .panel {
     width: 88%;
 }
-.right .row {
+.middle .row {
     /*    padding-left: 2%*/
 }
-.right .panel.results {
+.middle .results {
     padding-left: 3%;
     display: none;
     width: 95%;
@@ -106,18 +113,18 @@ textarea {
     background: #ddd;
     height: 40px;
 }
-.right .panel textarea {
+.middle .panel textarea {
     width: 100%;
-    height: 500px;
+    height: 300px;
     padding: 12px;
     color: #888;
 }
-.left .panel textarea.auth {
-    height: 250px;
+.panel textarea.auth {
+    height: 180px;
     width: 94%;
     margin-left: 6%;
 }
-.left .panel.auth pre {
+.panel.auth pre {
     color: #888;
 }
 
@@ -166,5 +173,11 @@ textarea {
     clear: both
 }
 #preview, #model-message {
+    display: none;
+}
+#toggle-domain {
+    cursor: pointer;
+}
+#domain {
     display: none;
 }

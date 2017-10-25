@@ -19,6 +19,7 @@
         <h3>Read Constraint</h3>
 	<textarea class="constraint" id="read-constraint">
 prefix graphs: <http://mu.semte.ch/school/graphs/>
+prefix school: <http://mu.semte.ch/school/>
 prefix foaf: <http://xmlns.com/foaf/0.1/>
 
 CONSTRUCT {
@@ -31,6 +32,7 @@ WHERE {
   }
 
   {
+    @access Type(?type)
     FILTER ( ?type != school:Grade )
     GRAPH ?graph { 
       ?a ?b ?c;
@@ -38,6 +40,8 @@ WHERE {
     }
   }
   UNION {
+    @access Type(?type)
+    @access Student(?student)
     FILTER ( ?type = school:Grade )
     GRAPH ?graph { 
       ?a ?b ?c;
@@ -79,8 +83,14 @@ WHERE {
 	<h2>Optimizations</h2>
 	<h3>Functional properties</h3><p>Comma- or space-separated list</p><p> <input type="text" id="fprops" value="rdf:type"/></p>
       </div>
+    </div>
+    <div class="column middle">
+      <div class="panel">
+        <h2>Queries</h2>
+      </div>
       <div class="panel auth">
-        <h2>Authorization and Login</h2>
+        <h3>Authorization and Login</h3>
+        <p> </p>
         <pre>
 INSERT DATA {
   GRAPH &lt;http://mu.semte.ch/authorization&gt; {
@@ -98,10 +108,46 @@ INSERT DATA {
         <pre>
   }
 }</pre>
-      </div>
+      </div> <!-- .panel -->
+
+      <div class="panel query">
+        <h3>Query <small><code>SESSION_ID</code>: <select id="session-id"><option>root-session</option><option>user01-session</option><option>user02-session</option></select> <button name="rewrite" id="rewrite">Rewrite</button></small></h3>
+        <textarea id="query">
+SELECT *
+WHERE {
+  ?s ?p ?o
+}
+        </textarea>
+        <h3>Rewritten Query <small><button name="run" id="run" disabled=true>Run</button></small></h3>
+        <div class="panel-box">
+          <pre id="result">
+          </pre>
+        </div><!-- .panel-box -->
+      </div><!-- .panel.result -->
+
       <div class="panel">
-        <h2>The Model</h2>
-        <pre>
+          <div id="annotations-box">
+            <h3>Query Annotations</h3>
+            <ul id="annotations"></ul>
+            <h3>Queried Annotations</h3>
+            <ul id="queried-annotations"></ul>
+          </div>
+    </div> <!-- .panel -->
+      <div class="panel results">
+        <h2>Query Results</h2>
+        <textarea id="results" disabled=true></textarea>
+      </div> <!-- .panel.results -->
+    </div>  <!-- .column.middle -->
+
+        <div class="column right">
+          <div class="panel">
+            <h2>Apply Model</h2>
+            <p>Load current Read and Write Constraints in the Query Rewriter (all triples will be deleted).</p>
+            <p><button name="model" id="model">Apply</button> <span id="model-message"></span> <a id="preview" href="/preview">Sample Application &raquo;</a></p>        
+          </div> <!-- .panel -->
+          <div class="panel">
+            <h3><a id="toggle-domain">domain.lisp</a></h3>
+            <pre id="domain">
 (define-resource person ()
   :class (s-prefix "xmlns:Person")
   :properties `((:name :string ,(s-prefix "xmlns:name"))
@@ -151,76 +197,12 @@ INSERT DATA {
                     :as "class"
                     :inverse t))
   :on-path "grades")
-        </pre>
-      </div>
-    </div>
-    <div class="column right">
-      <div class="row generate">
-        <div class="column ">
-          <div class="panel">
-        <h2>Apply Model</h2>
-        <p>Load current Read and Write Constraints in the Query Rewriter (all triples will be deleted).</p>
-        <p><button name="model" id="model">Apply</button> <span id="model-message"></span> <a id="preview" href="/preview">Sample Application &raquo;</a></p>
-        
-        </p>
-      </div> <!-- .panel -->
-    </div>   <!-- .column.half -->
-    <br style="clear"/>  
-  </div>
-
-  <div class="row">
-    <div class="column half">
-      <div class="panel">
-        <h2>Queries</h2>
-        <p>Using SESSION_ID <select id="session-id"><option>root-session</option><option>user01-session</option><option>user02-session</option></select></p>
-      </div>
-    </div>
-    <br class="clear"/>
-  </div>
-
-  <div class="row">
-    <div class="column half">
-      <div class="panel query">
-        <h3>Query <small><button name="rewrite" id="rewrite">Rewrite</button></small></h3>
-        <textarea id="query">
-SELECT *
-WHERE {
-  ?s ?p ?o
-}
-        </textarea>
-      </div>
-    </div>
-
-    <div class="column half">
-      <div class="panel result">
-        <h3>Rewritten Query <small><button name="run" id="run" disabled=true>Run</button></small></h3>
-        <div class="panel-box">
-          <pre id="result">
-          </pre>
-          <div id="annotations-box">
-            <p class="annotations-title">Query Annotations</p>
-            <ul id="annotations"></ul>
-            <p class="annotations-title">Queried Annotations</p>
-            <ul id="queried-annotations"></ul>
+            </pre>
           </div>
-        </div><!-- .panel-box -->
-      </div><!-- .panel.result -->
-    </div>  <!-- .column.half -->
-    <br class="clear"/>
-  </div> <!-- .row -->
-  
-  <div class="row">
-    <br class="clear"/>
-    <div class="panel results">
-      <h2>Query Results</h2>
-      <textarea id="results" disabled=true></textarea>
+          <br style="clear"/>  
+        </div>
     </div>
-  </div>
-</div>
-</div>
-
-</div>
-<script type="text/javascript" src="/sandbox/sandbox.js"></script>
-</body>
+    <script type="text/javascript" src="/sandbox/sandbox.js"></script>
+  </body>
 </html>
 
