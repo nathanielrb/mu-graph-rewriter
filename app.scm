@@ -1433,25 +1433,27 @@
 
 (define constraint-graph (make-parameter #f))
 
+(define restricted-variables (make-parameter '()))
+
 ;; To do: better use of return values & bindings
 (define (dependency-rules bound-vars)
   `((,triple? 
      . ,(lambda (triple bindings)
-          
          (let* ((dependencies (or (get-binding 'dependency-paths bindings) '()))
                 (bound? (lambda (var) (member var bound-vars)))
                 (vars* (filter sparql-variable? triple))
-                (vars (if (equal? vars* bound-vars)
+                (vars (if (and (equal? vars* bound-vars) ; matched triple
+                              (null? (lset-intersection equal? (restricted-variables) vars*)))
                           vars*
-                          (cons (constraint-graph) vars*)))
-                (update-dependency-var
+                          (cons (constraint-graph) vars*))) ; this works, but doesn't seem quite right
+                (update-dependency-var  ; how does this work??
                  (lambda (var deps) 
-                   (alist-update 
+                   (alist-update        ; do this with alist-update-proc ?
                     var (delete-duplicates
                          (append (delete var vars)
                                  (or (alist-ref var deps) '())))
                     deps))))
-           (let-values (((bound unbound) (partition bound? vars)))
+           (let-values (((bound unbound) (partition bound? vars))) ; unused, it seems
              (values
               (list triple)
               (update-binding
@@ -1472,7 +1474,7 @@
            (match block
              ((`VALUES vars . vals)
               (if (symbol? vars)
-                  ;; actually depends on other VALUES singletons
+                  ;; actually depends on other VALUES singletons (?)
                   (values '() bindings)
                   ;; abstract this!
                   (let* ((dependencies (or (get-binding 'dependency-paths bindings) '()))
@@ -1508,8 +1510,6 @@
 					    (filter sparql-variable? (flatten exp))))
 				    '()
 				    bindings))))))
-
-		      
      ((@SubSelect)
       . ,(lambda (block bindings)
            (match block
@@ -1525,7 +1525,15 @@
                (concat-dependency-paths (minimal-dependency-paths source? sink? paths))
                bindings)))))
      ((FILTER) . ,rw/copy) ;; ??
-     (,list? . ,rw/list)))
+     (,list? 
+      . ,(lambda (block bindings)
+           (let ((vars (filter sparql-variable?
+                               (flatten (filter (lambda (exp)
+                                                  (and (pair? exp) 
+                                                       (member (car exp) '(FILTER BIND VALUES))))
+                                                block)))))
+             (parameterize ((restricted-variables (append vars (restricted-variables))))
+               (rw/list block bindings)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
