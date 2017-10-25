@@ -416,7 +416,10 @@
 (define (update-annotation-values annotation valss)
   (match annotation
     ((key var)
-     `(,key ,var ,(alist-ref var valss)))
+     (let ((vals (alist-ref var valss)))
+       (if vals
+           `(,key ,var ,vals)
+           annotation)))
     (else annotation)))
 
 ;; merges alists whose values must be lists
@@ -2149,16 +2152,20 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Implentation
 (define (virtuoso-error exn)
-  (let ((response (or ((condition-property-accessor 'client-error 'response) exn)
-                      ((condition-property-accessor 'server-error 'response) exn)))
-        (body (or ((condition-property-accessor 'client-error 'body) exn)
-                  ((condition-property-accessor 'server-error 'body) exn))))
-    (log-message "Virtuoso error: ~A" exn)
-    (when body
-      (log-message "~%==Virtuoso Error==~% ~A ~%" body))
-    (when response
-      (log-message "~%==Reason==:~%~A~%" (response-reason response)))
-    (abort 'virtuoso-error)))
+  (if (or ((condition-predicate 'client-error) exn)
+          ((condition-predicate 'server-error) exn))
+      (let ((response (or ((condition-property-accessor 'client-error 'response) exn)
+                          ((condition-property-accessor 'server-error 'response) exn)))
+            (body (or ((condition-property-accessor 'client-error 'body) exn)
+                      ((condition-property-accessor 'server-error 'body) exn))))
+        (log-message "Virtuoso error: ~A" exn)
+        (log-message "~A~%" (condition->list exn))
+        (when body
+              (log-message "~%==Virtuoso Error==~% ~A ~%" body))
+        (when response
+              (log-message "~%==Reason==:~%~A~%" (response-reason response)))
+        (abort 'virtuoso-error))
+      (abort exn)))
 
 (define (rewriter-error exn)
   (let ((response (or ((condition-property-accessor 'client-error 'response) exn)
@@ -2204,6 +2211,15 @@
 (define (log-results result)
   (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result)))))
 
+(define (call-if C) (if (procedure? C) (C) C))
+
+(define (rewrite-constraints query)
+  (parameterize ((*constraint-prologues*
+                  (append-unique
+                   (all-prologues (cdr (call-if (*read-constraint*))))
+                   (all-prologues (cdr (call-if (*write-constraint*)))))))
+                (rewrite-query query top-rules)))
+
 (define (rewrite-call)
   (lambda (_)
   (let* (($$query (request-vars source: 'query-string))
@@ -2224,7 +2240,8 @@
                                (print-error-message exn (current-error-port))
                                (print-call-chain (current-error-port))
                                (abort exn))
-                      (rewrite-query query top-rules)))))
+                        
+                      (rewrite-constraints query)))))
       (let ((rewritten-query-string (write-sparql rewritten-query)))
         
         (log-rewritten-query rewritten-query-string)
@@ -2238,8 +2255,9 @@
           (plet-if (not (update-query? query))
                    ((potential-graphs (handle-exceptions exn
                                           (begin (log-message "~%Error getting potential graphs or annotations: ~A~%" exn) 
+                                                 
                                                  #f)
-                                        (cond ((*calculate-potential-graphs?*)
+                                        (cond ((*calculate-potentials?*)
                                                (get-all-graphs rewritten-query))
                                               ((*calculate-annotations?*)
                                                (get-annotations rewritten-query))
@@ -2253,7 +2271,7 @@
                        (close-connection! uri)
                        (list result response))))
                    
-                   (when (or (*calculate-potential-graphs?*) (*calculate-annotations?*))
+                   (when (or (*calculate-potentials?*) (*calculate-annotations?*))
                      (log-message "~%==Potentials==~%(Will be sent in headers)~%~A~%"  potential-graphs))
                    
                    (let ((headers (headers->list (response-headers response))))
@@ -2351,7 +2369,7 @@
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
          (authorization-insert ($$body 'authorization-insert)))
-    (parameterize ((*write-constraint*  write-constraint)
+    (parameterize ((*write-constraint* write-constraint)
     		   (*read-constraint* read-constraint)
 		   (*functional-properties* fprops)
 		   (*constraint-prologues*
@@ -2371,8 +2389,6 @@
           (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
 
-;((*write-constraint*))
-
 (define (model-call _)
   (let* ((body (read-request-body))
          ($$body (let ((parsed-body (form-urldecode body)))
@@ -2380,28 +2396,32 @@
                      (and parsed-body (alist-ref key parsed-body)))))
 	 (read-constraint-string ($$body 'readconstraint))
 	 (write-constraint-string ($$body 'writeconstraint))
-	 (read-constraint (parse-constraint read-constraint-string))
-	 (write-constraint (parse-constraint write-constraint-string))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
          (authorization-insert ($$body 'authorization-insert)))
 
-    (define-constraint 
-      'write
-     (lambda ()
-       (irregex-replace/all "<SESSION_ID>" write-constraint (header 'mu-session-id))))
+    (log-message "~%Redefining read and write constraints~%")
 
-    (define-constraint
-      'read
-     (lambda ()
-       (irregex-replace/all "<SESSION_ID>" read-constraint (header 'mu-session-id))))
-    (let ((endpoint (symbol->string (gensym 'sparql))))
-      (define-rest-call 'POST `(,endpoint)  (rewrite-call))
-      (*functional-properties* fprops)
-      (sparql-update "DROP ALL")
-      (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert)
-      `((success .  "true")
-        (endpoint . ,endpoint)))))
+    ;; brute-force redefining constraints
+    (set!
+      *write-constraint*
+      (make-parameter
+       (lambda ()
+         (parse-constraint
+          (irregex-replace/all "<SESSION_ID>" write-constraint-string (header 'mu-session-id))))))
+
+    (set!
+      *read-constraint*
+      (make-parameter
+       (lambda ()
+         (parse-constraint
+          (irregex-replace/all "<SESSION_ID>" read-constraint-string (header 'mu-session-id))))))
+
+
+    (*functional-properties* fprops)
+    (sparql-update "DROP ALL")
+    (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert)
+    `((success .  "true"))))
 
 (define (format-queried-annotations queried-annotations)
   (list->vector

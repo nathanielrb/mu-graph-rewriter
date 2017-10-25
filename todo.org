@@ -125,7 +125,7 @@
 
 ** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
-** TODO FILTER dependencies
+** DONE FILTER dependencies
    what should the dependencies of FILTER( ?b != mu:uuid ) be??
  
 ** TODO verify logic of graphs + non-bound vars
@@ -231,6 +231,7 @@
 * sandbox
 ** TODO save constraints and queries
    like Postman
+** DONE apply model
 ** DONE implement separate read/write constraints
 * temp graphs
 ** TODO handle FILTER NOT EXISTS
