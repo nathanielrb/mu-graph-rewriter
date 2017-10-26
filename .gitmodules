@@ -1,0 +1,3 @@
+[submodule "sandbox/highlight-lisp"]
+	path = sandbox/highlight-lisp
+	url = https://github.com/orthecreedence/highlight-lisp.git

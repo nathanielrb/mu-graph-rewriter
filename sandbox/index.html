@@ -1,8 +1,9 @@
 <html>
   <head>
     <title>Constrain Rewriter Sandbox</title>
-
+    <script type="text/javascript" src="/sandbox/highlight-lisp/highlight-lisp.js"></script>
     <link type="text/css" rel="stylesheet" href="/sandbox/style.css" />
+    <link type="text/css" rel="stylesheet" href="/sandbox/highlight-lisp/themes/github.css" />
   </head>
   <body>
     <div class="menu">
@@ -111,7 +112,7 @@ INSERT DATA {
       </div> <!-- .panel -->
 
       <div class="panel query">
-        <h3>Query <small><code>SESSION_ID</code>: <select id="session-id"><option>root-session</option><option>user01-session</option><option>user02-session</option></select> <button name="rewrite" id="rewrite">Rewrite</button></small></h3>
+        <h3>Query <small><code>MU_SESSION_ID: </code> <select id="session-id"><option>root-session</option><option>user01-session</option><option>user02-session</option></select> <button name="rewrite" id="rewrite">Rewrite</button></small></h3>
         <textarea id="query">
 SELECT *
 WHERE {
@@ -147,7 +148,7 @@ WHERE {
           </div> <!-- .panel -->
           <div class="panel">
             <h3><a id="toggle-domain">domain.lisp</a></h3>
-            <pre id="domain">
+            <pre id="domain"><code class="lisp">
 (define-resource person ()
   :class (s-prefix "xmlns:Person")
   :properties `((:name :string ,(s-prefix "xmlns:name"))
@@ -197,12 +198,15 @@ WHERE {
                     :as "class"
                     :inverse t))
   :on-path "grades")
-            </pre>
+            </code></pre>
           </div>
           <br style="clear"/>  
         </div>
     </div>
     <script type="text/javascript" src="/sandbox/sandbox.js"></script>
+    <script type="text/javascript">
+      HighlightLisp.highlight_auto({className: 'lisp'});
+    </script>
   </body>
 </html>
 

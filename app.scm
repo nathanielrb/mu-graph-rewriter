@@ -2468,10 +2468,21 @@
 
 (define-rest-call 'GET '("sandbox") (lambda (_) (serve-file (sandbox "index.html"))))
 
+;; a way to do this directly in mu-chicken-support?
 (define-rest-call 'GET '("sandbox" file)
   (rest-call
    (file)
    (serve-file (sandbox file))))
+
+(define-rest-call 'GET '("sandbox" dir file)
+  (rest-call
+   (dir file)
+   (serve-file (sandbox (string-join (list dir file) "/")))))
+
+(define-rest-call 'GET '("sandbox" dir dir2 file)
+  (rest-call
+   (dir dir2 file)
+   (serve-file (sandbox (string-join (list dir dir2 file) "/")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load
