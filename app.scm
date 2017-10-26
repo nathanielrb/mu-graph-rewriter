@@ -2450,6 +2450,7 @@
 (define-rest-call 'POST '("proxy")
   (lambda (_)
     (let ((query (read-request-body)))
+      (log-message "~%==Proxying Query==~%~A~%" (add-prefixes query))
       (proxy-query (add-prefixes query)
 		   (if (update-query? (parse query))
 		       (*sparql-update-endpoint*)

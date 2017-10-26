@@ -19,9 +19,9 @@
         <p>Graphs should be variables (use VALUES or BIND when necessary).</p>
         <h3>Read Constraint</h3>
 	<textarea class="constraint" id="read-constraint">
-prefix graphs: <http://mu.semte.ch/school/graphs/>
-prefix school: <http://mu.semte.ch/school/>
-prefix foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX graphs: <http://mu.semte.ch/school/graphs/>
+PREFIX school: <http://mu.semte.ch/vocabularies/school/>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
 
 CONSTRUCT {
   ?a ?b ?c
@@ -119,10 +119,11 @@ WHERE {
   ?s ?p ?o
 }
         </textarea>
+      </div> <!-- .panel -->
+      <div class="panel" id="result-panel">
         <h3>Rewritten Query <small><button name="run" id="run" disabled=true>Run</button></small></h3>
         <div class="panel-box">
-          <pre id="result">
-          </pre>
+          <pre id="result"></pre>
         </div><!-- .panel-box -->
       </div><!-- .panel.result -->
 
@@ -134,7 +135,7 @@ WHERE {
             <ul id="queried-annotations"></ul>
           </div>
     </div> <!-- .panel -->
-      <div class="panel results">
+      <div class="panel results" id="results-panel">
         <h2>Query Results</h2>
         <textarea id="results" disabled=true></textarea>
       </div> <!-- .panel.results -->

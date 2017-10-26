@@ -14,6 +14,9 @@
 ** TODO does rw/union distinguish between false and empty true?
 ** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
    possible?
+** TODO plugin templating 
+   for... headers? query parameters? %{MU_SESSION_ID}%
+   or pre-set templates: MU_SESSION_ID, MU_CALL_ID etc.
 ** DONE duplicates in OPTIONAL constraints
    do level-quads and the whole bit on appending constraints
 ** DONE simplify duplicate VALUES as well as quads

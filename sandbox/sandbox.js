@@ -8,7 +8,8 @@ var readConstraint = document.getElementById('read-constraint');
 var writeConstraint = document.getElementById('write-constraint');
 var readwrite = document.getElementById('read-write');
 var fprops = document.getElementById('fprops');
-var resultPanel = document.querySelector('.panel-box');
+var resultPanelBox = document.querySelector('.panel-box');
+var resultPanel = document.getElementById('result-panel');
 var result = document.getElementById('result');
 var resultsPanel = document.querySelector('.results');
 var results = document.getElementById('results');
@@ -27,6 +28,30 @@ function encode(e) {
   });
 }
 
+function animate(elem, style, unit, from, to, time, prop) {
+    if (!elem) {
+        return;
+    }
+    var start = new Date().getTime(),
+        timer = setInterval(function () {
+            var step = Math.min(1, (new Date().getTime() - start) / time);
+            if (prop) {
+                elem[style] = (from + step * (to - from))+unit;
+            } else {
+                elem.style[style] = (from + step * (to - from))+unit;
+            }
+            if (step === 1) {
+                clearInterval(timer);
+            }
+        }, 25);
+    if (prop) {
+          elem[style] = from+unit;
+    } else {
+          elem.style[style] = from+unit;
+    }
+}
+
+
 readwrite.onchange = function(e){ 
     if(e.target.checked){
         writeConstraint.value = '';
@@ -37,7 +62,7 @@ readwrite.onchange = function(e){
     else { 
         writeConstraint.value = readConstraint.value;
         writeConstraint.disabled = false;
-        writeConstraint.style.background = '#eee';
+        writeConstraint.style.background = '#fff';
         writeConstraint.style.height = '400px';
     }
 }
@@ -61,7 +86,7 @@ button.onclick = function(){
 	    if(request.status === 200) { 
 		console.log('200');
 		var jr = JSON.parse(e.target.responseText);
-		resultPanel.className = 'panel-box filled';
+		resultPanelBox.className = 'panel-box filled';
                 rwquery =  jr.rewrittenQuery.trim();
 
                 var a, an;
@@ -88,6 +113,9 @@ button.onclick = function(){
                         queriedAnnotations.appendChild(an);
                     }
                     annotationsBox.style.display = 'block';
+                    //animate(document.body, "scrollTop", "", 0, resultPanel.offsetTop, 500, true);
+                    location.hash = '#result-panel';
+
                 }
 
                 result.innerHTML = encode(rwquery);
@@ -125,6 +153,8 @@ runButton.onclick = function(){
 		    results.className = 'filled';
 		    results.value = JSON.stringify(jr.results.bindings, null, 2);
                     resultsPanel.style.display = "block";
+                    // animate(document.body, "scrollTop", "", 0, resultsPanel.offsetTop, 1000, true);
+                    location.hash = '#results-panel';
 		} else {
 		    results.value = 'Error';
 		    results.className = 'error';
