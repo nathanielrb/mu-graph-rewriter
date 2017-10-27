@@ -1193,7 +1193,7 @@
                                                        new-bindings))
                          (values
                           `((*REWRITTEN* (,a ,b ,c)))
-                          (fold-binding `((OPTIONAL ,@constraints ))
+                          (fold-binding constraints;; `((OPTIONAL ,@constraints ))
                                         (if (insert?) 'insert-constraints 'delete-constraints)
                                         append-unique '() 
                                         (update-triple-graphs graphs (list a b c) 
@@ -1727,12 +1727,7 @@
 (define (instantiate where-block triples)
   (if (nulll? where-block) where-block
       (let ((where-block (expand-graphs where-block)))
-        (let-values (((rw new-bindings)
-                      (rewrite (list where-block) '() (get-instantiation-matches-rules triples))))
-          (if (fail? rw)
-              (error "Invalid query")
-              (let-values (((rw2 _) (rewrite rw new-bindings instantiation-union-rules) ))
-                (car rw2)))))))
+        (rewrite (list where-block) '() (get-instantiation-matches-rules triples)))))
 
 ;; matches a triple against a list of triples, and if successful returns a binding list
 ;; ex: (match-triple '(?s a dct:Agent) '((<a> <b> <c>) (<a> a dct:Agent)) => '((?s . <a>))
@@ -1773,6 +1768,8 @@
 ;; or '(matched-quad () match-binding) if the instantiated quad is instantiated completely.
 ;; To do: group matches by shared variables (i.e., (map car match-binding) )
 ;; To do: abstract out matching for more complex quads patterns
+
+;; but now is all this *graph* etc. necessary??
 (define (get-instantiation-matches-rules triples)
   `(((@SubSelect) . ,rw/subselect)
     (,annotation? . ,rw/copy)
@@ -1785,11 +1782,17 @@
              (let ((match-bindings (match-triple triple triples)))
                (cond ((not match-bindings) (values (list block) bindings))
                      ((null? match-bindings)  (values `((*graph* . ,graph)) bindings))
-                     (else (values `((*graph* . ,graph))
-                                   (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
-                                                 'instantiated-quads 
-                                                 append '() ; (compose delete-duplicates 
-                                                 bindings)))))))))
+                     ;; (else (values `((*graph* . ,graph))
+                     ;;               (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
+                     ;;                             'instantiated-quads 
+                     ;;                             append '() ; (compose delete-duplicates 
+                     ;;                             bindings)))))))))
+                     (else (values `((UNION (,block)
+                                      ,(map (lambda (bindings) 
+                                              `(VALUES ,(map car bindings) 
+                                                       ,(map cdr bindings))) 
+                                            match-bindings)))
+                             bindings))))))))
     ;; ((OPTIONAL) . ,rw/quads)
     ((UNION)
      . ,(lambda (block bindings)
@@ -1875,57 +1878,60 @@
                            (else (loop (cdr statements) filter-statements
                                        values-statements graphs (cons (car statements) quads)))))))))))))
 
-  (define (match-instantiated-quads quad bindings)
-    (filter values
-            (map (match-lambda
-		 ((a b binding)
-		  (let ((vars (map car binding)))
-		    (and (any values (map (cut member <> vars) quad))
-			 (list a b binding)))))
-                 (get-binding/default 'instantiated-quads bindings '()))))
+  ;; (define (match-instantiated-quads quad bindings)
+  ;;   (filter values
+  ;;           (map (match-lambda
+  ;;       	 ((a b binding)
+  ;;       	  (let ((vars (map car binding)))
+  ;;       	    (and (any values (map (cut member <> vars) quad))
+  ;;       		 (list a b binding)))))
+  ;;                (get-binding/default 'instantiated-quads bindings '()))))
 
-(define instantiation-union-rules
-  `(((@SubSelect) 
-     . ,(lambda  (block bindings)
-          (match block
-            ((`@SubSelect (label . vars) . rest)
-             (let-values (((rw new-bindings)
-			   (rewrite (get-child-body 'WHERE rest) 
-				    (subselect-bindings vars bindings))))
-               (values
-                `((@SubSelect (,label ,@vars)
-                              ,@(replace-child-body 'WHERE rw rest)))
-                (merge-subselect-bindings vars new-bindings bindings)))))))
-    ((WHERE OPTIONAL MINUS) . ,rw/quads)
-    (,annotation? . ,rw/copy)
-    ((UNION)
-     . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-	    (let ((new-blocks (filter values rw)))
-	      (case (length new-blocks)
-		((0)  (values '() new-bindings))
-                ((1)  (values new-blocks new-bindings))
-		(else (values `((UNION ,@new-blocks)) new-bindings)))))))
-    ((GRAPH) 
-     . ,(lambda (block bindings)
-          (match block
-            ((`GRAPH graph triple)
-             (let ((matching-quads (match-instantiated-quads (cons graph triple) bindings)))
-               (if (null? matching-quads)
-                   (values (list block) bindings)
-		   (union-over-instantiation block matching-quads bindings)))))))
-    (,symbol? . ,rw/copy)
-    (,nulll? . ,rw/remove)
-    ((VALUES). ,rw/copy) ;; ??
-    ((*graph*) . ,rw/remove)    ;; can we remove this?
-    ((FILTER) ;; ??
-     . ,(lambda (block bindings)
-          (values (list block) bindings)))
-    (,list? 
-     . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rw/list block bindings)))
-            (values (list (group-graph-statements (car rw))) new-bindings))))
-    ))
+;; (define instantiation-union-rules
+;;   `(((@SubSelect) 
+;;      . ,(lambda  (block bindings)
+;;           (match block
+;;             ((`@SubSelect (label . vars) . rest)
+;;              (let-values (((rw new-bindings)
+;; 			   (rewrite (get-child-body 'WHERE rest) 
+;; 				    (subselect-bindings vars bindings))))
+;;                (values
+;;                 `((@SubSelect (,label ,@vars)
+;;                               ,@(replace-child-body 'WHERE rw rest)))
+;;                 (merge-subselect-bindings vars new-bindings bindings)))))))
+;;     ((WHERE OPTIONAL MINUS) . ,rw/quads)
+;;     (,annotation? . ,rw/copy)
+;;     ((UNION)
+;;      . ,(lambda (block bindings)
+;;           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+;; 	    (let ((new-blocks (filter values rw)))
+;; 	      (case (length new-blocks)
+;; 		((0)  (values '() new-bindings))
+;;                 ((1)  (values new-blocks new-bindings))
+;; 		(else (values `((UNION ,@new-blocks)) new-bindings)))))))
+;;     ((GRAPH) 
+;;      . ,(lambda (block bindings)
+;;           (match block
+;;             ((`GRAPH graph triple)
+;;              (let ((matching-quads (match-instantiated-quads (cons graph triple) bindings)))
+;;                (log-message "~%matching ~A => ~A~%" triple matching-quads)
+;;                (if (null? matching-quads)
+;;                    (values (list block) bindings)
+;;                    (let-values (((rw _)
+;;                                  (union-over-instantiation block matching-quads bindings)))
+;;                      (values rw bindings))))))))
+;;     (,symbol? . ,rw/copy)
+;;     (,nulll? . ,rw/remove)
+;;     ((VALUES). ,rw/copy) ;; ??
+;;     ((*graph*) . ,rw/remove)    ;; can we remove this?
+;;     ((FILTER) ;; ??
+;;      . ,(lambda (block bindings)
+;;           (values (list block) bindings)))
+;;     (,list? 
+;;      . ,(lambda (block bindings)
+;;           (let-values (((rw new-bindings) (rw/list block bindings)))
+;;             (values (list (group-graph-statements (car rw))) new-bindings))))
+;;     ))
 
 ;; didn't I already do this somewhere else?
 ;; and at least do it efficiently...
@@ -1938,17 +1944,17 @@
 ;;                       '()
 ;;                       (update-instantiated-values (cdr kvs) bindings)))))
 
-(define (union-over-instantiation block matching-quads bindings)
-  (match block
-    ((`GRAPH graph triple)
-     (match (car matching-quads)
-       ((matched-quad-block instantiated-quad-block binding)
-        (rewrite
-         `((UNION (,block ,@matched-quad-block)
-                  ((GRAPH ,graph ,(instantiate-triple triple binding))
-                   ,@instantiated-quad-block)))
-         (update-binding 'instantiated-quads (cdr matching-quads) bindings)
-         instantiation-union-rules))))))
+;; (define (union-over-instantiation block matching-quads bindings)
+;;   (match block
+;;     ((`GRAPH graph triple)
+;;      (match (car matching-quads)
+;;        ((matched-quad-block instantiated-quad-block binding)
+;;         (rewrite
+;;          `((UNION (,block ,@matched-quad-block)
+;;                   ((GRAPH ,graph ,(instantiate-triple triple binding))
+;;                    ,@instantiated-quad-block)))
+;;          (update-binding 'instantiated-quads (cdr matching-quads) bindings)
+;;          instantiation-union-rules))))))
 
 (define (group-graph-statements statements)
   (let loop ((statements statements) (graph #f) (statements-same-graph '()))
@@ -2389,6 +2395,15 @@
           (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
 
+;; generalize this, of course
+(define (make-template str)
+  (lambda ()
+    (log-message "~%Header:~A~%" (header 'mu-session-id))
+    (parse-constraint
+     (irregex-replace/all "<SESSION_ID>" str
+                          (or (sparql-escape-string (header 'mu-session-id))
+                              "<SESSION_ID>")))))
+
 (define (model-call _)
   (let* ((body (read-request-body))
          ($$body (let ((parsed-body (form-urldecode body)))
@@ -2406,17 +2421,12 @@
     (set!
       *write-constraint*
       (make-parameter
-       (lambda ()
-         (parse-constraint
-          (irregex-replace/all "<SESSION_ID>" write-constraint-string (header 'mu-session-id))))))
+       (make-template write-constraint-string)))
 
     (set!
       *read-constraint*
       (make-parameter
-       (lambda ()
-         (parse-constraint
-          (irregex-replace/all "<SESSION_ID>" read-constraint-string (header 'mu-session-id))))))
-
+       (make-template write-constraint-string)))
 
     (*functional-properties* fprops)
     (sparql-update "DROP ALL")
