@@ -2,9 +2,11 @@
 
 var button = document.getElementById('rewrite');
 var runButton = document.getElementById('run');
-var modelButton = document.getElementById('model');
-var modelMessage = document.getElementById('model-message');
-var viewModel =  document.getElementById('preview');
+var applyButton = document.getElementById('apply');
+var applyMessage = document.getElementById('apply-message');
+var generateButton = document.getElementById('generate');
+var generateMessage = document.getElementById('generate-message');
+var previewLink =  document.getElementById('preview');
 var query = document.getElementById('query');
 var readConstraint = document.getElementById('read-constraint');
 var writeConstraint = document.getElementById('write-constraint');
@@ -108,7 +110,7 @@ button.onclick = function(){
 	    } 
 	}
     }
-    request.open("POST", "/sandbox", true);
+    request.open("POST", "/as/sandbox", true);
     request.send("query=" + escape(query.value)
                  + "&readconstraint=" + escape(readConstraint.value)
                  + "&writeconstraint=" + escape((readwrite.checked ? readConstraint.value : writeConstraint.value))
@@ -140,12 +142,12 @@ runButton.onclick = function(){
 		} 
 	    }
 	}
-	request.open("POST", "/proxy", true);
+	request.open("POST", "/as/proxy", true);
 	request.send(rwquery);
     }
 };
 
-modelButton.onclick = function(){
+applyButton.onclick = function(){
     var request = new XMLHttpRequest();
     request.onreadystatechange = function(e) {
 	if(request.readyState === 4) {
@@ -159,21 +161,50 @@ modelButton.onclick = function(){
 	    if(request.status === 200) { 
 		console.log('200');
                 jr = JSON.parse(e.target.responseText);
-                modelMessage.style.display = "inline";
-                modelMessage.innerHTML = 'Model applied.';
-                preview.style.display="inline";
+                applyMessage.style.display = "inline";
+                applyMessage.innerHTML = 'Constraints applied.';
 	    } else {
-                preview.style.display="none";
-                modelMessage.innerHTML = 'Error applying model.';
+                applyMessage.innerHTML = 'Error applying constraints.';
 	    } 
 	}
     }
-    request.open("POST", "/model", true);
+    request.open("POST", "/as/apply", true);
     request.send("&readconstraint=" + escape(readConstraint.value)
                  + "&writeconstraint=" + escape((readwrite.checked ? readConstraint.value : writeConstraint.value))
                  + "&fprops=" + fprops.value
                  + "&session-id=" + sessionID.value
-                + "&authorization-insert=" + authorizationInsert.value);
+                 + "&authorization-insert=" + authorizationInsert.value);
+};
+
+generateButton.onclick = function(){
+    var request = new XMLHttpRequest();
+    request.onreadystatechange = function(e) {
+	if(request.readyState === 4) {
+            result.className = '';
+	    results.value = '';
+            resultsPanel.style.display = "none";
+            annotations.innerHTML = '';
+            queriedAnnotations.innerHTML = '';
+            annotationsBox.style.display = 'none';
+
+	    if(request.status === 200) { 
+		console.log('200');
+                jr = JSON.parse(e.target.responseText);
+                generateMessage.style.display = "inline";
+                generateMessage.innerHTML = 'Model generated.';
+                previewLink.style.display="inline";
+	    } else {
+                previewLink.style.display="none";
+                generateMessage.innerHTML = 'Error generating model.';
+	    } 
+	}
+    }
+    request.open("POST", "/as/generate", true);
+    request.send("&readconstraint=" + escape(readConstraint.value)
+                 + "&writeconstraint=" + escape((readwrite.checked ? readConstraint.value : writeConstraint.value))
+                 + "&fprops=" + fprops.value
+                 + "&session-id=" + sessionID.value
+                 + "&authorization-insert=" + authorizationInsert.value);
 };
 
 var observe;
