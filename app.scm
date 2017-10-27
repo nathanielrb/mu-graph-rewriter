@@ -1111,9 +1111,23 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Constraint Renaming
+(define (make-template str)
+  (lambda ()
+    (log-message "~%Header:~A~%" (header 'mu-session-id))
+    (parse-constraint
+     (irregex-replace/all "<SESSION_ID>" str
+                          (or (sparql-escape-string (header 'mu-session-id))
+                              "<SESSION_ID>")))))
+
 (define (parse-constraint constraint)
   (let ((constraint
-         (if (pair? constraint) constraint (parse-query constraint))))
+         (if (pair? constraint)
+             constraint
+             (parse-query
+              (let ((h (header 'mu-session-id)))
+                (if h
+                    (irregex-replace/all "<SESSION_ID>" constraint h)
+                    constraint))))))
     (car (recursive-expand-triples (list constraint) '() replace-a))))
 
 ;; (define parse-constraint (memoize parse-constraint*))
@@ -2398,13 +2412,12 @@
 ;; generalize this, of course
 (define (make-template str)
   (lambda ()
-    (log-message "~%Header:~A~%" (header 'mu-session-id))
     (parse-constraint
      (irregex-replace/all "<SESSION_ID>" str
                           (or (sparql-escape-string (header 'mu-session-id))
                               "<SESSION_ID>")))))
 
-(define (model-call _)
+(define (apply-call _)
   (let* ((body (read-request-body))
          ($$body (let ((parsed-body (form-urldecode body)))
                    (lambda (key)
@@ -2429,7 +2442,6 @@
        (make-template write-constraint-string)))
 
     (*functional-properties* fprops)
-    (sparql-update "DROP ALL")
     (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert)
     `((success .  "true"))))
 
@@ -2455,7 +2467,7 @@
 
 (define-rest-call 'POST '("sandbox") sandbox-call)
 
-(define-rest-call 'POST '("model") model-call)
+(define-rest-call 'POST '("apply") apply-call)
 
 (define-rest-call 'POST '("proxy")
   (lambda (_)
@@ -2466,34 +2478,41 @@
 		       (*sparql-update-endpoint*)
 		       (*sparql-endpoint*))))))
 
+;; not working
+(define-rest-call 'DELETE '("clear")
+  (lambda  (_)
+    (sparql-update "DROP ALL")
+    `((success .  "true"))))
 
-(define (serve-file path)
-  (call-with-input-file path
-    (lambda (port)
-      (read-string #f port))))
+;; (define (serve-file path)
+;;   (log-message "~%Serving ~A~%" path)
+;;   (call-with-input-file path
+;;     (lambda (port)
+;;       (read-string #f port))))
 
-(define (sandbox filename)
-  (if (feature? 'docker) 
-      (make-pathname "/app/sandbox/" filename)
-      (make-pathname "./sandbox/" filename)))
+;; (define (sandbox filename)
+;;   (let ((filename (if (equal? filename "") "index.html" filename)))
+;;     (if (feature? 'docker) 
+;;         (make-pathname "/app/sandbox/" filename)
+;;         (make-pathname "./sandbox/" filename))))
 
-(define-rest-call 'GET '("sandbox") (lambda (_) (serve-file (sandbox "index.html"))))
+;; (define-rest-call 'GET '("sandbox") (lambda (_) (serve-file (sandbox "index.html"))))
 
-;; a way to do this directly in mu-chicken-support?
-(define-rest-call 'GET '("sandbox" file)
-  (rest-call
-   (file)
-   (serve-file (sandbox file))))
+;; ;; a way to do this directly in mu-chicken-support?
+;; (define-rest-call 'GET '("sandbox" file)
+;;   (rest-call
+;;    (file)
+;;    (serve-file (sandbox file))))
 
-(define-rest-call 'GET '("sandbox" dir file)
-  (rest-call
-   (dir file)
-   (serve-file (sandbox (string-join (list dir file) "/")))))
+;; (define-rest-call 'GET '("sandbox" dir file)
+;;   (rest-call
+;;    (dir file)
+;;    (serve-file (sandbox (string-join (list dir file) "/")))))
 
-(define-rest-call 'GET '("sandbox" dir dir2 file)
-  (rest-call
-   (dir dir2 file)
-   (serve-file (sandbox (string-join (list dir dir2 file) "/")))))
+;; (define-rest-call 'GET '("sandbox" dir dir2 file)
+;;   (rest-call
+;;    (dir dir2 file)
+;;    (serve-file (sandbox (string-join (list dir dir2 file) "/")))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load
