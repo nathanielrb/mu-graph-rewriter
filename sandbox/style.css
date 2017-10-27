@@ -68,9 +68,9 @@ body {
     /*    padding-left: 2%*/
 }
 .middle .results {
-    padding-left: 3%;
     display: none;
-    width: 95%;
+    width: 95.3%;
+    font-size: small;
 }
 h1 {
     padding: 0px 12px 0 12px;
@@ -103,11 +103,13 @@ textarea {
 }
 .left .panel textarea {
     width: 100%;
-    height: 850px;
+    /* height: 850px; */
+    height: auto;
     padding: 12px;
     color: #888;
     background: #fff;
     border: none;
+    overflow: hidden;
 }
 .left .panel textarea#write-constraint {
     background: #ddd;

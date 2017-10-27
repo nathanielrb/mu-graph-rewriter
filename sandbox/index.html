@@ -15,10 +15,10 @@
 
       <div class="panel constraint" >
 	<h2>Constraints</h2>
-        <p>Use <code>&lt;SESSION_ID&gt;</code> for the 'mu-session-id' header.</p>
+        <p>Use <code>&lt;SESSION_ID&gt;</code> for the <code>MU_SESSION_ID</code> header.</p>
         <p>Graphs should be variables (use VALUES or BIND when necessary).</p>
         <h3>Read Constraint</h3>
-	<textarea class="constraint" id="read-constraint">
+	<textarea class="constraint text" id="read-constraint">
 PREFIX graphs: <http://mu.semte.ch/school/graphs/>
 PREFIX school: <http://mu.semte.ch/vocabularies/school/>
 PREFIX foaf: <http://xmlns.com/foaf/0.1/>
@@ -41,29 +41,26 @@ WHERE {
     }
   }
   UNION {
-    @access Type(?type)
-    @access Student(?student)
+    @access Grade
     FILTER ( ?type = school:Grade )
     GRAPH ?graph { 
       ?a ?b ?c;
          a ?type;
-         school:gradeRecipient ?student .
     }
+
     { 
       GRAPH graphs:people { ?user school:role "principle" }
     }
     UNION {
       GRAPH graphs:people { ?user school:role "teacher" }
       GRAPH graphs:classes {
-        ?class school:teacher ?user;
-               school:student ?student
+        ?class school:hasTeacher ?user;
+               school:classGrade ?a
       }
     }
     UNION {
       GRAPH graphs:people { ?user school:role "student" }
-      GRAPH graphs:classes {
-        ?class school:student ?user
-      }
+      GRAPH graphs:grades { ?a school:gradeRecipient ?user }
     }
   }
   VALUES (?graph ?type) {
@@ -77,12 +74,12 @@ WHERE {
 </div>
       <div class="panel constraint">
 	<h3>Write Constraint <small><input checked=true type="checkbox" id="read-write"/>Same as Read Constraint</small></h3>
-	<textarea class="constraint" id="write-constraint" disabled=true>
+	<textarea class="constraint text" id="write-constraint" disabled=true>
         </textarea>
       </div>
       <div class="panel">
-	<h2>Optimizations</h2>
-	<h3>Functional properties</h3><p>Comma- or space-separated list</p><p> <input type="text" id="fprops" value="rdf:type"/></p>
+	<h3>Optimizations</h3>
+	<h4>Functional properties</h4><p>Comma- or space-separated list</p><p> <input type="text" id="fprops" value="rdf:type"/></p>
       </div>
     </div>
     <div class="column middle">
@@ -96,15 +93,15 @@ WHERE {
 INSERT DATA {
   GRAPH &lt;http://mu.semte.ch/authorization&gt; {
 </pre>
-        <textarea class="auth" id="authorization-insert">
+        <textarea class="auth text" id="authorization-insert">
 <rootSession> mu:uuid "root-session";
-              mu:account <http://mu.semte.ch/users/root>.
+              mu:account <http://mu.semte.ch/users/principle>.
 
 <user01Session> mu:uuid "user01-session";
-                mu:account <http://mu.semte.ch/users/user01>.
+                mu:account <http://mu.semte.ch/users/teacher1>.
 
 <user02Session> mu:uuid "user02-session";
-                mu:account <http://mu.semte.ch/users/user02>.
+                mu:account <http://mu.semte.ch/users/student1>.
         </textarea>
         <pre>
   }
@@ -136,7 +133,7 @@ WHERE {
           </div>
     </div> <!-- .panel -->
       <div class="panel results" id="results-panel">
-        <h2>Query Results</h2>
+        <h3>Query Results</h3>
         <textarea id="results" disabled=true></textarea>
       </div> <!-- .panel.results -->
     </div>  <!-- .column.middle -->
@@ -144,7 +141,7 @@ WHERE {
         <div class="column right">
           <div class="panel">
             <h2>Apply Model</h2>
-            <p>Load current Read and Write Constraints in the Query Rewriter (all triples will be deleted).</p>
+            <p>Load current read and write constraints and clear the triplestore.</p>
             <p><button name="model" id="model">Apply</button> <span id="model-message"></span> <a id="preview" href="/preview">Sample Application &raquo;</a></p>        
           </div> <!-- .panel -->
           <div class="panel">

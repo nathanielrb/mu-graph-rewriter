@@ -1,3 +1,5 @@
+// Pure lazy Vanilla JS.
+
 var button = document.getElementById('rewrite');
 var runButton = document.getElementById('run');
 var modelButton = document.getElementById('model');
@@ -28,42 +30,20 @@ function encode(e) {
   });
 }
 
-function animate(elem, style, unit, from, to, time, prop) {
-    if (!elem) {
-        return;
-    }
-    var start = new Date().getTime(),
-        timer = setInterval(function () {
-            var step = Math.min(1, (new Date().getTime() - start) / time);
-            if (prop) {
-                elem[style] = (from + step * (to - from))+unit;
-            } else {
-                elem.style[style] = (from + step * (to - from))+unit;
-            }
-            if (step === 1) {
-                clearInterval(timer);
-            }
-        }, 25);
-    if (prop) {
-          elem[style] = from+unit;
-    } else {
-          elem.style[style] = from+unit;
-    }
-}
-
-
 readwrite.onchange = function(e){ 
     if(e.target.checked){
         writeConstraint.value = '';
         writeConstraint.disabled = true;
         writeConstraint.style.background = '#ddd';
-        writeConstraint.style.height = '40px';
+        // writeConstraint.style.height = '40px';
+        resize(writeConstraint)();
     }
     else { 
         writeConstraint.value = readConstraint.value;
         writeConstraint.disabled = false;
         writeConstraint.style.background = '#fff';
-        writeConstraint.style.height = '400px';
+        // writeConstraint.style.height = '400px';
+        resize(writeConstraint)();
     }
 }
 
@@ -113,7 +93,6 @@ button.onclick = function(){
                         queriedAnnotations.appendChild(an);
                     }
                     annotationsBox.style.display = 'block';
-                    //animate(document.body, "scrollTop", "", 0, resultPanel.offsetTop, 500, true);
                     location.hash = '#result-panel';
 
                 }
@@ -153,8 +132,8 @@ runButton.onclick = function(){
 		    results.className = 'filled';
 		    results.value = JSON.stringify(jr.results.bindings, null, 2);
                     resultsPanel.style.display = "block";
-                    // animate(document.body, "scrollTop", "", 0, resultsPanel.offsetTop, 1000, true);
                     location.hash = '#results-panel';
+                    resize(results)();
 		} else {
 		    results.value = 'Error';
 		    results.className = 'error';
@@ -190,9 +169,54 @@ modelButton.onclick = function(){
 	}
     }
     request.open("POST", "/model", true);
-    request.send("&readconstraint=" + readConstraint.value
-                 + "&writeconstraint=" + (readwrite.checked ? readConstraint.value : writeConstraint.value)
+    request.send("&readconstraint=" + escape(readConstraint.value)
+                 + "&writeconstraint=" + escape((readwrite.checked ? readConstraint.value : writeConstraint.value))
                  + "&fprops=" + fprops.value
                  + "&session-id=" + sessionID.value
                 + "&authorization-insert=" + authorizationInsert.value);
 };
+
+var observe;
+if (window.attachEvent) {
+    observe = function (element, event, handler) {
+        element.attachEvent('on'+event, handler);
+    };
+}
+else {
+    observe = function (element, event, handler) {
+        element.addEventListener(event, handler, false);
+    };
+}
+
+function resize (text) {
+    return function() {
+        text.style.height = 'auto';
+        text.style.height = text.scrollHeight+'px';
+    }
+}
+/* 0-timeout to get the already changed text */
+function delayedResize (resize) {
+    return function() {
+        window.setTimeout(resize, 0);
+    }
+}
+
+function init () {
+    var textareas = document.querySelectorAll('textarea');
+    
+    [].forEach.call(textareas, function(text){
+        var resizer = resize(text);
+        var dresizer = delayedResize(resizer);
+        observe(text, 'change',  resizer);
+        observe(text, 'cut',     dresizer);
+        observe(text, 'paste',   dresizer);
+        observe(text, 'drop',    dresizer);
+        observe(text, 'keydown', dresizer);
+
+        text.focus();
+        text.select();
+        resizer();
+    });
+
+}
+init();
