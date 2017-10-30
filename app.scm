@@ -109,9 +109,13 @@
             (inner-bindings (if (or (equal? subselect-vars '(*))
                                     (equal? subselect-vars '*))
                                 bindings
-                                (project-bindings subselect-vars bindings))))
+                                (project-bindings subselect-vars bindings)))
+            (vars (if (equal? vars '(*))
+                      (get-vars rest)
+                      vars)))
        (let-values (((rw new-bindings) (rewrite rest inner-bindings)))
-         (values `((@SubSelect (,label ,@(filter sparql-variable? vars)) ,@rw)) 
+         ;; (values `((@SubSelect (,label ,@(filter sparql-variable? vars)) ,@rw)) 
+         (values `((@SubSelect (,label ,@vars) ,@rw)) 
                  (merge-bindings 
                   (project-bindings subselect-vars new-bindings)
                   bindings)))))))
@@ -451,27 +455,29 @@
 ;; filter through values with rdf-equal?
 (define (query-annotations annotations query)
   (let-values (((pairs singles) (partition pair? annotations)))
-    (let ((pairs (remove values? pairs)))
-      (if (null? pairs)
+    (let* ((pairs (remove values? pairs))
+           (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
+      (if (or (null? pairs) (null? vars))
           singles
-          (let ((annotations-query
-                 (rewrite-query 
-                  query 
-                  (query-annotations-rules (delete-duplicates (map second pairs))))))
-            (join
-             (map (lambda (row)
-                    (filter pair?
-                         (map (lambda (annotation binding)
-                                (match binding
-                                  ((var . val)
-                                   (if (and (equal? (->string var)
-                                                    (substring (->string (second annotation)) 1))
-                                            (or (null? (cddr annotation))
-                                                (member val (third annotation))))
-                                       (list (first annotation) val)
-                                       '()))))
-                              pairs row)))
-                       (sparql-select (write-sparql annotations-query)))))))))
+          (if (null? vars) singles
+              (let ((annotations-query
+                     (rewrite-query 
+                      query 
+                      (query-annotations-rules vars))))
+                (join
+                 (map (lambda (row)
+                        (filter pair?
+                                (map (lambda (annotation binding)
+                                       (match binding
+                                              ((var . val)
+                                               (if (and (equal? (->string var)
+                                                                (substring (->string (second annotation)) 1))
+                                                        (or (null? (cddr annotation))
+                                                            (member val (third annotation))))
+                                                   (list (first annotation) val)
+                                                   '()))))
+                                     pairs row)))
+                      (sparql-select (write-sparql annotations-query))))))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 
@@ -931,6 +937,39 @@
                            ,@(optimize-duplicates rw)))
                         new-bindings)))))
 
+(define (get-vars block)
+  (rewrite block '() get-vars-rules))
+
+(define get-vars-rules
+  `((,triple?
+     . ,(lambda (block bindings)
+          (values (filter sparql-variable? (flatten block)) bindings)))
+    ((GRAPH) 
+     . ,(lambda (block bindings)
+          (match block
+            ((`GRAPH graph . rest)
+             (let-values (((rw b) (rewrite rest bindings)))
+               (if (sparql-variable? graph)
+                   (values (cons graph rw) bindings)
+                   (values rw bindings)))))))
+    (,quads-block? 
+     . ,(lambda (block bindings)
+          (rewrite (cdr block))))
+    ((BIND)
+     . ,(lambda (block bindings)
+          (match block
+            ((`BIND (`AS exp var))
+             (values (list var) bindings)))))
+    ((@SubSelect)
+     . ,(lambda (block bindings)
+          (match block
+            ((`@SubSelect (_ . vars) . rest)
+             (if (equal? vars '(*))
+                 (rewrite rest '() get-vars-rules)
+                 (values (extract-subselect-vars vars) bindings))))))
+    ((FILTER VALUES) . ,rw/remove)
+    (,list? . ,rw/list)))
+
 (define top-rules
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
     ((@Prologue) 
@@ -947,18 +986,18 @@
      . ,(lambda (block bindings)
 	  (if (rewrite-select?)
 	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-		  (values `((@Query 
-                             ,@(replace-child-body 
-                                'WHERE
-                                (clean
-                                (apply-optimizations
-				 (group-graph-statements
-				  (reorder
-                                   (get-child-body 'WHERE rw)))))
-                                rw)))
-			  new-bindings))
+                (values `((@Query 
+                           ,@(replace-child-body 
+                              'WHERE
+                              (clean
+                               (apply-optimizations
+                                (group-graph-statements
+                                 (reorder
+                                  (get-child-body 'WHERE rw)))))
+                              rw)))
+                        new-bindings))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
-	        `((@Query ,@rw))))))
+                `((@Query ,@rw))))))
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
@@ -986,7 +1025,20 @@
 					    `((@SubSelect (SELECT *) (WHERE ,@new-where)))
 					    (reverse rw))))
 			      new-bindings)))))))
-    (,select? . ,rw/copy)
+    (,select? ; . ,rw/copy)
+     . ,(lambda (block bindings)
+          (if  (equal? block '(SELECT *))
+               (let ((vars
+                      (get-vars
+                       (cdr
+                        (context-head
+                         ((next-sibling-axis
+                           (lambda (context) 
+                             (let ((head (context-head context)))
+                               (and head (equal? (car head) 'WHERE)))))
+                          (*context*)))))))
+                 (values `((SELECT ,@vars)) bindings))
+               (values (list block) bindings))))
     ((@SubSelect) . ,rw/subselect)
     ((GRAPH) . ,rw/copy)
     ((*REWRITTEN*)
@@ -1113,7 +1165,6 @@
 ;; Constraint Renaming
 (define (make-template str)
   (lambda ()
-    (log-message "~%Header:~A~%" (header 'mu-session-id))
     (parse-constraint
      (irregex-replace/all "<SESSION_ID>" str
                           (or (sparql-escape-string (header 'mu-session-id))
@@ -2405,6 +2456,7 @@
         (log-message "~%===Annotations===~%~A~%" annotations)
         (log-message "~%===Queried Annotations===~%~A~%"
                      (format-queried-annotations queried-annotations))
+        (log-message "~%==Query==~%~A~%" rewritten-query)
         `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
           (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
