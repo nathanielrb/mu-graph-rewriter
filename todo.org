@@ -5,7 +5,8 @@
 *** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
 *** TODO abstract UNION-if->1 elements
 * basic logic
-** TODO SELECT * and in general, getting distinct/count right
+** TODO be sure of returning the right # of rows
+   without cross-multiplying anything
 ** TODO simplifying over UNIONs
     generalize optimize-duplicates, group-graph-statements et al.
     for UNIONs we could do a `collect-duplicates-over-union`
@@ -14,7 +15,8 @@
     
 ** TODO does rw/union distinguish between false and empty true?
 ** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
-   possible?
+   is this possible?
+** DONE SELECT * 
 ** DONE plugin templating 
    for... headers? query parameters? %{MU_SESSION_ID}%
    or pre-set templates: MU_SESSION_ID, MU_CALL_ID etc.
@@ -50,10 +52,12 @@
 * instantiation
 ** TODO careful with complicated statements wrt expand-graphs
     mixing graphs, OPTIONAL, annotations...
-** TODO implement a version of (instantiate ..) without UNION
+** TODO implement a version of (instantiate ..) without VALUES (formerly UNION)
     ie for DELETE queries (exact triple not needed), and also for a delta-subscription
     service like Esteban wanted
 
+    actually we don't do UNION at all now
+    so this would just be: remove triple w/o VALUES
 ** DONE get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
