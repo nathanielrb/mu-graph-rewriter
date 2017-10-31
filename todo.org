@@ -5,6 +5,8 @@
 *** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
 *** TODO abstract UNION-if->1 elements
 * basic logic
+** TODO verify logic of protected variables
+   is this right? or are dependencies 'wrong'...?
 ** TODO be sure of returning the right # of rows
    without cross-multiplying anything
 ** TODO simplifying over UNIONs
@@ -16,6 +18,7 @@
 ** TODO does rw/union distinguish between false and empty true?
 ** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
    is this possible?
+** TODO property paths and sequences
 ** DONE SELECT * 
 ** DONE plugin templating 
    for... headers? query parameters? %{MU_SESSION_ID}%

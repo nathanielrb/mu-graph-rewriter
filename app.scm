@@ -20,6 +20,8 @@
                 (with-input-from-file (*subscribers-file*)
                   (lambda () (read-json)))))))
 
+(define *unique-variables* (make-parameter '()))
+
 (define *functional-properties* (make-parameter '()))
 
 ;; Can be a string, an s-sparql expression, 
@@ -803,9 +805,10 @@
 (define keys (memoize keys*))
 
 (define (renaming* var bindings)
-  (let ((renamings
-         (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
-    (alist-ref var renamings)))
+  (if (member var (*unique-variables*)) var
+      (let ((renamings
+             (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
+        (alist-ref var renamings))))
 
 (define renaming (memoize renaming*))
 
@@ -2439,10 +2442,13 @@
          (query (parse query-string))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
+         (unique-vars (map string->symbol
+                              (string-split (or ($$body 'uvs) "") ", ")))
          (authorization-insert ($$body 'authorization-insert)))
     (parameterize ((*write-constraint* write-constraint)
     		   (*read-constraint* read-constraint)
 		   (*functional-properties* fprops)
+                   (*unique-variables* unique-vars)
 		   (*constraint-prologues*
 		    (append-unique
 		     (all-prologues (cdr read-constraint))
