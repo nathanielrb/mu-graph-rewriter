@@ -2353,8 +2353,8 @@
                      (mu-headers headers)
                      result))))))))
 
-         
-          
+        
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification
 (define-rest-call 'GET '("sparql") (rewrite-call))
@@ -2443,8 +2443,7 @@
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
          (unique-vars (map string->symbol
-                              (string-split (or ($$body 'uvs) "") ", ")))
-         (authorization-insert ($$body 'authorization-insert)))
+                              (string-split (or ($$body 'uvs) "") ", "))))
     (parameterize ((*write-constraint* write-constraint)
     		   (*read-constraint* read-constraint)
 		   (*functional-properties* fprops)
@@ -2453,8 +2452,6 @@
 		    (append-unique
 		     (all-prologues (cdr read-constraint))
 		     (all-prologues (cdr write-constraint)))))
-      (sparql-update "DELETE WHERE { GRAPH <http://mu.semte.ch/authorization> { ?s ?p ?o } }")
-      (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert)
       (let* ((rewritten-query (rewrite-query query top-rules))
              (annotations (get-annotations rewritten-query))
              (qt-annotations (query-time-annotations annotations))
@@ -2462,18 +2459,9 @@
         (log-message "~%===Annotations===~%~A~%" annotations)
         (log-message "~%===Queried Annotations===~%~A~%"
                      (format-queried-annotations queried-annotations))
-        (log-message "~%==Query==~%~A~%" rewritten-query)
         `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
           (annotations . ,(format-annotations qt-annotations))
           (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
-
-;; generalize this, of course
-(define (make-template str)
-  (lambda ()
-    (parse-constraint
-     (irregex-replace/all "<SESSION_ID>" str
-                          (or (sparql-escape-string (header 'mu-session-id))
-                              "<SESSION_ID>")))))
 
 (define (apply-call _)
   (let* ((body (read-request-body))
@@ -2483,8 +2471,7 @@
 	 (read-constraint-string ($$body 'readconstraint))
 	 (write-constraint-string ($$body 'writeconstraint))
 	 (fprops (map string->symbol
-		      (string-split (or ($$body 'fprops) "") ", ")))
-         (authorization-insert ($$body 'authorization-insert)))
+		      (string-split (or ($$body 'fprops) "") ", "))))
 
     (log-message "~%Redefining read and write constraints~%")
 
@@ -2500,7 +2487,6 @@
        (make-template write-constraint-string)))
 
     (*functional-properties* fprops)
-    (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert)
     `((success .  "true"))))
 
 (define (format-queried-annotations queried-annotations)
@@ -2527,6 +2513,16 @@
 
 (define-rest-call 'POST '("apply") apply-call)
 
+(define-rest-call 'POST '("auth")
+  (lambda (_)
+    (let* ((body (read-request-body))
+           ($$body (let ((parsed-body (form-urldecode body)))
+                     (lambda (key)
+                       (and parsed-body (alist-ref key parsed-body)))))
+           (authorization-insert ($$body 'authorization-insert)))
+      (sparql-update "DELETE WHERE { GRAPH <http://mu.semte.ch/authorization> { ?s ?p ?o } }")
+      (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert))))
+
 (define-rest-call 'POST '("proxy")
   (lambda (_)
     (let ((query (read-request-body)))
@@ -2539,8 +2535,21 @@
 ;; not working
 (define-rest-call 'DELETE '("clear")
   (lambda  (_)
-    (sparql-update "DROP ALL")
-    `((success .  "true"))))
+    (let ((graphs 
+           (append 
+            (get-all-graphs ((*read-constraint*)))
+            (get-all-graphs ((*write-constraint*))))))
+      (sparql-update 
+       (conc "DELETE { "
+             " GRAPH ?g { ?s ?p ?o } "
+             "} "
+             "WHERE { "
+             " GRAPH ?g { ?s ?p ?o } "
+             " VALUES ?g { "
+             (string-join (map (cut format "~%  ~A" <>) graphs))
+             " } "
+             "}"))
+      `((success .  "true")))))
 
 ;; (define (serve-file path)
 ;;   (log-message "~%Serving ~A~%" path)

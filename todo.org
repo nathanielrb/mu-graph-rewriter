@@ -5,7 +5,7 @@
 *** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
 *** TODO abstract UNION-if->1 elements
 * basic logic
-** TODO verify logic of protected variables
+** DONE verify logic of protected variables
    is this right? or are dependencies 'wrong'...?
 ** TODO be sure of returning the right # of rows
    without cross-multiplying anything
@@ -19,6 +19,30 @@
 ** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
    is this possible?
 ** TODO property paths and sequences
+** TODO interaction of FILTER and |
+   what about foaf:name|foaf:mbox when the constraint has
+   FILTER( ?b != foaf:mbox )
+   which generates too many dependencies, it seems
+
+WHERE {
+ GRAPH <http://mu.semte.ch/authorization> {
+  ?session mu:uuid "session0".
+  ?session mu:account ?user.
+ }
+ GRAPH ?graph17789 {
+  ?s rdf:type foaf:Person.
+ }
+ GRAPH ?graph17791 {
+  ?s foaf:name|foaf:mbox ?name.
+  ?s rdf:type foaf:Person.
+ }
+ VALUES (?graph17789) { 
+  (graphs:people) 
+ }
+ VALUES (?graph17791) { 
+  (graphs:people) 
+ }
+}
 ** DONE SELECT * 
 ** DONE plugin templating 
    for... headers? query parameters? %{MU_SESSION_ID}%
@@ -242,6 +266,7 @@
 * sandbox
 ** TODO save constraints and queries
    like Postman
+** TODO syncronous generate call (at least overall)
 ** DONE apply model
 ** DONE implement separate read/write constraints
 * temp graphs
