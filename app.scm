@@ -29,23 +29,26 @@
 ;; Used by (constrain-triple) below.
 (define *read-constraint*
   (make-parameter
-   `((@QueryUnit
-      ((@Query
-       (CONSTRUCT (?s ?p ?o))
-       (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))))
+   `(@QueryUnit
+     (@Query
+      (CONSTRUCT (?s ?p ?o))
+      (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))
 
 (define *write-constraint*
   (make-parameter
-   `((@QueryUnit
-      ((@Query
+   `(@QueryUnit
+      (@Query
        (CONSTRUCT (?s ?p ?o))
-       (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))))
+       (WHERE (GRAPH ,(*default-graph*) (?s ?p ?o)))))))
  
 (define *plugin*
-  (config-param "PLUGIN_PATH" ))
-                ;; (if (feature? 'docker)
-                ;;     "/config/plugin.scm"
-                ;;     "./config/rewriter/plugin.scm")))
+  (config-param "PLUGIN" ))
+
+(define *plugin-dir*
+  (config-param "PLUGIN_DIR" 
+                (if (feature? 'docker)
+                    "/config" 
+                    "./config/rewriter" )))
 
 (define *cache* (make-hash-table))
 
@@ -211,7 +214,6 @@
 
 (define (rdf-equal? a b)
   (let ((nss (append (query-namespaces)
-		     ;; (*constraint-namespaces*)
 		     (*namespaces*)))) ; memoize this
     (if (and (symbol? a) (symbol? b))
         (equal? (expand-namespace (a->rdf:type a) nss)
@@ -871,7 +873,7 @@
                  (*use-temp?* #t))
     (sparql-update
      (write-sparql
-      (rewrite-query (sync-temp-query) top-rules)))))
+      (rewrite-query (sync-temp-query) (top-rules))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Core Transformation
@@ -973,7 +975,7 @@
     ((FILTER VALUES) . ,rw/remove)
     (,list? . ,rw/list)))
 
-(define top-rules
+(define (top-rules)
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
     ((@Prologue) 
      . ,(lambda (block bindings)
@@ -1166,21 +1168,24 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Constraint Renaming
-(define (make-template str)
+(define *replace-session-id?* (make-parameter #t))
+
+(define (with-session-id str)
   (lambda ()
-    (parse-constraint
-     (irregex-replace/all "<SESSION_ID>" str
-                          (or (sparql-escape-string (header 'mu-session-id))
-                              "<SESSION_ID>")))))
+    (let ((sid (header 'mu-session-id)))
+      (parse-constraint
+       (if (and (*replace-session-id?*) sid)
+           (irregex-replace/all "<SESSION_ID>" str sid)
+           str)))))
 
 (define (parse-constraint constraint)
   (let ((constraint
          (if (pair? constraint)
              constraint
              (parse-query
-              (let ((h (header 'mu-session-id)))
-                (if h
-                    (irregex-replace/all "<SESSION_ID>" constraint h)
+              (let ((sid (header 'mu-session-id)))
+                (if (and (*replace-session-id?*) sid)
+                    (irregex-replace/all "<SESSION_ID>" constraint (sparql-escape-string sid))
                     constraint))))))
     (car (recursive-expand-triples (list constraint) '() replace-a))))
 
@@ -1610,7 +1615,7 @@
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
   (if (nulll? block) '()
-      (let-values (((rw new-bindings) (rewrite (list block) '() optimization-rules)))
+      (let-values (((rw new-bindings) (rewrite (list block) '() (optimization-rules))))
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
             (car (filter quads? rw))))))
@@ -1708,7 +1713,7 @@
 
 (define optimizations-graph (make-parameter #f))
 
-(define optimization-rules
+(define (optimization-rules)
   `(((@UpdateUnit @QueryUnit @Update @Query) . ,rw/continue)
     ((@Prologue @Dataset GROUP |GROUP BY| LIMIT ORDER |ORDER BY| OFFSET) . ,rw/copy)
     (,select? . ,rw/copy)
@@ -2096,7 +2101,7 @@
       (case exn
         ((optimizations) (error (format "Invalid query (opt):~%~A" (write-sparql query))))
         (else (error (format "Invalid query:~%~A" (write-sparql query)))))
-    (rewrite-query query top-rules)))
+    (rewrite-query query (top-rules))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Deltas
@@ -2287,12 +2292,25 @@
 
 (define (call-if C) (if (procedure? C) (C) C))
 
+(define (constraint-prefixes)
+  (append
+   (query-prefixes (call-if (*read-constraint*)))
+   (query-prefixes (call-if (*write-constraint*)))))
+
+(define (constraint-prologues)
+  (append-unique
+   (all-prologues (cdr (call-if (*read-constraint*))))
+   (all-prologues (cdr (call-if (*write-constraint*))))))
+
 (define (rewrite-constraints query)
   (parameterize ((*constraint-prologues*
-                  (append-unique
-                   (all-prologues (cdr (call-if (*read-constraint*))))
-                   (all-prologues (cdr (call-if (*write-constraint*)))))))
-                (rewrite-query query top-rules)))
+                  (constraint-prologues)))
+  ;; really risky!!
+  (parameterize ((*namespaces*
+                  (delete-duplicates
+                   (append (constraint-prefixes)
+                           (*namespaces*))))) ; memoize this!
+      (rewrite-query query (top-rules)))))
 
 (define (rewrite-call)
   (lambda (_)
@@ -2388,7 +2406,7 @@
     (,list? . ,rw/list)))
 
 (define (test query #!optional (cleanup? #t))
-  (let ((rewritten-query (rewrite-query query top-rules))
+  (let ((rewritten-query (rewrite-query query (top-rules)))
         (intermediate-graph 
          (expand-namespace
           (symbol-append '|rewriter:| (gensym 'graph)))))
@@ -2447,12 +2465,12 @@
     (parameterize ((*write-constraint* write-constraint)
     		   (*read-constraint* read-constraint)
 		   (*functional-properties* fprops)
-                   (*unique-variables* unique-vars)
-		   (*constraint-prologues*
-		    (append-unique
-		     (all-prologues (cdr read-constraint))
-		     (all-prologues (cdr write-constraint)))))
-      (let* ((rewritten-query (rewrite-query query top-rules))
+                   (*unique-variables* unique-vars))
+                   ;; (*constraint-prologues*
+                   ;;  (append-unique
+		   ;;    (all-prologues (cdr read-constraint))
+		   ;;   (all-prologues (cdr write-constraint)))))
+      (let* ((rewritten-query (rewrite-constraints query)) ; (rewrite-query query top-rules))
              (annotations (get-annotations rewritten-query))
              (qt-annotations (query-time-annotations annotations))
              (queried-annotations (query-annotations annotations rewritten-query)))
@@ -2471,22 +2489,27 @@
 	 (read-constraint-string ($$body 'readconstraint))
 	 (write-constraint-string ($$body 'writeconstraint))
 	 (fprops (map string->symbol
-		      (string-split (or ($$body 'fprops) "") ", "))))
+		      (string-split (or ($$body 'fprops) "") ", ")))
+         (unique-vars (map string->symbol
+                              (string-split (or ($$body 'uvs) "") ", "))))
 
     (log-message "~%Redefining read and write constraints~%")
-
+    (log-message "~%With fprops: ~A~%" fprops)
     ;; brute-force redefining constraints
     (set!
       *write-constraint*
       (make-parameter
-       (make-template write-constraint-string)))
+       ;; (with-session-id write-constraint-string)))
+       (lambda () (parse-constraint write-constraint-string))))
 
     (set!
       *read-constraint*
       (make-parameter
-       (make-template write-constraint-string)))
+       ;; (with-session-id write-constraint-string)))
+       (lambda () (parse-constraint read-constraint-string))))
 
-    (*functional-properties* fprops)
+    (set! *functional-properties* (make-parameter fprops))
+    (set! *unique-variables (make-parameter unique-vars))
     `((success .  "true"))))
 
 (define (format-queried-annotations queried-annotations)
@@ -2532,24 +2555,103 @@
 		       (*sparql-update-endpoint*)
 		       (*sparql-endpoint*))))))
 
-;; not working
 (define-rest-call 'DELETE '("clear")
   (lambda  (_)
-    (let ((graphs 
-           (append 
-            (get-all-graphs ((*read-constraint*)))
-            (get-all-graphs ((*write-constraint*))))))
-      (sparql-update 
-       (conc "DELETE { "
-             " GRAPH ?g { ?s ?p ?o } "
-             "} "
-             "WHERE { "
-             " GRAPH ?g { ?s ?p ?o } "
-             " VALUES ?g { "
-             (string-join (map (cut format "~%  ~A" <>) graphs))
-             " } "
-             "}"))
-      `((success .  "true")))))
+    (parameterize ((*replace-session-id?* #f))
+      (let ((graphs 
+             (delete-duplicates
+              (append 
+               (get-all-graphs ((*read-constraint*)))
+               (get-all-graphs ((*write-constraint*)))))))
+        (sparql-update 
+         (write-sparql
+          `(@UpdateUnit
+            (@Update
+             (@Prologue ,@(constraint-prologues))
+             (DELETE
+              (GRAPH ?g (?s ?p ?o)))
+             (WHERE
+              (GRAPH ?g (?s ?p ?o))
+              (VALUES ?g ,@graphs))))))))
+          
+       ;; (conc "DELETE { "
+       ;;       " GRAPH ?g { ?s ?p ?o } "
+       ;;       "} "
+       ;;       "WHERE { "
+       ;;       " GRAPH ?g { ?s ?p ?o } "
+       ;;       " VALUES ?g { "
+       ;;       (string-join (map (cut format "~%  ~A" <>) graphs))
+       ;;       " } "
+       ;;       "}"))
+      `((success .  "true"))))
+
+(define (load-plugin name)
+  (load (make-pathname (*plugin-dir*) name ".scm")))
+
+(define (save-plugin name read-constraint-string write-constraint-string fprops unique-vars)
+  (let* ((replace (lambda (str) 
+                   (irregex-replace/all "^[ \n]+" (irregex-replace/all "[\"]" str "\\\"") "")))
+         (read-constraint-string (replace read-constraint-string))
+         (write-constraint-string (and write-constraint-string (replace write-constraint-string)))
+         (fprops (or fprops (*functional-properties*)))
+         (unique-vars  (map symbol->string (or unique-vars (*unique-variables*)))))
+
+    (with-output-to-file (make-pathname (*plugin-dir*) name "scm")
+      (lambda ()
+        (format #t "(*functional-properties* '~A)~%~%" fprops)
+        (format #t "(*unique-variables* '~A)~%~%" unique-vars)
+
+        (format #t (conc "(define-constraint  ~%"
+                         (if write-constraint-string
+                             "  'read ~%"
+                             "  'read/write ~%")
+                         "  (lambda ()"
+                         "    \"~%"
+                         read-constraint-string
+                         "  \"))~%~%"))
+        
+        (when write-constraint-string
+              (format #t (conc "(define-constraint  ~%"
+                               "  'write ~%"
+                               "  (lambda () "
+                               "    \"~%"
+                               write-constraint-string
+                               "  \")~%~%")))
+        ))))
+
+(define-rest-call 'POST '("plugin" name)
+  (rest-call (name)
+    (let* ((body (read-request-body))
+           ($$body (let ((parsed-body (form-urldecode body)))
+                     (lambda (key)
+                       (and parsed-body (alist-ref key parsed-body)))))
+
+           (session-id (conc "\"" ($$body 'session-id) "\""))
+           (read-constraint-string ($$body 'readconstraint))
+           (write-constraint-string ($$body 'writeconstraint))
+           (fprops (map string->symbol
+                        (string-split (or ($$body 'fprops) "") ", ")))
+           (unique-vars (map string->symbol
+                             (string-split (or ($$body 'uvs) "") ", "))))
+      (save-plugin name read-constraint-string write-constraint-string fprops unique-vars)
+      `((success . "true")))))
+
+(define-rest-call 'GET '("plugin")
+  (lambda (_)
+    `((plugins . ,(list->vector
+                   (sort
+                    (map pathname-file (glob (make-pathname (*plugin-dir*) "*.scm")))
+                    string<=))))))
+
+(define-rest-call 'GET '("plugin" name)
+  (rest-call (name)
+    (load-plugin name)
+    (parameterize ((*replace-session-id?* #f)
+                   (*write-annotations?* #t))
+      `((readConstraint . ,(write-sparql (call-if (*read-constraint*))))
+        (writeConstraint . ,(write-sparql (call-if (*write-constraint*))))
+        (functionalProperties . ,(list->vector (map ->string (*functional-properties*))))
+        (uniqueVariables . ,(list->vector (map ->string (*unique-variables*))))))))
 
 ;; (define (serve-file path)
 ;;   (log-message "~%Serving ~A~%" path)
@@ -2585,9 +2687,7 @@
 ;; Load
 (log-message "~%==Query Rewriter Service==")
 
-(when (*plugin*) 
-  (log-message "~%Loading plugin: ~A " (*plugin*))
-  (load (*plugin*)))
+(when (*plugin*) (load-plugin (*plugin*)))
 
 (log-message "~%Proxying to SPARQL endpoint: ~A " (*sparql-endpoint*))
 (log-message "~%and SPARQL update endpoint: ~A " (*sparql-update-endpoint*))

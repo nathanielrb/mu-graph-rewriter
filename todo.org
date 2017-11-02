@@ -7,6 +7,7 @@
 * basic logic
 ** DONE verify logic of protected variables
    is this right? or are dependencies 'wrong'...?
+** TODO managing namespaces over multiple queries for rdf-equal?
 ** TODO be sure of returning the right # of rows
    without cross-multiplying anything
 ** TODO simplifying over UNIONs
