@@ -1175,7 +1175,7 @@
     (let ((sid (header 'mu-session-id)))
       (parse-constraint
        (if (and (*replace-session-id?*) sid)
-           (irregex-replace/all "<SESSION_ID>" str sid)
+           (irregex-replace/all "<SESSION>" str sid)
            str)))))
 
 (define (parse-constraint constraint)
@@ -1185,7 +1185,7 @@
              (parse-query
               (let ((sid (header 'mu-session-id)))
                 (if (and (*replace-session-id?*) sid)
-                    (irregex-replace/all "<SESSION_ID>" constraint (sparql-escape-uri sid))
+                    (irregex-replace/all "<SESSION>" constraint (sparql-escape-uri sid))
                     constraint))))))
     (car (recursive-expand-triples (list constraint) '() replace-a))))
 
@@ -2448,7 +2448,7 @@
          (query-string ($$body 'query))
          (session-id (conc "\"" ($$body 'session-id) "\""))
          ;; (replace-sid (lambda (str) 
-         ;;                (irregex-replace/all "<SESSION_ID>" str session-id)))
+         ;;                (irregex-replace/all "<SESSION>" str session-id)))
 	 ;; (constraint-string (replace-sid (or ($$body 'constraint) "")))
 	 ;; (read-constraint-string (replace-sid (or ($$body 'readconstraint) constraint-string)))
 	 ;; (write-constraint-string (replace-sid (or ($$body 'writeconstraint) constraint-string)))
