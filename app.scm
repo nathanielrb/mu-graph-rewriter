@@ -1185,7 +1185,7 @@
              (parse-query
               (let ((sid (header 'mu-session-id)))
                 (if (and (*replace-session-id?*) sid)
-                    (irregex-replace/all "<SESSION_ID>" constraint (sparql-escape-string sid))
+                    (irregex-replace/all "<SESSION_ID>" constraint (sparql-escape-uri sid))
                     constraint))))))
     (car (recursive-expand-triples (list constraint) '() replace-a))))
 
@@ -2317,7 +2317,8 @@
          (query (parse query-string))
          (logkey (gensym 'query)))
          
-    (log-message "~%==Results (~A)==~%~A~%" logkey (substring result 0 (min 1500 (string-length result))))
+    (log-message "~%==Rewriting Query (~A)==~%~A~%" logkey query-string)
+    (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
 
     (let-values (((rewritten-query bindings)
                   (parameterize (($query $$query) ($body $$body))
@@ -2362,7 +2363,8 @@
                      (log-message "~%==Potentials (~A)==~%(Will be sent in headers)~%~A~%"  logkey potential-graphs))
                    
                    (let ((headers (headers->list (response-headers response))))
-                     (log-results logkey result)
+                     (log-message "~%==Results (~A)==~%~A~%" 
+                                  logkey (substring result 0 (min 1500 (string-length result))))
                      (mu-headers headers)
                      result))))))))
 
@@ -2445,11 +2447,13 @@
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string ($$body 'query))
          (session-id (conc "\"" ($$body 'session-id) "\""))
-         (replace-sid (lambda (str) 
-                        (irregex-replace/all "<SESSION_ID>" str session-id)))
-	 (constraint-string (replace-sid (or ($$body 'constraint) "")))
-	 (read-constraint-string (replace-sid (or ($$body 'readconstraint) constraint-string)))
-	 (write-constraint-string (replace-sid (or ($$body 'writeconstraint) constraint-string)))
+         ;; (replace-sid (lambda (str) 
+         ;;                (irregex-replace/all "<SESSION_ID>" str session-id)))
+	 ;; (constraint-string (replace-sid (or ($$body 'constraint) "")))
+	 ;; (read-constraint-string (replace-sid (or ($$body 'readconstraint) constraint-string)))
+	 ;; (write-constraint-string (replace-sid (or ($$body 'writeconstraint) constraint-string)))
+         (read-constraint-string ($$body 'readconstraint))
+	 (write-constraint-string ($$body 'writeconstraint))
 	 (read-constraint (parse-constraint read-constraint-string))
 	 (write-constraint (parse-constraint write-constraint-string))
          (query (parse query-string))
@@ -2537,9 +2541,12 @@
            ($$body (let ((parsed-body (form-urldecode body)))
                      (lambda (key)
                        (and parsed-body (alist-ref key parsed-body)))))
-           (authorization-insert ($$body 'authorization-insert)))
+           ;; (authorization-insert ($$body 'authorization-insert)))
+           (user ($$body 'user))
+           (session-id (header 'mu-session-id)))
       (sparql-update "DELETE WHERE { GRAPH <http://mu.semte.ch/authorization> { ?s ?p ?o } }")
-      (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { ~A } }" authorization-insert))))
+      (sparql-update "INSERT DATA { GRAPH <http://mu.semte.ch/authorization> { <~A> mu:account <~A> } }" 
+                     session-id user))))
 
 (define-rest-call 'POST '("proxy")
   (lambda (_)
