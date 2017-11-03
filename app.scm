@@ -2284,12 +2284,6 @@
   ;; (log-message "~%==With Constraint==~%~A~%" (write-sparql (if (procedure? (*constraint*)) ((*constraint*)) (*constraint*))))
   (log-message "~%==Parsed As==~%~A~%" (write-sparql query)))
 
-(define (log-rewritten-query rewritten-query-string)
-  (log-message "~%==Rewritten Query==~%~A~%" rewritten-query-string))
-
-(define (log-results result)
-  (log-message "~%==Results==~%~A~%" (substring result 0 (min 1500 (string-length result)))))
-
 (define (call-if C) (if (procedure? C) (C) C))
 
 (define (constraint-prefixes)
@@ -2320,14 +2314,15 @@
                    (lambda (key)
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string (or ($$query 'query) ($$body 'query) body))
-         (query (parse query-string)))
+         (query (parse query-string))
+         (logkey (gensym 'query)))
          
-    (log-received-query query-string query)
+    (log-message "~%==Results (~A)==~%~A~%" logkey (substring result 0 (min 1500 (string-length result))))
 
     (let-values (((rewritten-query bindings)
                   (parameterize (($query $$query) ($body $$body))
                     (handle-exceptions exn 
-                        (begin (log-message "~%==Rewriting Error==~%") 
+                        (begin (log-message "~%==Rewriting Error (~A)==~%" logkey) 
                                (log-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn))
                                (print-error-message exn (current-error-port))
                                (print-call-chain (current-error-port))
@@ -2336,7 +2331,7 @@
                       (rewrite-constraints query)))))
       (let ((rewritten-query-string (write-sparql rewritten-query)))
         
-        (log-rewritten-query rewritten-query-string)
+        (log-message "~%==Rewritten Query (~A)==~%~A~%" logkey rewritten-query-string)
 
         (handle-exceptions exn 
             (virtuoso-error exn)
@@ -2346,7 +2341,7 @@
 
           (plet-if (not (update-query? query))
                    ((potential-graphs (handle-exceptions exn
-                                          (begin (log-message "~%Error getting potential graphs or annotations: ~A~%" exn) 
+                                          (begin (log-message "~%Error getting potential graphs or annotations (~A): ~A~%" logkey exn) 
                                                  
                                                  #f)
                                         (cond ((*calculate-potentials?*)
@@ -2364,10 +2359,10 @@
                        (list result response))))
                    
                    (when (or (*calculate-potentials?*) (*calculate-annotations?*))
-                     (log-message "~%==Potentials==~%(Will be sent in headers)~%~A~%"  potential-graphs))
+                     (log-message "~%==Potentials (~A)==~%(Will be sent in headers)~%~A~%"  logkey potential-graphs))
                    
                    (let ((headers (headers->list (response-headers response))))
-                     (log-results result)
+                     (log-results logkey result)
                      (mu-headers headers)
                      result))))))))
 
