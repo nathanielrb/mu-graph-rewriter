@@ -982,6 +982,12 @@
                (if (sparql-variable? graph)
                    (values (cons graph rw) bindings)
                    (values rw bindings)))))))
+    ((UNION)
+     . ,(lambda (block bindings)
+          (values (delete-duplicates
+                   (join
+                    (map rewrite (cdr block))))
+                  bindings)))
     (,quads-block? 
      . ,(lambda (block bindings)
           (rewrite (cdr block))))
