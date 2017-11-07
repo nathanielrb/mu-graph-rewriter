@@ -44,6 +44,8 @@ WHERE {
   (graphs:people) 
  }
 }
+** TODO bug getting SELECT * vars with UNION
+   SELECT * WHERE { { ?s ?p ?o } UNION { ?s ?q ?o} } 
 ** DONE SELECT * 
 ** DONE plugin templating 
    for... headers? query parameters? %{MU_SESSION_ID}%
@@ -264,6 +266,9 @@ WHERE {
    should resolve to '(graph g:people)
 * little things
 ** TODO Fix $query and make it like (headers)
+** TODO parser: 
+   - [ ] GROUP_CONCAT
+   - [ ] %percent
 * sandbox
 ** TODO save constraints and queries
    like Postman

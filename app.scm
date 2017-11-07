@@ -597,6 +597,31 @@
     (,list? . ,rw/list)
     (,symbol? . ,rw/copy)))
 
+(define (replace-triple block old-triple new-triple)
+  (rewrite block '() (replace-triple-rules old-triple new-triple)))
+
+(define (replace-triple-rules old-triple new-triple)
+  `(((@QueryUnit @UpdateUnit @Query @Update CONSTRUCT WHERE
+      DELETE INSERT |DELETE WHERE| |INSERT DATA| *REWRITTEN*) . ,rw/quads)
+    ((@Prologue @Dataset @Using) . ,rw/copy)
+    (,symbol? . ,rw/copy)
+    (,annotation? . ,rw/copy)
+    ((MINUS OPTIONAL) . ,rw/quads)
+    ((UNION) . ,rw/union)
+    (,select? . ,rw/copy)
+    ((@SubSelect) . ,rw/subselect)
+    ((GRAPH) 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
+            (values `((GRAPH ,(second block) ,@rw)) new-bindings))))
+    (,triple? 
+     . ,(lambda (triple bindings)
+          (if (equal? triple old-triple) 
+              (values (list new-triple) bindings)
+              (values (list triple) bindings))))
+    ((VALUES FILTER BIND |GROUP BY| OFFSET LIMIT) . ,rw/copy)
+    (,list? . ,rw/list)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Get Graphs
 (define (get-all-graphs query)
@@ -1209,10 +1234,15 @@
 (define (apply-constraint triple bindings C)
   (parameterize ((flatten-graphs? #f))
     (let* ((C* (if (procedure? C) (C) C)))
-           ;; (C** (if (and (use-temp?) (update?))
-           ;;          (rewrite-query C* temp-rules)
-           ;;          C*)))
-      (rewrite (list C*) bindings (apply-constraint-rules triple)))))
+      (match triple
+        ((a (`^ b) c)
+         (rewrite (list C*) bindings (apply-constraint-rules c b a)))
+        ((a (`! b) c)
+         (let-values (((rw new-bindings) (rewrite (list C*) bindings (apply-constraint-rules a b c))))
+           (values (replace-triple rw  `(,a ,b ,c) triple)
+                   new-bindings)))
+        ((a b c)
+         (rewrite (list C*) bindings (apply-constraint-rules a b c)))))))
 
 (define (apply-read-constraint triple bindings)
   (apply-constraint triple bindings (*read-constraint*)))
@@ -1236,10 +1266,9 @@
 (define dependency-substitutions (make-parameter '()))
 (define dependencies  (make-parameter '()))
 
-(define (apply-constraint-rules triple)
-  (match triple
-    ((a (`^ b) c) (apply-constraint-rules `(,c ,b ,a)))
-    ((a b c)
+(define (apply-constraint-rules a b c) ; triple)
+  ;; (match triple
+  ;;   ((a b c)
      `((,symbol? . ,rw/copy)
        ((@QueryUnit) 
         . ,(lambda (block bindings)
@@ -1288,7 +1317,7 @@
 			    (values (list (get-child-body 'WHERE rw)) ; (get-child-body 'WHERE rw)
                                     new-bindings))))
                       (values '() bindings)))))))
-       (,list? . ,rw/remove)))))
+       (,list? . ,rw/remove)))
 
 (define (make-initial-substitutions a b c s p o bindings)
   (let ((check (lambda (u v) (or (sparql-variable? u) (sparql-variable? v) (rdf-equal? u v)))))
