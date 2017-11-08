@@ -788,7 +788,7 @@ INSERT DATA
 "))
 
 
-(define rw (read-sparql "PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+(define rw (parse-query "PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -809,7 +809,7 @@ DELETE {
   ?s ?pp ?oo.
  }"))
 
-(define subs (read-sparql "PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+(define subs (parse-query "PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
 PREFIX skos: <http://www.w3.org/2004/02/skos/core#>
 PREFIX owl: <http://www.w3.org/2002/07/owl#>
 PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
@@ -1563,7 +1563,7 @@ PREFIX owl: <http://www.w3.org/2002/07/owl#>
 (define c19 (parse-query "SELECT * WHERE { ?a ?b ?c . { SELECT ?a (COUNT(?a) AS ?count) WHERE { ?a ?b ?c } }}"))
 
 (define (go query)
-  (rewrite-query query top-rules))
+  (rewrite-constraints query))
 
 (define (pgo query) (print (write-sparql (go query))))
 
@@ -1733,3 +1733,118 @@ WHERE {}"))
 
 (define c34 (parse-query "DELETE { ?s <is> <purple> } INSERT { ?s <is> <red> } WHERE { ?s <is> <purple> } "))
 
+(define c35 (parse-query "
+ PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+ PREFIX app: <http://mu.semte.ch/school/>
+ PREFIX graphs: <http://mu.semte.ch/school/graphs/>
+ PREFIX school: <http://mu.semte.ch/vocabularies/school/>
+ PREFIX dct: <http://purl.org/dc/terms/>
+ PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+ PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+ PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+ PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+ PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+ PREFIX owl: <http://www.w3.org/2002/07/owl#>
+ PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+ 
+ SELECT DISTINCT ?uuid
+ WHERE {
+  GRAPH <http://mu.semte.ch/application> {
+   <http://mu.semte.ch/school/classes/10bc2d66-4246-44e3-960c-f8c1ba9788a7> school:teacher ?resource.
+   <http://mu.semte.ch/school/classes/10bc2d66-4246-44e3-960c-f8c1ba9788a7> a school:Class.
+   ?resource mu:uuid ?uuid.
+   ?resource a foaf:Person.
+  }
+ }
+ GROUP BY ?uuid
+ OFFSET 0
+ LIMIT 20"))
+
+
+;; (print (time (print (write-sparql (rewrite-constraints c35)))))
+
+(define c36 (parse-query "
+SELECT ?s ?name
+WHERE {
+  ?s a foaf:Person;
+     foaf:name ?name
+}
+"))
+ 
+(define c37 (parse-query "
+ PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+ PREFIX app: <http://mu.semte.ch/school/>
+ PREFIX graphs: <http://mu.semte.ch/school/graphs/>
+ PREFIX school: <http://mu.semte.ch/vocabularies/school/>
+ PREFIX dct: <http://purl.org/dc/terms/>
+ PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+ PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+ PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+ PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+ PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+ PREFIX owl: <http://www.w3.org/2002/07/owl#>
+ PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+ 
+ SELECT *
+ WHERE {
+  GRAPH <http://mu.semte.ch/application> {
+   OPTIONAL {
+    <http://mu.semte.ch/school/classes/28f8494e-384c-4aba-81b3-2b6d5874d5fd> dct:title ?name.
+   }
+   OPTIONAL {
+    <http://mu.semte.ch/school/classes/28f8494e-384c-4aba-81b3-2b6d5874d5fd> dct:subject ?subject.
+   }
+  }
+ }"))
+
+(define c38 (parse-query "
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+PREFIX app: <http://mu.semte.ch/school/>
+PREFIX graphs: <http://mu.semte.ch/school/graphs/>
+PREFIX school: <http://mu.semte.ch/vocabularies/school/>
+PREFIX dct: <http://purl.org/dc/terms/>
+PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+PREFIX rm: <http://mu.semte.ch/vocabularies/logical-delete/>
+PREFIX typedLiterals: <http://mu.semte.ch/vocabularies/typed-literals/>
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+PREFIX owl: <http://www.w3.org/2002/07/owl#>
+PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
+
+SELECT *
+WHERE {
+ GRAPH <http://mu.semte.ch/application> {
+  OPTIONAL {
+   <http://mu.semte.ch/users/student7> foaf:name ?name.
+  }
+  OPTIONAL {
+   <http://mu.semte.ch/users/student7> foaf:mbox ?email.
+  }
+  OPTIONAL {
+   <http://mu.semte.ch/users/student7> school:role ?role.
+  }
+ }
+}
+"))
+
+(define c39 (parse-query "
+DELETE {
+ GRAPH <http://mu.semte.ch/application> {
+  ?s school:classGrade <http://mu.semte.ch/school/grades/d95df8dc-033e-46ea-a758-d1f87d34a0e4>.
+ }
+}
+WHERE {
+ GRAPH <http://mu.semte.ch/application> {
+  OPTIONAL {
+   ?s school:classGrade <http://mu.semte.ch/school/grades/d95df8dc-033e-46ea-a758-d1f87d34a0e4>.
+  }
+ }
+};
+
+INSERT DATA {
+ GRAPH <http://mu.semte.ch/application> {
+  <http://mu.semte.ch/school/classes/10bc2d66-4246-44e3-960c-f8c1ba9788a7> school:classGrade <http://mu.semte.ch/school/grades/d95df8dc-033e-46ea-a758-d1f87d34a0e4>.
+ }
+}"))
+
+(load "/home/nathaniel/projects/graph-acl-basics/config/rewriter/basic-authorization.scm")

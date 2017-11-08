@@ -24,6 +24,8 @@
 
 (define *functional-properties* (make-parameter '()))
 
+(define *query-functional-properties?* (make-parameter #t))
+
 ;; Can be a string, an s-sparql expression, 
 ;; or a thunk returning a string or an s-sparql expression.
 ;; Used by (constrain-triple) below.
@@ -72,7 +74,7 @@
   (config-param "SEND_DELTAS" #f))
 
 (define *calculate-annotations?* 
-  (config-param "CALCULATE_ANNOTATIANS" #t))
+  (config-param "CALCULATE_ANNOTATIONS" #t))
 
 (define *calculate-potentials?* 
   (config-param "CALCULATE_POTENTIAL_GRAPHS" #f))
@@ -212,13 +214,16 @@
 
 (define *constraint-prologues* (make-parameter '()))
 
-(define (rdf-equal? a b)
-  (let ((nss (append (query-namespaces)
-		     (*namespaces*)))) ; memoize this
+(define (rdf-equal?* a b)
+  ;; (let ((nss (append-unique (constraint-prefixes)
+  ;;                           (query-namespaces)
+  ;;                           (*namespaces*)))) ; memoize this
     (if (and (symbol? a) (symbol? b))
-        (equal? (expand-namespace (a->rdf:type a) nss)
-                (expand-namespace (a->rdf:type b) nss))
-        (equal? a b))))
+        (equal? (expand-namespace (a->rdf:type a) (*namespaces*))
+                (expand-namespace (a->rdf:type b) (*namespaces*)))
+        (equal? a b)))
+
+(define rdf-equal? (memoize rdf-equal?*)) ; needs to take namespaces as param as well
 
 (define (rdf-member a bs)
   (let ((r (filter (cut rdf-equal? a <>) bs)))
@@ -248,7 +253,7 @@
      (lambda (out)
        (let loop ((vars vars) (new-vars '()) 
 		  (vals vals) (new-vals (make-list (length vals) '())))
-	 (cond ((null? vars) 
+	 (cond ((null? vars)
 		(if (null? new-vars) '()
 		    `(VALUES ,(reverse new-vars) ,@(map reverse new-vals))))
 	       ((pair? vars)
@@ -257,7 +262,7 @@
 			     (cons (car vars) new-vars)
 			     (map cdr vals) 
 			     (map cons (map car vals) new-vals)))
-		      (else
+		      (else 
 		       (let ((matches (map (cut rdf-equal? <> (car vars)) (map car vals))))
 			 (if (null? (filter values matches))
 			     (out #f)
@@ -458,30 +463,32 @@
 
 ;; filter through values with rdf-equal?
 (define (query-annotations annotations query)
-  (let-values (((pairs singles) (partition pair? annotations)))
-    (let* ((pairs (remove values? pairs))
-           (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
-      (if (or (null? pairs) (null? vars))
-          singles
-          (if (null? vars) singles
-              (let ((annotations-query
-                     (rewrite-query 
-                      query 
-                      (query-annotations-rules vars))))
-                (join
-                 (map (lambda (row)
-                        (filter pair?
-                                (map (lambda (annotation binding)
-                                       (match binding
-                                              ((var . val)
-                                               (if (and (equal? (->string var)
-                                                                (substring (->string (second annotation)) 1))
-                                                        (or (null? (cddr annotation))
-                                                            (member val (third annotation))))
-                                                   (list (first annotation) val)
-                                                   '()))))
-                                     pairs row)))
-                      (sparql-select (write-sparql annotations-query))))))))))
+  (if (*calculate-annotations?*)
+      (let-values (((pairs singles) (partition pair? annotations)))
+        (let* ((pairs (remove values? pairs))
+               (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
+          (if (or (null? pairs) (null? vars))
+              singles
+              (if (null? vars) singles
+                  (let ((annotations-query
+                         (rewrite-query 
+                          query 
+                          (query-annotations-rules vars))))
+                    (join
+                     (map (lambda (row)
+                            (filter pair?
+                                    (map (lambda (annotation binding)
+                                           (match binding
+                                                  ((var . val)
+                                                   (if (and (equal? (->string var)
+                                                                    (substring (->string (second annotation)) 1))
+                                                            (or (null? (cddr annotation))
+                                                                (member val (third annotation))))
+                                                       (list (first annotation) val)
+                                                       '()))))
+                                         pairs row)))
+                          (sparql-select (write-sparql annotations-query)))))))))
+      '()))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 
@@ -1641,7 +1648,8 @@
            (let ((vars (filter sparql-variable?
                                (flatten (filter (lambda (exp)
                                                   (and (pair? exp) 
-                                                       (member (car exp) '(FILTER BIND VALUES))))
+                                                       ;; (member (car exp) '(FILTER BIND VALUES))))
+                                                       (member (car exp) '(BIND VALUES))))
                                                 block)))))
              (parameterize ((restricted-variables (append vars (restricted-variables))))
                (rw/list block bindings)))))))
@@ -1801,7 +1809,9 @@
                    (new-subs-block (if (null? new-subs) '() `((*subs* ,new-subs)))))
             (case (length new-blocks)
               ((0)  (values (list #f) bindings)) ;; ?? (filter (compose not fail?)  ...
-              ((1)  (values (append new-subs-block (caar new-blocks)) bindings)) ; * caar?
+              ((1) (if (equal? new-blocks '(()))
+                       (values '() bindings)
+                       (values (append new-subs-block (caar new-blocks)) bindings))) ; * caar?
               (else (values (append new-subs-block `((UNION ,@(join new-blocks)))) bindings))))))  ) ; ? join
     ((WHERE)
      . ,(lambda (block bindings)
@@ -1824,9 +1834,24 @@
      . ,(lambda (triple bindings)
           (if (member (cons (optimizations-graph) triple) (last-level-quads))
               (values '() bindings)
-              (values (list (map replace-fprop triple)) bindings))))
+              ;; (values (list (map replace-fprop triple)) bindings))))
+
+              (match (map replace-fprop triple)
+                ((s p o)
+                 (if (and (*query-functional-properties?*)
+                          (not (sparql-variable? s))
+                          (rdf-member p (*functional-properties*))
+                          (sparql-variable? o))
+                     (let* ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o))
+                            (o*  (alist-ref (sparql-variable-name o) results)))
+                       (values `((,s ,p ,o*)) bindings))
+                     (values `((,s ,p ,o)) bindings)))))))
+                     
     (,list? . ,optimize-list)
     (,symbol? . ,rw/copy)))
+
+(define (sparql-variable-name var)
+  (string->symbol (substring (symbol->string var) 1)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Instantiation
@@ -2321,15 +2346,31 @@
 
 (define (call-if C) (if (procedure? C) (C) C))
 
-(define (constraint-prefixes)
+(define all-namespaces (make-parameter '()))
+
+(define (get-constraint-prefixes* read write)
   (append
-   (query-prefixes (call-if (*read-constraint*)))
-   (query-prefixes (call-if (*write-constraint*)))))
+   (query-prefixes (call-if read))
+   (query-prefixes (call-if write))))
+
+(define get-constraint-prefixes (memoize get-constraint-prefixes*))
+
+(define (constraint-prefixes)
+  (get-constraint-prefixes (*read-constraint*) (*write-constraint*)))
+
+(define (get-constraint-prologues* read write)
+  (append-unique
+   (all-prologues (cdr (call-if read)))
+   (all-prologues (cdr (call-if write)))))
+
+(define get-constraint-prologues (memoize get-constraint-prologues*))
 
 (define (constraint-prologues)
-  (append-unique
-   (all-prologues (cdr (call-if (*read-constraint*))))
-   (all-prologues (cdr (call-if (*write-constraint*))))))
+  (get-constraint-prologues (*read-constraint*)  (*write-constraint*)))
+
+  ;; (let ((nss (append-unique (constraint-prefixes)
+  ;;                           (query-namespaces)
+  ;;                           (*namespaces*)))) ; memoize this
 
 (define (rewrite-constraints query)
   (parameterize ((*constraint-prologues*
@@ -2338,8 +2379,22 @@
   (parameterize ((*namespaces*
                   (delete-duplicates
                    (append (constraint-prefixes)
+                           (query-prefixes query)
                            (*namespaces*))))) ; memoize this!
       (rewrite-query query (top-rules)))))
+
+  ;; (let ((nss (append-unique (constraint-prefixes)
+  ;;                           (query-namespaces)
+  ;;                           (*namespaces*)))) ; memoize this
+
+(define-syntax time
+  (syntax-rules ()
+    ((_ label body ...)
+     (let ((t1 (cpu-time)))
+       (let-values (((result bindings) body ...))
+         (let ((t2 (- (- t1 (cpu-time)))))
+           (log-message "~%Rewrite time(~A): ~Ams~%" label t2)
+           (values result bindings)))))))
 
 (define (rewrite-call)
   (lambda (_)
@@ -2364,7 +2419,7 @@
                                (print-call-chain (current-error-port))
                                (abort exn))
                         
-                      (rewrite-constraints query)))))
+                        (time logkey (rewrite-constraints query))))))
       (let ((rewritten-query-string (write-sparql rewritten-query)))
         
         (log-message "~%==Rewritten Query (~A)==~%~A~%" logkey rewritten-query-string)
@@ -2569,6 +2624,15 @@
 (define-rest-call 'POST '("sandbox") sandbox-call)
 
 (define-rest-call 'POST '("apply") apply-call)
+
+(define-rest-call 'GET '("auth")
+  (lambda (_)
+    (let* ((session (header 'mu-session-id))
+           (results (sparql-select-unique 
+                     "SELECT ?user WHERE { <~A> mu:account ?user }" 
+                     session))
+           (user (alist-ref 'user results)))
+      `((user . ,(write-uri user))))))
 
 (define-rest-call 'POST '("auth")
   (lambda (_)

@@ -46,6 +46,8 @@ WHERE {
 }
 ** TODO bug getting SELECT * vars with UNION
    SELECT * WHERE { { ?s ?p ?o } UNION { ?s ?q ?o} } 
+** TODO careful about dependencies for FILTER VALUES and BIND
+   current: VALUES and BIND(?) -> deps; FILTER does not
 ** DONE SELECT * 
 ** DONE plugin templating 
    for... headers? query parameters? %{MU_SESSION_ID}%
