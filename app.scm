@@ -1842,9 +1842,10 @@
                           (not (sparql-variable? s))
                           (rdf-member p (*functional-properties*))
                           (sparql-variable? o))
-                     (let* ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o))
-                            (o*  (alist-ref (sparql-variable-name o) results)))
-                       (values `((,s ,p ,o*)) bindings))
+                     (let ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o)))
+                       (log-message "~%queried ~A => ~A ~A" s o results)
+                       (let ((o* (if results (alist-ref (sparql-variable-name o) results) o)))
+                         (values `((,s ,p ,o*)) bindings)))
                      (values `((,s ,p ,o)) bindings)))))))
                      
     (,list? . ,optimize-list)
@@ -2324,17 +2325,26 @@
 (define $mu-session-id (make-parameter #f))
 (define $mu-call-id (make-parameter #f))
 
-(define (proxy-query rewritten-query-string endpoint)
-  (with-input-from-request 
-   (make-request method: 'POST
-                 uri: (uri-reference endpoint)
-                 headers: (headers
-                           '((Content-Type application/x-www-form-urlencoded)
-                             (Accept application/sparql-results+json)))) 
-   `((query . , (format #f "~A" rewritten-query-string)))
-   read-string))
+(define (proxy-query key rewritten-query-string endpoint)
+  (let ((t1 (cpu-time)))
+    (let-values (((result uri response)
+                  (with-input-from-request 
+                   (make-request method: 'POST
+                                 uri: (uri-reference endpoint)
+                                 headers: (headers
+                                           '((Content-Type application/x-www-form-urlencoded)
+                                             (Accept application/sparql-results+json)))) 
+                   `((query . , (format #f "~A" rewritten-query-string)))
+                   read-string)))
+      
+      (log-message "~%==Query Time (~A)==~%~Ams~%" key (- (- t1 (cpu-time))))
+      (values result uri response))))
 
-(define (parse q) (parse-query q))
+(define (parse key q)
+  (let ((t1 (cpu-time))
+        (result (parse-query q)))
+    (log-message "~%==Parse Time (~A)==~%~Ams~%" key (- (- t1 (cpu-time) )))
+    result))
 
 (define (log-headers) (log-message "~%==Received Headers==~%~A~%" (*request-headers*)))
 
@@ -2389,11 +2399,11 @@
 
 (define-syntax time
   (syntax-rules ()
-    ((_ label body ...)
+    ((_ key body ...)
      (let ((t1 (cpu-time)))
        (let-values (((result bindings) body ...))
          (let ((t2 (- (- t1 (cpu-time)))))
-           (log-message "~%Rewrite time(~A): ~Ams~%" label t2)
+           (log-message "~%==Rewrite Time (~A)==~%~Ams~%" key t2)
            (values result bindings)))))))
 
 (define (rewrite-call)
@@ -2404,8 +2414,9 @@
                    (lambda (key)
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string (or ($$query 'query) ($$body 'query) body))
-         (query (parse query-string))
-         (logkey (gensym 'query)))
+         (logkey (gensym 'query))
+         (query (parse logkey query-string)))
+
          
     (log-message "~%==Rewriting Query (~A)==~%~A~%" logkey query-string)
     (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
@@ -2440,23 +2451,24 @@
                                               ((*calculate-annotations?*)
                                                (get-annotations rewritten-query))
                                               (else #f))))
-                    ((result response)
-                     (let-values (((result uri response)
-                                   (proxy-query (add-prefixes rewritten-query-string)
-                                                (if (update-query? query)
-                                                    (*sparql-update-endpoint*)
-                                                    (*sparql-endpoint*)))))
-                       (close-connection! uri)
-                       (list result response))))
+                   ((result response)
+                    (let-values (((result uri response)
+                                  (proxy-query logkey
+                                               (add-prefixes rewritten-query-string)
+                                               (if (update-query? query)
+                                                   (*sparql-update-endpoint*)
+                                                   (*sparql-endpoint*)))))
+                      (close-connection! uri)
+                      (list result response))))
                    
-                   (when (or (*calculate-potentials?*) (*calculate-annotations?*))
-                     (log-message "~%==Potentials (~A)==~%(Will be sent in headers)~%~A~%"  logkey potential-graphs))
-                   
-                   (let ((headers (headers->list (response-headers response))))
-                     (log-message "~%==Results (~A)==~%~A~%" 
-                                  logkey (substring result 0 (min 1500 (string-length result))))
-                     (mu-headers headers)
-                     result))))))))
+              (when (or (*calculate-potentials?*) (*calculate-annotations?*))
+                    (log-message "~%==Potentials (~A)==~%(Will be sent in headers)~%~A~%"  logkey potential-graphs))
+              
+              (let ((headers (headers->list (response-headers response))))
+                (log-message "~%==Results (~A)==~%~A~%" 
+                             logkey (substring result 0 (min 1500 (string-length result))))
+                (mu-headers headers)
+                result))))))))
 
         
 
@@ -2522,7 +2534,7 @@
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string (or ($$query 'query) ($$body 'query) body))
          (cleanup? (not (string-ci=? "false" (or ($$query 'cleanup) "true"))))
-         (query (parse query-string)))
+         (query (parse "test" query-string)))
     (let-values (((actual expected) (test query cleanup?)))
       `((expected . ,(list->vector expected))
         (actual . ,(list->vector actual))
@@ -2652,7 +2664,7 @@
     (let ((query (read-request-body)))
       (log-message "~%==Proxying Query==~%~A~%" (add-prefixes query))
       (proxy-query (add-prefixes query)
-		   (if (update-query? (parse query))
+		   (if (update-query? (parse "test" query))
 		       (*sparql-update-endpoint*)
 		       (*sparql-endpoint*))))))
 

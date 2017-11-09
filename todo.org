@@ -267,7 +267,7 @@ WHERE {
 * sandbox
 ** DONE save constraints and queries
    like Postman
-** add checkbox for query-functional-properties?
+** add checkbox for query-functional-properties?H
 ** TODO syncronous generate call (at least overall)
 ** TODO mu-cl-resources version - pass headers on Update queries
 ** DONE apply model
