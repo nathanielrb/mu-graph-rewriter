@@ -6,6 +6,9 @@
 *** TODO abstract UNION-if->1 elements
 * basic logic
 ** TODO managing namespaces over multiple queries for rdf-equal?
+** TODO if read=write, then only constrain triples once
+   keep list in bindings: 'constrained-triples
+   (is this ok on any level??)
 ** TODO optimizing duplicates over UNION, OPTIONAL, etc.
    very important for muclr's delete/insert queries + basic-authorization
 
@@ -142,7 +145,6 @@ WHERE {
     #+END_SRC
 
 * optimizations
-** DONE query functional-properties
 ** TODO integrate queried functional-properties with Annotations & values
 ** TODO cache queried functional-properties
 ** TODO big minor problem: what if we're selecting ?type and ?type is optimized?
@@ -155,6 +157,7 @@ WHERE {
     though this begs the question of whether functional properties apply to triples
     or quads
 
+** DONE query functional-properties
 ** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
 ** DONE FILTER dependencies

@@ -1848,3 +1848,22 @@ INSERT DATA {
 }"))
 
 (load "/home/nathaniel/projects/graph-acl-basics/config/rewriter/basic-authorization.scm")
+
+(define (parse key q)
+  (let ((t1 (cpu-time))
+        (result (parse-query q)))
+    (log-message "~%==Parse Time (~A)==~%~Ams~%" key (- (- t1 (cpu-time) )))
+    result))
+(define (proxy-query key rewritten-query-string endpoint)
+  (let ((t1 (cpu-time)))
+    (let-values (((result uri response)
+                  (with-input-from-request 
+                   (make-request method: 'POST
+                                 uri: (uri-reference endpoint)
+                                 headers: (headers
+                                           '((Content-Type application/x-www-form-urlencoded)
+                                             (Accept application/sparql-results+json)))) 
+                   `((query . , (format #f "~A" rewritten-query-string)))
+                   read-string)))
+      (log-message "~%==Query Time (~A)==~%~Ams~%" key (- (- t1 (cpu-time))))
+      (values result uri response))))

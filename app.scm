@@ -283,7 +283,8 @@
       ((#t) (values '() bindings))
       ((?) (values (list statement) bindings))
       ((#f)
-       (values (list #f) bindings)))))
+       (values (list #f) bindings))
+      (else (abort (format "Validate filter error: ~A" statement))))))
 
 (define (validate-constraint constraint bindings)
   (match constraint
@@ -410,8 +411,8 @@
                            vals))))
                   `((*values*
                      ,(map (lambda (val)
-                             (,vars ,(expand-namespace val))))
-                     vals)))
+                             (,vars ,(expand-namespace val)))
+                           vals))))
               bindings)))))
     ((@Prologue @Dataset @Using CONSTRUCT SELECT FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 
      . ,rw/remove)
@@ -1143,25 +1144,26 @@
 ;; e.g., GRAPH ?g { s p o } VALUES (?g){ (<G>) }
 (define (instantiated-insert-query rw new-bindings)
   (parameterize ((flatten-graphs? #t))
-    (let* ((opt (compose delete-duplicates apply-optimizations group-graph-statements reorder))
+    (let* ((opt (compose apply-optimizations group-graph-statements reorder))
            (delete (expand-triples (or (get-child-body 'DELETE rw) '()) '() replace-a))
-           (insert (expand-triples (or (get-child-body 'INSERT rw) '()) '() replace-a))
-           (where (opt (or (get-child-body 'WHERE rw) '())))
-           (insert-constraints (opt (get-binding/default 'insert-constraints new-bindings '())))
-           (delete-constraints (opt (get-binding/default 'delete-constraints new-bindings '())))
-           (instantiated-constraints (instantiate insert-constraints insert))
-           (new-delete (triples-to-quads delete (append delete-constraints where)))
-           (new-insert (triples-to-quads insert (append insert-constraints where)))
-           (new-where (opt (append instantiated-constraints delete-constraints where))))
-      (replace-child-body-if 
-       'DELETE (and (not (null? new-delete)) new-delete)
-       (replace-child-body-if
-        'INSERT (and (not (null? new-insert)) new-insert)
-        (if (null? new-where)
-            (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
-            (replace-child-body 
-             'WHERE `((@SubSelect (SELECT *) (WHERE ,@new-where)))
-             (reverse rw))))))))
+           (insert (expand-triples (or (get-child-body 'INSERT rw) '()) '() replace-a)))
+      (let-values (((where subs1) (opt (or (get-child-body 'WHERE rw) '()))))
+        (let-values (((insert-constraints subs2) (opt (get-binding/default 'insert-constraints new-bindings '()))))
+          (let-values (((delete-constraints subs3) (opt (get-binding/default 'delete-constraints new-bindings '()))))
+            (let* ((instantiated-constraints (instantiate insert-constraints insert))
+                   (new-delete (triples-to-quads delete (append delete-constraints where)))
+                   (new-insert (triples-to-quads insert (append insert-constraints where))))
+              (let-values (((new-where subs4) (opt (append instantiated-constraints delete-constraints where))))
+                (log-message "~%===ALL SUBS===~%~A~%" (apply merge-alists (filter pair? (list subs1 subs2 subs3  subs4))))
+                (replace-child-body-if 
+                 'DELETE (and (not (null? new-delete)) new-delete)
+                 (replace-child-body-if
+                  'INSERT (and (not (null? new-insert)) new-insert)
+                  (if (null? new-where)
+                      (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
+                      (replace-child-body 
+                       'WHERE `((@SubSelect (SELECT *) (WHERE ,@new-where)))
+                       (reverse rw)))))))))))))
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -1657,11 +1659,14 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
-  (if (nulll? block) '()
+  (if (nulll? block) (values '() '())
       (let-values (((rw new-bindings) (rewrite (list block) '() (optimization-rules))))
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
-            (car (filter quads? rw))))))
+            (let-values (((subs quads) (partition subs? rw)))
+              (values (delete-duplicates (car quads))
+                      (get-binding/default 'functional-property-subs new-bindings '())))))))
+                     
 
 (define fprops (make-parameter '((props) (subs))))
 
@@ -1797,11 +1802,14 @@
           (parameterize ((optimizations-graph (second block)))
             (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
               (let ((rw (delete-duplicates rw)))
-                (if (nulll? rw) (values '() new-bindings)
-                    (values `((GRAPH ,(second block) ,@rw)) new-bindings)))))))
+                (let-values (((subs quads) (partition subs? rw)))
+                  (if (nulll? quads) (values '() new-bindings)
+                    (values `(,@(if (null? subs) '()
+                                    `((*subs* ,(delete-duplicates (join (map second subs))))))
+                              (GRAPH ,(second block) ,@quads))
+                            new-bindings))))))))
     ((UNION) ;; . ,rw/union)
      . ,(lambda (block bindings)
-          ;; (let ((rw (filter values (map (cut rewrite <> bindings) (map list (cdr block)))) ))
           (let ((rw (filter values (map (cut optimize-list <> bindings) (cdr block)))))
             (let* ((nss (map second (map car (filter pair? (map (cut filter subs? <>) rw)))))
                    (new-subs (if (null? nss) '() (apply lset-intersection equal? nss)))
@@ -1825,6 +1833,16 @@
     (,quads-block? 
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
+            ;; (let-values (((subs quads) (partition subs? (join rw)))
+            ;;   (log-message "~%for ~A got:~% ~A~%~A~%" (car block) subs quads)
+            ;;   (cond ((fail? quads) (values (list #f) new-bindings))
+            ;;         ((nulll? quads) (values '() new-bindings))
+            ;;         (else
+            ;;          (values `(;; ,@(if (null? subs) '()
+            ;;                    ;;       `((*subs* ,(map second subs))))
+            ;;                    (,(car block) ,@quads))
+            ;;                new-bindings)))))))
+
             (cond ((fail? rw) (values (list #f) new-bindings))
                   ((nulll? rw) (values '() new-bindings))
                   (else
@@ -1842,14 +1860,22 @@
                           (not (sparql-variable? s))
                           (rdf-member p (*functional-properties*))
                           (sparql-variable? o))
-                     (let ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o)))
-                       (log-message "~%queried ~A => ~A ~A" s o results)
-                       (let ((o* (if results (alist-ref (sparql-variable-name o) results) o)))
-                         (values `((,s ,p ,o*)) bindings)))
+                     (let ((o* (query-functional-property s p o)))
+                       (if o*
+                           (values `((*subs* ((,o . ,o*)))
+                                     (,s ,p ,o*)) 
+                                   (fold-binding `((,o ,o*)) 'functional-property-subs 
+                                                 merge-alists '() bindings))
+                           (values `((,s ,p ,o)) bindings)))
                      (values `((,s ,p ,o)) bindings)))))))
                      
     (,list? . ,optimize-list)
     (,symbol? . ,rw/copy)))
+
+(define (query-functional-property s p o)
+  (hit-property-cache s p
+    (let ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o)))
+      (and results (alist-ref (sparql-variable-name o) results)))))
 
 (define (sparql-variable-name var)
   (string->symbol (substring (symbol->string var) 1)))
@@ -1921,7 +1947,7 @@
                      ;;                             'instantiated-quads 
                      ;;                             append '() ; (compose delete-duplicates 
                      ;;                             bindings)))))))))
-                     (else (values `((UNION (,block)
+                     (else (values `((UNION (,block) ;; ????
                                       ,(map (lambda (bindings) 
                                               `(VALUES ,(map car bindings) 
                                                        ,(map cdr bindings))) 
@@ -2558,7 +2584,7 @@
 	 (write-constraint-string ($$body 'writeconstraint))
 	 (read-constraint (parse-constraint read-constraint-string))
 	 (write-constraint (parse-constraint write-constraint-string))
-         (query (parse query-string))
+         (query (parse "sandbox" query-string))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
          (unique-vars (map string->symbol
