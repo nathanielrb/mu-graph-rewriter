@@ -1030,45 +1030,57 @@
      . ,(lambda (block bindings)
 	  (if (rewrite-select?)
 	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+                (let-values (((new-where subs) (apply-optimizations
+                                                (group-graph-statements
+                                                 (reorder
+                                                  (get-child-body 'WHERE rw))))))
+                  (log-message "~%===ALL SUBS===~%~A~%" subs); (apply merge-alists (filter pair? (list subs))))
                 (values `((@Query 
                            ,@(replace-child-body 
-                              'WHERE
-                              (clean
-                               (apply-optimizations
-                                (group-graph-statements
-                                 (reorder
-                                  (get-child-body 'WHERE rw)))))
+                              'WHERE new-where
+                              ;; (clean
+                              ;;  (apply-optimizations
+                              ;;   (group-graph-statements
+                              ;;    (reorder
+                              ;;     (get-child-body 'WHERE rw)))))
                               rw)))
-                        new-bindings))
+                        new-bindings)))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
                 `((@Query ,@rw))))))
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
-	    (if (insert-query? block) 
+	    (if (insert-query? block) ; to do: delete like this as well
 		(values
 		 `((@Update
 		    ,@(instantiated-insert-query rw new-bindings)))
 		 new-bindings)
-		(let* ((delete-constraints (get-binding/default 'delete-constraints new-bindings '()))
-                       (new-where
-                        (clean
-                         (apply-optimizations 
-                          (group-graph-statements
-                           (reorder
-                            (append (or (get-child-body 'WHERE rw) '())
-                                    delete-constraints))))))
-		       (delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where)) 
+		(let ((delete-constraints (get-binding/default 'delete-constraints new-bindings '())))
+                  
+                       ;; (new-where
+                       ;;  (clean
+                       ;;   (apply-optimizations 
+                       ;;    (group-graph-statements
+                       ;;     (reorder
+                       ;;      (append (or (get-child-body 'WHERE rw) '())
+                       ;;              delete-constraints))))))
+                  (let-values (((new-where subs) (apply-optimizations
+                                                  (group-graph-statements
+                                                   (reorder
+                                                    (append (get-child-body 'WHERE rw) ; really append??
+                                                            delete-constraints)))))) 
+                  (log-message "~%===ALL SUBS===~%~A~%" subs); (apply merge-alists (filter pair? (list subs))))
+                    (let* ((delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where))
                        ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
                        ;;          (triples-to-quads-rules new-where)))
-		       (rw (replace-child-body 'DELETE delete-block rw)))
+                          (rw (replace-child-body 'DELETE delete-block rw)))
 		  (if (nulll? new-where)
 		      (values `((@Update ,@(reverse rw))) new-bindings)
 		      (values `((@Update ,@(replace-child-body 
 					    'WHERE 
 					    `((@SubSelect (SELECT *) (WHERE ,@new-where)))
 					    (reverse rw))))
-			      new-bindings)))))))
+			      new-bindings)))))))))
     (,select? ; . ,rw/copy)
      . ,(lambda (block bindings)
           (if  (equal? block '(SELECT *))
@@ -1664,6 +1676,8 @@
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
             (let-values (((subs quads) (partition subs? rw)))
+              (log-message "~%SUBS ~A~%~A~%" subs
+                           new-bindings)
               (values (delete-duplicates (car quads))
                       (get-binding/default 'functional-property-subs new-bindings '())))))))
                      
@@ -1808,19 +1822,33 @@
                                     `((*subs* ,(delete-duplicates (join (map second subs))))))
                               (GRAPH ,(second block) ,@quads))
                             new-bindings))))))))
-    ((UNION) ;; . ,rw/union)
+    ((UNION)
      . ,(lambda (block bindings)
-          (let ((rw (filter values (map (cut optimize-list <> bindings) (cdr block)))))
+          ;; this is a beast: abstract it!
+          (let-values (((rw new-bindings)
+                        (let loop ((rw-bindings (map (lambda (block)
+                                                       (let-values (((rw new-bindings) (optimize-list block bindings)))
+                                                         (list rw new-bindings)))
+                                                     (cdr block)))
+                                   (rw '())
+                                   (new-bindings '()))
+                          (if (null? rw-bindings) (values rw new-bindings)
+                              (match (car rw-bindings)
+                                ((r b)
+                                 (loop (cdr rw-bindings)
+                                    (append (filter (compose not fail?) rw) (list r))
+                                    (fold-binding (get-binding 'functional-property-subs b)
+                                                  'functional-property-subs merge-alists '() new-bindings))))))))
             (let* ((nss (map second (map car (filter pair? (map (cut filter subs? <>) rw)))))
                    (new-subs (if (null? nss) '() (apply lset-intersection equal? nss)))
                    (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))) ; * !!
                    (new-subs-block (if (null? new-subs) '() `((*subs* ,new-subs)))))
             (case (length new-blocks)
-              ((0)  (values (list #f) bindings)) ;; ?? (filter (compose not fail?)  ...
+              ((0)  (values (list #f) bindings))
               ((1) (if (equal? new-blocks '(()))
-                       (values '() bindings)
-                       (values (append new-subs-block (caar new-blocks)) bindings))) ; * caar?
-              (else (values (append new-subs-block `((UNION ,@(join new-blocks)))) bindings))))))  ) ; ? join
+                       (values '() new-bindings)
+                       (values (append new-subs-block (caar new-blocks)) new-bindings))) ; * caar?
+              (else (values (append new-subs-block `((UNION ,@(join new-blocks)))) new-bindings))))))  ) ; ? join
     ((WHERE)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
@@ -2352,6 +2380,8 @@
 (define $mu-call-id (make-parameter #f))
 
 (define (proxy-query key rewritten-query-string endpoint)
+  (log-message "~%Header: ~A~%" (header 'mu-call-id))
+
   (let ((t1 (cpu-time)))
     (let-values (((result uri response)
                   (with-input-from-request 
@@ -2443,7 +2473,6 @@
          (logkey (gensym 'query))
          (query (parse logkey query-string)))
 
-         
     (log-message "~%==Rewriting Query (~A)==~%~A~%" logkey query-string)
     (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
 
@@ -2575,11 +2604,6 @@
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string ($$body 'query))
          (session-id (conc "\"" ($$body 'session-id) "\""))
-         ;; (replace-sid (lambda (str) 
-         ;;                (irregex-replace/all "<SESSION>" str session-id)))
-	 ;; (constraint-string (replace-sid (or ($$body 'constraint) "")))
-	 ;; (read-constraint-string (replace-sid (or ($$body 'readconstraint) constraint-string)))
-	 ;; (write-constraint-string (replace-sid (or ($$body 'writeconstraint) constraint-string)))
          (read-constraint-string ($$body 'readconstraint))
 	 (write-constraint-string ($$body 'writeconstraint))
 	 (read-constraint (parse-constraint read-constraint-string))
@@ -2587,16 +2611,14 @@
          (query (parse "sandbox" query-string))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
+         (query-fprops? (equal? "true" ($$body 'query-fprops)))
          (unique-vars (map string->symbol
                               (string-split (or ($$body 'uvs) "") ", "))))
     (parameterize ((*write-constraint* write-constraint)
     		   (*read-constraint* read-constraint)
 		   (*functional-properties* fprops)
-                   (*unique-variables* unique-vars))
-                   ;; (*constraint-prologues*
-                   ;;  (append-unique
-		   ;;    (all-prologues (cdr read-constraint))
-		   ;;   (all-prologues (cdr write-constraint)))))
+                   (*unique-variables* unique-vars)
+                   (*query-functional-properties?* query-fprops?))
       (let* ((rewritten-query (rewrite-constraints query)) ; (rewrite-query query top-rules))
              (annotations (get-annotations rewritten-query))
              (qt-annotations (query-time-annotations annotations))
@@ -2617,11 +2639,12 @@
 	 (write-constraint-string ($$body 'writeconstraint))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
+         (query-fprops? (equal? "true" ($$body 'query-fprops)))
          (unique-vars (map string->symbol
                               (string-split (or ($$body 'uvs) "") ", "))))
 
     (log-message "~%Redefining read and write constraints~%")
-    (log-message "~%With fprops: ~A~%" fprops)
+
     ;; brute-force redefining constraints
     (set!
       *write-constraint*
@@ -2637,6 +2660,7 @@
 
     (set! *functional-properties* (make-parameter fprops))
     (set! *unique-variables (make-parameter unique-vars))
+    (set! *query-functional-properties?* (make-parameter query-fprops?))
     `((success .  "true"))))
 
 (define (format-queried-annotations queried-annotations)
@@ -2689,7 +2713,8 @@
   (lambda (_)
     (let ((query (read-request-body)))
       (log-message "~%==Proxying Query==~%~A~%" (add-prefixes query))
-      (proxy-query (add-prefixes query)
+      (proxy-query "proxy"
+                   (add-prefixes query)
 		   (if (update-query? (parse "test" query))
 		       (*sparql-update-endpoint*)
 		       (*sparql-endpoint*))))))
@@ -2727,7 +2752,7 @@
 (define (load-plugin name)
   (load (make-pathname (*plugin-dir*) name ".scm")))
 
-(define (save-plugin name read-constraint-string write-constraint-string fprops unique-vars)
+(define (save-plugin name read-constraint-string write-constraint-string fprops unique-vars query-fprops?)
   (let* ((replace (lambda (str) 
                    (irregex-replace/all "^[ \n]+" (irregex-replace/all "[\"]" str "\\\"") "")))
          (read-constraint-string (replace read-constraint-string))
@@ -2739,7 +2764,7 @@
       (lambda ()
         (format #t "(*functional-properties* '~A)~%~%" fprops)
         (format #t "(*unique-variables* '~A)~%~%" unique-vars)
-
+        (format #t "(*query-functional-properties?* ~A)~%~%" query-fprops?)
         (format #t (conc "(define-constraint  ~%"
                          (if write-constraint-string
                              "  'read ~%"
@@ -2755,7 +2780,7 @@
                                "  (lambda () "
                                "    \"~%"
                                write-constraint-string
-                               "  \")~%~%")))
+                               "  \"))~%~%")))
         ))))
 
 (define-rest-call 'POST '("plugin" name)
@@ -2770,9 +2795,10 @@
            (write-constraint-string ($$body 'writeconstraint))
            (fprops (map string->symbol
                         (string-split (or ($$body 'fprops) "") ", ")))
+           (query-fprops? (equal? "true" ($$body 'query-fprops)))
            (unique-vars (map string->symbol
                              (string-split (or ($$body 'uvs) "") ", "))))
-      (save-plugin name read-constraint-string write-constraint-string fprops unique-vars)
+      (save-plugin name read-constraint-string write-constraint-string fprops unique-vars query-fprops?)
       `((success . "true")))))
 
 (define-rest-call 'GET '("plugin")
@@ -2790,6 +2816,7 @@
       `((readConstraint . ,(write-sparql (call-if (*read-constraint*))))
         (writeConstraint . ,(write-sparql (call-if (*write-constraint*))))
         (functionalProperties . ,(list->vector (map ->string (*functional-properties*))))
+        (queryFunctionalProperties . ,(*query-functional-properties?*))
         (uniqueVariables . ,(list->vector (map ->string (*unique-variables*))))))))
 
 ;; (define (serve-file path)
