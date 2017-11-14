@@ -32,23 +32,23 @@ CONSTRUCT {
 }
 WHERE {
  {
-  GRAPH <cars> {
+  GRAPH &lt;cars&gt; {
    ?a ?b ?c;
-      a <Car>.
+      a &lt;Car&gt;.
   }
-  GRAPH <auth> {
-   <SESSION> mu:account ?user.
-   ?user <authFor> <Car>
+  GRAPH &lt;auth&gt; {
+   &lt;SESSION&gt; mu:account ?user.
+   ?user &lt;authFor&gt; &lt;Car&gt;
   }
  }
  UNION {
-  GRAPH <bikes> {
+  GRAPH &lt;bikes&gt; {
    ?a ?b ?c;
-      a <Bike>.
+      a &lt;Bike&gt;.
   }
-  GRAPH <auth> {
-   <SESSION> mu:account ?user.
-   ?user <authFor> <Bike>
+  GRAPH &lt;auth&gt; {
+   &lt;SESSION&gt; mu:account ?user.
+   ?user &lt;authFor&gt; &lt;Bike&gt;
   }
  }
 }
@@ -58,8 +58,8 @@ WHERE {
 <pre><code>
 SELECT *
 WHERE {
-  ?s a <Bike>;
-     <hasColor> ?color.
+  ?s a &lt;Bike&gt;;
+     &lt;hasColor&gt; ?color.
 }
 </code></pre>
   </td>
@@ -67,13 +67,13 @@ WHERE {
 <pre><code>
 SELECT ?s ?color
 WHERE {
-  GRAPH <bikes> {
-    ?s a <Bike>;
-       <hasColor> ?color.
+  GRAPH &lt;bikes&gt; {
+    ?s a &lt;Bike&gt;;
+       &lt;hasColor&gt; ?color.
   }
-  GRAPH <auth> {
-   <session123456> mu:account ?user.
-   ?user <authFor> <Bike>
+  GRAPH &lt;auth&gt; {
+   &lt;session123456&gt; mu:account ?user.
+   ?user &lt;authFor&gt; &lt;Bike&gt;
   }
 }
 </code></pre>
