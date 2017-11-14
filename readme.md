@@ -12,7 +12,7 @@ A simpler use case would be using multiple graphs to model data in such a way th
 
 ## Example
 
-For example, consider with the following constraint plugin, where `rdf:type` is declared as a "functional property" (see below).
+The following constraint, where `rdf:type` is declared as a "functional property" (see below), defines a model where bikes and cars are stored in separate graphs, and users can be authorized to see one or both of the types.
 
 ```
 CONSTRUCT {
@@ -48,7 +48,7 @@ When a microservice in the mu-semtech architecture (so the identifier has assign
 SELECT *
 WHERE {
   ?s a <Bike>;
-     <color> ?color.
+     <hasColor> ?color.
 }
 ```
 
@@ -59,18 +59,122 @@ SELECT ?s ?color
 WHERE {
   GRAPH <bikes> {
     ?s a <Bike>;
-       <color> ?color.
+       <hasColor> ?color.
   }
   GRAPH <auth> {
    <session123456> mu:account ?user.
-   ?user <authFor> <Car>
+   ?user <authFor> <Bike>
   }
 }
 ```
 
 ## Using the Proxy Service
 
+### Configuration
 
+The Query Rewriter supports the following envirnment variables:
+
+- `MU_SPARQL_ENDPOINT`: SPARQL read endpoint URL. Default: http://database:8890/sparql in Docker, and http://localhost:8890/sparql outside Docker. Can be accessed and overridden using the dynamic parameter `(*sparql-endpoint*)`.
+- `MU_SPARQL_UPDATE_ENDPOINT`: SPARQL update endpoint. Same defaults as preceding. Can be accessed and overridden using the dynamic parameter `(*sparql-update-endpoint*)`.
+- `MU_APPLICATION_GRAPH`: configuration of the graph in the triple store the microservice will work in. The graph name can be accessed via the `(*default-graph*)` dynamic parameter. Defaults to `'<http://mu.semte.ch/application>`. 
+- `PORT`: the port to run the application on, defaults to 80.
+- `SWANK_PORT`: port for running the swank server, defaults to 4005.
+- `MESSAGE_LOGGING`: turns logging on or off.
+- `PRINT_SPARQL_QUERIES`: when "true", print all SPARQL queries.
+- `CALCULATE_ANNOTATIONS`: when "true" (default), annotations will be calculated and returned in the headers
+- `PLUGIN`: plugin filename, must be located in the `/config` directory (in Docker)
+
+Example docker-compose.yml:
+
+```
+  as:
+    image: nathanielrb/mu-graph-rewriter
+    links:
+      - db:database
+    environment:
+      MESSAGE_LOGGING: "true"
+      PRINT_SPARQL_QUERIES: "true"
+      CALCULATE_ANNOTATIONS: "true"
+      REWRITE_SELECT_QUERIES: "true"
+      PLUGIN: "authorization.scm"
+    volumes:
+      - ./config/rewriter:/config
+    ports:
+      - "4027:8890"
+```
 
 ## Describing Constraints
+
+A constraint is a SPARQL `CONSTRUCT` statement of one triple, called the "matched triple".
+
+Write and read/write constraints have a further restriction: the graph containing the matched triple must be a variable, to ensure that update queries only insert or delete triples when the constraint succeeds:
+
+## Limitations and Exceptions
+
+Due to the complexity of the SPARQL 1.1 grammar, not all SPARQL queries are fully supported.
+
+The property paths `*`, `+` and `?` are constrained identically to the corresponding single-jump triple, e.g., `?s ?p* ?o` is considered subject to the same constraints as `?s ?p ?o`.
+
+## Writing Plugins
+
+The [graph-acl-sandbox](https://github.com/nathanielrb/graph-acl-basics/) provides a UI for writing and testing Query Rewriter plugins. This section describes how to write plugins directly.
+
+Plugins are written in Chicken Scheme. 
+
+### API
+
+**[procedure]** `(define-constraint mode constraint)` 
+
+`mode` is a symbol, and can take the values `'read/write`, `'read` or `'write`
+
+`constraint` can be a string or a procedure of zero arguments returning a string; the template `<SESSION>` will be replaced dynamically with the `mu-session-id` header.
+
+**[parameter]** `*functional-properties*`
+
+A list of IRIs (symbols) of properties which, for any given subject, can only have one value.
+
+**[parameter]** `*query-functional-properties?*
+
+#t or #f. Query the database directly for values of functional properties, when the subject is an IRI.
+
+**[parameter]** `*unique-variables*`
+
+A list of variables (symbols) which are considered unique for a single query, and therefore not rewritten.
+
+### Example 
+
+```
+(*functional-properties* '(rdf:type))
+
+(*query-functional-properties?* #t)
+
+(*unique-variables* '(?user))
+
+(define-constraint  
+  'read/write 
+  (lambda ()    "
+PREFIX mu: <http://mu.semte.ch/vocabularies/core/>
+PREFIX graphs: <http://mu.semte.ch/school/graphs/>
+PREFIX school: <http://mu.semte.ch/vocabularies/school/>
+PREFIX foaf: <http://xmlns.com/foaf/0.1/>
+
+CONSTRUCT {
+ ?a ?b ?c.
+}
+WHERE {
+ GRAPH <authorization> {
+  <SESSION> mu:account ?user
+ }
+ GRAPH ?graph {
+  ?a ?b ?c.
+  ?a rdf:type ?type.
+ }
+ VALUES (?graph ?type) { 
+  (graphs:grades school:Grade) 
+  (graphs:subjects school:Subject) 
+  (graphs:classes school:Class) 
+  (graphs:people foaf:Person) 
+ }
+}  "))
+```
 
