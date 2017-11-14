@@ -2,6 +2,8 @@
 
 The mu-query-rewriter is a proxy service for enriching and constraining SPARQL queries before they are sent to the database, as part of the [mu-semtech](http://mu.semte.ch) microservice architecture.
 
+## Introduction 
+
 A constraint is expressed as a standard SPARQL `CONSTRUCT` query, which conceptually represents an intermediate 'constraint' graph. An incoming query is optimally rewritten to a form which, when run against the full database, is equivalent to the original query being run against the constraint graph. Constraining queries in this way allows shared logic to be abstracted almost to the database level, simplifying the logic handled by each microservice. 
 
 ![rewriter diagram](rewriter.png)
@@ -10,7 +12,7 @@ The principle use case is modelling access rights directly in the data (Graph AC
 
 A simpler use case would be using multiple graphs to model data in such a way that individual microservices do not need to be aware of the rules determining which triples are stored in which graph. 
 
-## Example
+### Example
 
 The following constraint, where `rdf:type` is declared as a "functional property" (see below), defines a model where bikes and cars are stored in separate graphs, and users can be authorized to see one or both of the types.
 
@@ -68,26 +70,37 @@ WHERE {
 }
 ```
 
-## Using the Proxy Service
+## Running the Proxy Service
+
+The Query Rewriter runs as a proxy service between the application and the database. It exposes a SPARQL endpoint `/sparql` that accepts GET and POST requests, following the SPARQL specifications, and passes on all received headers to the database.
 
 ### Configuration
 
-The Query Rewriter supports the following envirnment variables:
+The Query Rewriter supports the following environment variables:
 
-- `MU_SPARQL_ENDPOINT`: SPARQL read endpoint URL. Default: http://database:8890/sparql in Docker, and http://localhost:8890/sparql outside Docker. Can be accessed and overridden using the dynamic parameter `(*sparql-endpoint*)`.
-- `MU_SPARQL_UPDATE_ENDPOINT`: SPARQL update endpoint. Same defaults as preceding. Can be accessed and overridden using the dynamic parameter `(*sparql-update-endpoint*)`.
-- `MU_APPLICATION_GRAPH`: configuration of the graph in the triple store the microservice will work in. The graph name can be accessed via the `(*default-graph*)` dynamic parameter. Defaults to `'<http://mu.semte.ch/application>`. 
-- `PORT`: the port to run the application on, defaults to 80.
-- `SWANK_PORT`: port for running the swank server, defaults to 4005.
+- `MU_SPARQL_ENDPOINT`: SPARQL read endpoint URL. Default: http://database:8890/sparql in Docker, and http://localhost:8890/sparql outside Docker.`.
+- `MU_SPARQL_UPDATE_ENDPOINT`: SPARQL update endpoint. Same defaults as preceding.`.
+- `PORT`: the port to run the application on, defaults to 8890.
 - `MESSAGE_LOGGING`: turns logging on or off.
 - `PRINT_SPARQL_QUERIES`: when "true", print all SPARQL queries.
 - `CALCULATE_ANNOTATIONS`: when "true" (default), annotations will be calculated and returned in the headers
-- `PLUGIN`: plugin filename, must be located in the `/config` directory (in Docker)
+- `PLUGIN`: plugin filename, must be located in the `/config` directory (in Docker).
 
-Example docker-compose.yml:
+### Example docker-compose file
 
 ```
-  as:
+version: "2"
+services:
+  db:
+    image: tenforce/virtuoso
+    environment:
+      SPARQL_UPDATE: "true"
+      DEFAULT_GRAPH: "http://mu.semte.ch/application"
+    ports:
+      - "8890:8890"
+    volumes:
+      - ./data/db:/data
+  rewriter:
     image: nathanielrb/mu-graph-rewriter
     links:
       - db:database
@@ -101,6 +114,10 @@ Example docker-compose.yml:
       - ./config/rewriter:/config
     ports:
       - "4027:8890"
+  my-service:
+    image: my/service
+    links:
+      - rewriter:database
 ```
 
 ## Describing Constraints
@@ -109,7 +126,7 @@ A constraint is a SPARQL `CONSTRUCT` statement of one triple, called the "matche
 
 Write and read/write constraints have a further restriction: the graph containing the matched triple must be a variable, to ensure that update queries only insert or delete triples when the constraint succeeds:
 
-## Limitations and Exceptions
+### Limitations and Exceptions
 
 Due to the complexity of the SPARQL 1.1 grammar, not all SPARQL queries are fully supported.
 
@@ -117,9 +134,7 @@ The property paths `*`, `+` and `?` are constrained identically to the correspon
 
 ## Writing Plugins
 
-The [graph-acl-sandbox](https://github.com/nathanielrb/graph-acl-basics/) provides a UI for writing and testing Query Rewriter plugins. This section describes how to write plugins directly.
-
-Plugins are written in Chicken Scheme. 
+The [graph-acl-sandbox](https://github.com/nathanielrb/graph-acl-basics/) provides a UI for writing and testing Query Rewriter plugins. This section describes how to write plugins directly in Chicken Scheme. 
 
 ### API
 
