@@ -17,6 +17,13 @@ A simpler use case would be using multiple graphs to model data in such a way th
 The following constraint, where `rdf:type` is declared as a "functional property" (see below), defines a model where bikes and cars are stored in separate graphs, and users can be authorized to see one or both of the types.
 
 <table>
+ <thead>
+  <tr>
+   <th>Constraint</th>
+   <th>Query</th>
+   <th>Rewritten Query</th>
+  </tr>
+ </thead>
  <tr>
   <td>
 <pre><code>
@@ -48,16 +55,16 @@ WHERE {
 </code></pre>
   </td>
   <td>
-```
+<pre><code>
 SELECT *
 WHERE {
   ?s a <Bike>;
      <hasColor> ?color.
 }
-```
+</code></pre>
   </td>
   <td>
-```
+<pre><code>
 SELECT ?s ?color
 WHERE {
   GRAPH <bikes> {
@@ -69,8 +76,7 @@ WHERE {
    ?user <authFor> <Bike>
   }
 }
-```
-
+</code></pre>
   </td>
  </tr>
 </table>
