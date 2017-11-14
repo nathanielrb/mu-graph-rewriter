@@ -21,7 +21,7 @@ When a microservice in the mu-semtech architecture (so the identifier has assign
 <table>
  <thead>
   <tr>
-   <th>Constraint (read)</th>
+   <th>Constraint</th>
    <th>Query</th>
    <th>Rewritten Query</th>
   </tr>
