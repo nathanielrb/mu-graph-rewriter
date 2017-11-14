@@ -2156,8 +2156,15 @@
 ;;          instantiation-union-rules))))))
 
 (define (group-graph-statements statements)
-  (let loop ((statements statements) (graph #f) (statements-same-graph '()))
-    (cond ((nulll? statements) 
+  ;;   (let loop ((statements statements) (graph #f) (statements-same-graph '()))
+  (let ((sss (compose symbol->string second)))
+    (let loop ((statements (sort statements
+                                 (lambda (a b)
+                                   (and (equal? (car a) 'GRAPH)
+                                        (equal? (car b) 'GRAPH)
+                                        (string<=? (sss a) (sss b))))))
+           (graph #f) (statements-same-graph '()))
+    (cond ((nulll? statements)
            (if graph `((GRAPH ,graph ,@statements-same-graph)) '()))
           (graph
            (match (car statements)
@@ -2173,7 +2180,7 @@
            (match (car statements)
              ((`GRAPH graph . rest) 
               (loop (cdr statements) graph rest))
-             (else (cons (car statements) (loop (cdr statements) #f '()))))))))
+             (else (cons (car statements) (loop (cdr statements) #f '()))))))))  )
 
 (define clean (compose delete-duplicates group-graph-statements reorder))
 
