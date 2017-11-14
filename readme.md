@@ -16,6 +16,9 @@ A simpler use case would be using multiple graphs to model data in such a way th
 
 The following constraint, where `rdf:type` is declared as a "functional property" (see below), defines a model where bikes and cars are stored in separate graphs, and users can be authorized to see one or both of the types.
 
+<table>
+ <tr>
+  <td>
 ```
 CONSTRUCT {
   ?a ?b ?c
@@ -43,9 +46,8 @@ WHERE {
  }
 }
 ```
-
-When a microservice in the mu-semtech architecture (so the identifier has assigned a `mu-session-id`) makes the following the query:
-
+  </td>
+  <td>
 ```
 SELECT *
 WHERE {
@@ -53,9 +55,8 @@ WHERE {
      <hasColor> ?color.
 }
 ```
-
-the rewriter will actually query the database:
-
+  </td>
+  <td>
 ```
 SELECT ?s ?color
 WHERE {
@@ -69,6 +70,16 @@ WHERE {
   }
 }
 ```
+
+  </td>
+ </tr>
+</table>
+
+When a microservice in the mu-semtech architecture (so the identifier has assigned a `mu-session-id`) makes the following the query:
+
+
+the rewriter will actually query the database:
+
 
 ## Running the Proxy Service
 
