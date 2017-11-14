@@ -14,12 +14,14 @@ A simpler use case would be using multiple graphs to model data in such a way th
 
 ### Example
 
-The following constraint, where `rdf:type` is declared as a "functional property" (see below), defines a model where bikes and cars are stored in separate graphs, and users can be authorized to see one or both of the types.
+In the following example, the constraint defines a model where bikes and cars are stored in separate graphs, and users can be authorized to see one or both of the types. `rdf:type` is declared as a "functional property" (see below).
+
+When a microservice in the mu-semtech architecture (so the identifier has assigned a `mu-session-id`) makes the query, the rewriter will send the rewritten query the database.
 
 <table>
  <thead>
   <tr>
-   <th>Constraint</th>
+   <th>Constraint (read)</th>
    <th>Query</th>
    <th>Rewritten Query</th>
   </tr>
@@ -81,12 +83,6 @@ WHERE {
  </tr>
 </table>
 
-When a microservice in the mu-semtech architecture (so the identifier has assigned a `mu-session-id`) makes the following the query:
-
-
-the rewriter will actually query the database:
-
-
 ## Running the Proxy Service
 
 The Query Rewriter runs as a proxy service between the application and the database. It exposes a SPARQL endpoint `/sparql` that accepts GET and POST requests, following the SPARQL specifications, and passes on all received headers to the database.
@@ -141,7 +137,7 @@ services:
 
 A constraint is a SPARQL `CONSTRUCT` statement of one triple, called the "matched triple".
 
-Write and read/write constraints have a further restriction: the graph containing the matched triple must be a variable, to ensure that update queries only insert or delete triples when the constraint succeeds:
+Write constraints have a further restriction: the graph containing the matched triple must be a variable, to ensure that update queries only insert or delete triples when the constraint succeeds:
 
 ### Annotations
 
