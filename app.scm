@@ -354,8 +354,20 @@
 (define (nulll? block)
   (null? (remove annotation? block)))
 
-(define (get-annotations query)
-  (delete-duplicates (rewrite-query query (get-annotations-rules))))
+(define (get-annotations query bindings)
+  (let ((rw (delete-duplicates (rewrite-query query (get-annotations-rules))))
+        (functional-property-substitutions (get-binding/default 'functional-property-substitutions bindings '())))
+    (let-values (((vals annotations) (partition values? rw))) ; generalize this
+      (if (null? functional-property-substitutions) annotations
+          (map (lambda (annotation) ; like update-annotation-values but keeps ?var as well
+                 (match annotation
+                        ((key var)
+                         (let ((vals (alist-ref var functional-property-substitutions)))
+                           (if vals
+                               `(,key ,var ,(cons var vals))
+                               annotation)))
+                        (else annotation)))
+               annotations)))))
 
 ;; subselects/projection?
 (define (get-annotations-rules)
@@ -1034,7 +1046,6 @@
                                                 (group-graph-statements
                                                  (reorder
                                                   (get-child-body 'WHERE rw))))))
-                  (log-message "~%===ALL SUBS===~%~A~%" subs); (apply merge-alists (filter pair? (list subs))))
                 (values `((@Query 
                            ,@(replace-child-body 
                               'WHERE new-where
@@ -1044,17 +1055,17 @@
                               ;;    (reorder
                               ;;     (get-child-body 'WHERE rw)))))
                               rw)))
-                        new-bindings)))
+                        (update-binding 'functional-property-substitutions subs new-bindings))))
 	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
                 `((@Query ,@rw))))))
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
 	    (if (insert-query? block) ; to do: delete like this as well
-		(values
-		 `((@Update
-		    ,@(instantiated-insert-query rw new-bindings)))
-		 new-bindings)
+                (let-values (((rw new-bindings) (instantiated-insert-query rw new-bindings)))
+                  (values
+                   `((@Update ,@rw))
+                   new-bindings))
 		(let ((delete-constraints (get-binding/default 'delete-constraints new-bindings '())))
                   
                        ;; (new-where
@@ -1069,11 +1080,11 @@
                                                    (reorder
                                                     (append (get-child-body 'WHERE rw) ; really append??
                                                             delete-constraints)))))) 
-                  (log-message "~%===ALL SUBS===~%~A~%" subs); (apply merge-alists (filter pair? (list subs))))
                     (let* ((delete-block (triples-to-quads (get-child-body 'DELETE rw) new-where))
                        ;; (rewrite (get-child-body 'DELETE rw) new-bindings 
                        ;;          (triples-to-quads-rules new-where)))
-                          (rw (replace-child-body 'DELETE delete-block rw)))
+                          (rw (replace-child-body 'DELETE delete-block rw))
+                          (new-bindings (update-binding 'functional-property-substitutions subs new-bindings)))
 		  (if (nulll? new-where)
 		      (values `((@Update ,@(reverse rw))) new-bindings)
 		      (values `((@Update ,@(replace-child-body 
@@ -1166,16 +1177,18 @@
                    (new-delete (triples-to-quads delete (append delete-constraints where)))
                    (new-insert (triples-to-quads insert (append insert-constraints where))))
               (let-values (((new-where subs4) (opt (append instantiated-constraints delete-constraints where))))
-                (log-message "~%===ALL SUBS===~%~A~%" (apply merge-alists (filter pair? (list subs1 subs2 subs3  subs4))))
-                (replace-child-body-if 
-                 'DELETE (and (not (null? new-delete)) new-delete)
-                 (replace-child-body-if
-                  'INSERT (and (not (null? new-insert)) new-insert)
-                  (if (null? new-where)
-                      (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
-                      (replace-child-body 
-                       'WHERE `((@SubSelect (SELECT *) (WHERE ,@new-where)))
-                       (reverse rw)))))))))))))
+                (values (replace-child-body-if 
+                         'DELETE (and (not (null? new-delete)) new-delete)
+                         (replace-child-body-if
+                          'INSERT (and (not (null? new-insert)) new-insert)
+                          (if (null? new-where)
+                              (replace-child-body 'WHERE '() (reverse rw)) ; is this correct?
+                              (replace-child-body 
+                               'WHERE `((@SubSelect (SELECT *) (WHERE ,@new-where)))
+                               (reverse rw)))))
+                        (update-binding 'functional-property-substitutions 
+                                        (apply merge-alists (filter pair? (list subs1 subs2 subs3  subs4)))
+                                        new-bindings))))))))))
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -1676,10 +1689,8 @@
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
             (let-values (((subs quads) (partition subs? rw)))
-              (log-message "~%SUBS ~A~%~A~%" subs
-                           new-bindings)
               (values (delete-duplicates (car quads))
-                      (get-binding/default 'functional-property-subs new-bindings '())))))))
+                      (get-binding/default 'functional-property-substitutions new-bindings '())))))))
                      
 
 (define fprops (make-parameter '((props) (subs))))
@@ -1837,8 +1848,8 @@
                                 ((r b)
                                  (loop (cdr rw-bindings)
                                     (append (filter (compose not fail?) rw) (list r))
-                                    (fold-binding (get-binding 'functional-property-subs b)
-                                                  'functional-property-subs merge-alists '() new-bindings))))))))
+                                    (fold-binding (get-binding/default 'functional-property-substitutions b '())
+                                                  'functional-property-substitutions merge-alists '() new-bindings))))))))
             (let* ((nss (map second (map car (filter pair? (map (cut filter subs? <>) rw)))))
                    (new-subs (if (null? nss) '() (apply lset-intersection equal? nss)))
                    (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))) ; * !!
@@ -1892,7 +1903,7 @@
                        (if o*
                            (values `((*subs* ((,o . ,o*)))
                                      (,s ,p ,o*)) 
-                                   (fold-binding `((,o ,o*)) 'functional-property-subs 
+                                   (fold-binding `((,o ,o*)) 'functional-property-substitutions 
                                                  merge-alists '() bindings))
                            (values `((,s ,p ,o)) bindings)))
                      (values `((,s ,p ,o)) bindings)))))))
@@ -2504,7 +2515,7 @@
                                         (cond ((*calculate-potentials?*)
                                                (get-all-graphs rewritten-query))
                                               ((*calculate-annotations?*)
-                                               (get-annotations rewritten-query))
+                                               (get-annotations rewritten-query bindings))
                                               (else #f))))
                    ((result response)
                     (let-values (((result uri response)
@@ -2536,6 +2547,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Test suite
+;; prefix/namespace problems!
 (define (construct-intermediate-graph-rules graph)
   `(((@QueryUnit @Query)  . ,rw/quads)
     ((CONSTRUCT)
@@ -2619,16 +2631,17 @@
 		   (*functional-properties* fprops)
                    (*unique-variables* unique-vars)
                    (*query-functional-properties?* query-fprops?))
-      (let* ((rewritten-query (rewrite-constraints query)) ; (rewrite-query query top-rules))
-             (annotations (get-annotations rewritten-query))
-             (qt-annotations (query-time-annotations annotations))
-             (queried-annotations (query-annotations annotations rewritten-query)))
+      (let-values (((rewritten-query bindings) (rewrite-constraints query)))
+        (let* ((annotations (get-annotations rewritten-query bindings))
+              (qt-annotations (query-time-annotations annotations))
+              (queried-annotations (query-annotations annotations rewritten-query))
+              (functional-property-substitutions (get-binding/default 'functional-property-substitutions bindings '())))
         (log-message "~%===Annotations===~%~A~%" annotations)
         (log-message "~%===Queried Annotations===~%~A~%"
                      (format-queried-annotations queried-annotations))
         `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
           (annotations . ,(format-annotations qt-annotations))
-          (queriedAnnotations . ,(format-queried-annotations queried-annotations)))))))
+          (queriedAnnotations . ,(format-queried-annotations queried-annotations))))))))
 
 (define (apply-call _)
   (let* ((body (read-request-body))
@@ -2659,7 +2672,7 @@
        (lambda () (parse-constraint read-constraint-string))))
 
     (set! *functional-properties* (make-parameter fprops))
-    (set! *unique-variables (make-parameter unique-vars))
+    (set! *unique-variables* (make-parameter unique-vars))
     (set! *query-functional-properties?* (make-parameter query-fprops?))
     `((success .  "true"))))
 

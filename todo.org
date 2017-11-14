@@ -12,7 +12,6 @@
 ** TODO optimizing duplicates over UNION, OPTIONAL, etc.
    very important for muclr's delete/insert queries + basic-authorization
 
-   
 ** TODO be sure of returning the right # of rows
    without cross-multiplying anything
 ** TODO simplifying over UNIONs
@@ -25,6 +24,9 @@
 ** TODO harmonize optimize-duplicates with optimizations' this/next-level-quads
    is this possible?
 ** TODO property paths and sequences
+   we'll have to fudge *+?
+   so ?a <b>* ?c will be constrained like ?a <b> ?c
+
 ** TODO interaction of FILTER and |
    what about foaf:name|foaf:mbox when the constraint has
    FILTER( ?b != foaf:mbox )
@@ -49,7 +51,7 @@ WHERE {
   (graphs:people) 
  }
 }
-** TODO bug getting SELECT * vars with UNION
+** DONE bug getting SELECT * vars with UNION
    SELECT * WHERE { { ?s ?p ?o } UNION { ?s ?q ?o} } 
 ** TODO careful about dependencies for FILTER VALUES and BIND
    current: VALUES and BIND(?) -> deps; FILTER does not
@@ -145,8 +147,8 @@ WHERE {
     #+END_SRC
 
 * optimizations
-** TODO integrate queried functional-properties with Annotations & values
-** TODO cache queried functional-properties
+** DONE integrate queried functional-properties with Annotations & values
+** DONE cache queried functional-properties
 ** TODO big minor problem: what if we're selecting ?type and ?type is optimized?
    silly example, but could there be realistic examples of this?
    select ?t where { ?s a ?t . ?s a <school> }
