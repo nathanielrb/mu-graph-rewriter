@@ -33,26 +33,18 @@ CONSTRUCT {
   ?a ?b ?c
 }
 WHERE {
- {
-  GRAPH &lt;cars&gt; {
+  GRAPH ?graph {
    ?a ?b ?c;
-      a &lt;Car&gt;.
+      a ?type
   }
   GRAPH &lt;auth&gt; {
    &lt;SESSION&gt; mu:account ?user.
-   ?user &lt;authFor&gt; &lt;Car&gt;
+   ?user &lt;authFor&gt; ?type
   }
- }
- UNION {
-  GRAPH &lt;bikes&gt; {
-   ?a ?b ?c;
-      a &lt;Bike&gt;.
+  VALUES (?graph ?type){
+    (&lt;cars&gt; &lt;Car&gt;)
+    (&lt;bikes&gt; &lt;Bike&gt;)
   }
-  GRAPH &lt;auth&gt; {
-   &lt;SESSION&gt; mu:account ?user.
-   ?user &lt;authFor&gt; &lt;Bike&gt;
-  }
- }
 }
 </code></pre>
   </td>
