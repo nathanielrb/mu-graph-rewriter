@@ -1,6 +1,6 @@
 # Mu Query Rewriter
 
-The mu-query-rewriter is a proxy service for enriching and constraining SPARQL queries before they are sent to the database, as part of the [mu-semtech](http://mu.semte.ch) microservice architecture.
+The Query Rewriteri ms a proxy service for enriching and constraining SPARQL queries before they are sent to the database, as part of the [mu-semtech](http://mu.semte.ch) microservice architecture.
 
 ## Introduction 
 
@@ -8,7 +8,7 @@ A constraint is expressed as a standard SPARQL `CONSTRUCT` query, which conceptu
 
 ![rewriter diagram](rewriter.png)
 
-The principle use case is modelling access rights directly in the data (Graph ACL), so that an incoming query is effectively run against the subset of data which the current user has permission to query or update.
+The principle use case is modelling access rights directly in the data (Graph ACL), so that an incoming query is effectively run against the subset of data which the current user has permission to query or update. Using annotations (an extension to SPARQL), the Rewriter can return authorization-aware cache-keys and clear-keys to the mu-cache.
 
 A simpler use case would be using multiple graphs to model data in such a way that individual microservices do not need to be aware of the rules determining which triples are stored in which graph. 
 
@@ -79,7 +79,7 @@ The Query Rewriter runs as a proxy service between the application and the datab
 The Query Rewriter supports the following environment variables:
 
 - `MU_SPARQL_ENDPOINT`: SPARQL read endpoint URL. Default: http://database:8890/sparql in Docker, and http://localhost:8890/sparql outside Docker.`.
-- `MU_SPARQL_UPDATE_ENDPOINT`: SPARQL update endpoint. Same defaults as preceding.`.
+- `MU_SPARQL_UPDATE_ENDPOINT`: SPARQL update endpoint. Same defaults as preceding.
 - `PORT`: the port to run the application on, defaults to 8890.
 - `MESSAGE_LOGGING`: turns logging on or off.
 - `PRINT_SPARQL_QUERIES`: when "true", print all SPARQL queries.
@@ -92,7 +92,7 @@ The Query Rewriter supports the following environment variables:
 version: "2"
 services:
   db:
-    image: tenforce/virtuoso
+    image: tenforce/virtuoso:1.0.0-virtuoso7.2.4
     environment:
       SPARQL_UPDATE: "true"
       DEFAULT_GRAPH: "http://mu.semte.ch/application"
@@ -125,6 +125,17 @@ services:
 A constraint is a SPARQL `CONSTRUCT` statement of one triple, called the "matched triple".
 
 Write and read/write constraints have a further restriction: the graph containing the matched triple must be a variable, to ensure that update queries only insert or delete triples when the constraint succeeds:
+
+### Annotations
+
+Annotations are used to define application-specific cache-keys and clear-keys for the mu-cache. They are defined as an extension to the SPARQL 1.1 standard, and can take two forms: `@access Label` and `@access Label(?var)`. 
+
+```
+@access All
+GRAPH ?graph {
+  @access Graph(?graph)
+}
+```
 
 ### Limitations and Exceptions
 
