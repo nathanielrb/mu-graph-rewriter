@@ -19,7 +19,7 @@ The following constraint, where `rdf:type` is declared as a "functional property
 <table>
  <tr>
   <td>
-```
+<pre><code>
 CONSTRUCT {
   ?a ?b ?c
 }
@@ -45,7 +45,7 @@ WHERE {
   }
  }
 }
-```
+</code></pre>
   </td>
   <td>
 ```
