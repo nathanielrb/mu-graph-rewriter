@@ -61,7 +61,7 @@ WHERE {
 <pre><code>
 SELECT ?s ?color
 WHERE {
-  GRAPH &lt;bikes&gt; {
+  GRAPH ?graph23694 {
     ?s a &lt;Bike&gt;;
        &lt;hasColor&gt; ?color.
   }
@@ -69,6 +69,7 @@ WHERE {
    &lt;session123456&gt; mu:account ?user.
    ?user &lt;authFor&gt; &lt;Bike&gt;
   }
+  VALUES (?graph23694) { (&lt;bikes&gt;) }
 }
 </code></pre>
   </td>
