@@ -852,7 +852,7 @@
 (define keys (memoize keys*))
 
 (define (renaming* var bindings)
-  (if (member var (*unique-variables*)) var
+  (if (member var (*unique-variables*)) (gensym var)
       (let ((renamings
              (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
         (alist-ref var renamings))))
