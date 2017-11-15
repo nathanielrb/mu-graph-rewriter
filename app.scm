@@ -2713,7 +2713,7 @@
            (results (sparql-select-unique 
                      "SELECT ?user WHERE { <~A> mu:account ?user }" 
                      session))
-           (user (alist-ref 'user results)))
+           (user (and results (alist-ref 'user results))))
       `((user . ,(write-uri user))))))
 
 (define-rest-call 'POST '("auth")
