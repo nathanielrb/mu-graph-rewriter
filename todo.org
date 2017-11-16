@@ -162,6 +162,23 @@ WHERE {
 ** DONE query functional-properties
 ** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
 * dependencies
+** TODO VALUES, FILTER and BIND dependencies are still a problem
+   still haven't quite nailed it
+
+   CONSTRUCT {
+     ?a ?b ?c 
+   }
+   WHERE {
+    {
+     filter( ?b = rdf:type )
+     GRAPH ?graph { ?a ?b ?c }
+     values ?graph { <types> }
+    } UNION {
+     filter( ?b != rdf:type )
+     GRAPH ?graph { ?a ?b ?c } 
+     values ?graph { <application> }
+    }
+   }
 ** DONE FILTER dependencies
    what should the dependencies of FILTER( ?b != mu:uuid ) be??
  
