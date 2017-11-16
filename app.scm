@@ -989,7 +989,7 @@
                         new-bindings)))))
 
 (define (get-vars block)
-  (rewrite block '() get-vars-rules))
+  (delete-duplicates (rewrite block '() get-vars-rules)))
 
 (define get-vars-rules
   `((,triple?
@@ -1025,7 +1025,10 @@
                       (rewrite rest '() get-vars-rules)
                       (values (extract-subselect-vars vars) bindings))))))
     ((FILTER VALUES) . ,rw/remove)
-    (,list? . ,rw/list)))
+    (,list? 
+     . ,(lambda (block bindings)
+          (let-values (((rw new-bindings) (rw/list block)))
+            (values (delete-duplicates rw) new-bindings))))))
 
 (define (top-rules)
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
@@ -1244,18 +1247,33 @@
            (irregex-replace/all "<SESSION>" str sid)
            str)))))
 
-(define (parse-constraint constraint)
+;; (define (parse-constraint* constraint)
+;;   (let ((constraint
+;;          (if (pair? constraint)
+;;              constraint
+;;              (parse-query
+;;               (let ((sid (header 'mu-session-id)))
+;;                 (if (and (*replace-session-id?*) sid)
+;;                     (irregex-replace/all "<SESSION>" constraint (sparql-escape-uri sid))
+;;                     constraint))))))
+;;     (car (recursive-expand-triples (list constraint) '() replace-a))))
+
+;; (define parse-constraint (memoize parse-constraint*))
+
+(define (parse-constraint** constraint sid)
   (let ((constraint
          (if (pair? constraint)
              constraint
              (parse-query
-              (let ((sid (header 'mu-session-id)))
-                (if (and (*replace-session-id?*) sid)
-                    (irregex-replace/all "<SESSION>" constraint (sparql-escape-uri sid))
-                    constraint))))))
+              (if (and (*replace-session-id?*) sid)
+                  (irregex-replace/all "<SESSION>" constraint (sparql-escape-uri sid))
+                  constraint)))))
     (car (recursive-expand-triples (list constraint) '() replace-a))))
 
-;; (define parse-constraint (memoize parse-constraint*))
+(define parse-constraint* (memoize parse-constraint**))
+
+(define (parse-constraint constraint)
+  (parse-constraint* constraint (header 'mu-session-id)))
 
 (define (define-constraint key constraint)
   (case key
@@ -1278,7 +1296,7 @@
                   (match triple
                          ((a (`^ b) c)
                           (rewrite (list C*) bindings (apply-constraint-rules c b a)))
-                         ((a (`! b) c)
+                         ((a ((or `! `? `* `+) b) c)
                           (let-values (((rw new-bindings) (rewrite (list C*) bindings (apply-constraint-rules a b c))))
                             (values (replace-triple rw  `(,a ,b ,c) triple)
                                     new-bindings)))
@@ -1361,15 +1379,16 @@
     (,list? . ,rw/remove)))
 
 (define unique-variable-substitutions
-  (memoize (lambda ()
-             @(map (lambda (var)
-                     `(,var . ,(gensym var)))
-                   (*unique-variables*)))))
+  (memoize (lambda (uvs)
+             (map (lambda (var)
+                    `(,var . ,(gensym var)))
+                  uvs))))
 
 (define (make-initial-substitutions a b c s p o bindings)
   (let ((check (lambda (u v) (or (sparql-variable? u) (sparql-variable? v) (rdf-equal? u v)))))
     (and (check a s) (check b p) (check c o)
-	 `((,s . ,a) (,p . ,b) (,o . ,c) ,@(unique-variable-substitutions)))))
+	 `((,s . ,a) (,p . ,b) (,o . ,c) 
+           ,@(unique-variable-substitutions (*unique-variables*))))))
 
 (define (update-renamings new-bindings)
   (let ((substitutions (get-binding 'constraint-substitutions new-bindings)))

@@ -55,6 +55,7 @@ WHERE {
    SELECT * WHERE { { ?s ?p ?o } UNION { ?s ?q ?o} } 
 ** TODO careful about dependencies for FILTER VALUES and BIND
    current: VALUES and BIND(?) -> deps; FILTER does not
+** TODO bug <iri>+
 ** DONE verify logic of protected variables
    is this right? or are dependencies 'wrong'...?
 
@@ -297,3 +298,4 @@ WHERE {
 * temp graphs
 ** TODO handle FILTER NOT EXISTS
 * performance
+** TODO correctly parameterize Docker template for Compiling
