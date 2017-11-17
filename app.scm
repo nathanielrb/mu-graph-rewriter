@@ -65,6 +65,8 @@
 (define *rewrite-select-queries?* 
   (config-param "REWRITE_SELECT_QUERIES" #t))
 
+(define *graphs* (make-parameter #f))
+
 (define (rewrite-select?)
   (or (equal? "true" (header 'rewrite-select-queries))
       (equal? "true" (($query) 'rewrite-select-queries))
@@ -406,6 +408,7 @@
             (values (append quads `((*values* ,vals)))
                     b)))))
     (,triple? . ,rw/remove)
+    ((|GROUP BY| ORDER LIMIT) . ,rw/remove)
     ((VALUES)
      . ,(lambda (block bindings)
           (match block
@@ -1197,7 +1200,7 @@
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
-    `((,label ,(*default-graph*))
+    `(;; (,label ,(*default-graph*))
       ,@(map (lambda (graph) `(,label ,graph))
              graphs)
       ,@(splice-when
@@ -1214,10 +1217,11 @@
     (,annotation? . ,rw/copy)
     ((@Dataset) 
      . ,(lambda (block bindings)
-          (let ((graphs (get-all-graphs (*read-constraint*))))
+          (let ((graphs (or (*graphs*) (get-all-graphs (*read-constraint*)))))
             (values `((@Dataset ,@(make-dataset 'FROM graphs #f))) 
                     (update-binding 'all-graphs graphs bindings)))))
     (,select? . ,rw/copy)
+    ((LIMIT |GROUP BY| ORDER OFFSET) . ,rw/copy)
     (,triple? . ,rw/copy)
     (,list? . ,rw/list)))
 
@@ -2441,8 +2445,6 @@
 (define $mu-call-id (make-parameter #f))
 
 (define (proxy-query key rewritten-query-string endpoint)
-  (log-message "~%Header: ~A~%" (header 'mu-call-id))
-
   (let ((t1 (cpu-time)))
     (let-values (((result uri response)
                   (with-input-from-request 
@@ -2615,8 +2617,8 @@
     ((@Prologue @SubSelect WHERE FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
     ((@Dataset) 
      . ,(rw/lambda (block)
-          (parameterize ((*default-graph* graph))
-            `((@Dataset ,@(make-dataset 'FROM '() #f))))))
+          (parameterize ((*default-graph* graph)) ; not used
+            `((@Dataset ,@(make-dataset 'FROM (list graph) #f))))))
     (,select? . ,rw/copy)
     (,triple? . ,rw/copy)
     (,list? . ,rw/list)))
@@ -2757,7 +2759,9 @@
                      "SELECT ?user WHERE { <~A> mu:account ?user }" 
                      session))
            (user (and results (alist-ref 'user results))))
-      `((user . ,(write-uri user))))))
+      (if user
+          `((user . ,(write-uri user)))
+          `((user . #f))))))
 
 (define-rest-call 'POST '("auth")
   (lambda (_)
@@ -2765,7 +2769,6 @@
            ($$body (let ((parsed-body (form-urldecode body)))
                      (lambda (key)
                        (and parsed-body (alist-ref key parsed-body)))))
-           ;; (authorization-insert ($$body 'authorization-insert)))
            (user ($$body 'user))
            (session-id (header 'mu-session-id)))
       (sparql-update "DELETE WHERE { GRAPH <http://mu.semte.ch/authorization> { ?s ?p ?o } }")
