@@ -852,8 +852,6 @@
 (define keys (memoize keys*))
 
 (define (renaming* var bindings)
-  ;; (log-message "~%uniques for ~A: ~A~%" var (*unique-variables*))
-  ;; (if (member var (*unique-variables*)) (gensym (symbol-append var 'UNIQUE))
   (let ((renamings
          (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
     (alist-ref var renamings)))
@@ -1065,6 +1063,7 @@
     ((@Update)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
+                              
 	    (if (insert-query? block) ; to do: delete like this as well
                 (let-values (((rw new-bindings) (instantiated-insert-query rw new-bindings)))
                   (values
@@ -1177,10 +1176,12 @@
                   (let-values (((where subs1) (opt (or (get-child-body 'WHERE rw) '()))))
                     (let-values (((insert-constraints subs2) (opt (get-binding/default 'insert-constraints new-bindings '()))))
                       (let-values (((delete-constraints subs3) (opt (get-binding/default 'delete-constraints new-bindings '()))))
-                        (let* ((instantiated-constraints (instantiate insert-constraints insert))
-                               (new-delete (triples-to-quads delete (append delete-constraints where)))
-                               (new-insert (triples-to-quads insert (append insert-constraints where))))
+                        (let ((instantiated-constraints (instantiate insert-constraints insert)))
                           (let-values (((new-where subs4) (opt (append instantiated-constraints delete-constraints where))))
+                          ;; inefficient!
+                          (let* ((uninstantiated-where (opt (append insert-constraints delete-constraints where)))
+                                 (new-delete (triples-to-quads delete uninstantiated-where))
+                                 (new-insert (triples-to-quads insert uninstantiated-where)))
                             (values (replace-child-body-if 
                                      'DELETE (and (not (null? new-delete)) new-delete)
                                      (replace-child-body-if
@@ -1192,7 +1193,7 @@
                                            (reverse rw)))))
                                     (update-binding 'functional-property-substitutions 
                                                     (apply merge-alists (filter pair? (list subs1 subs2 subs3  subs4)))
-                                                    new-bindings))))))))))
+                                                    new-bindings)))))))))))
 
 (define (make-dataset label graphs #!optional named?)
   (let ((label-named (symbol-append label '| NAMED|)))
@@ -1511,7 +1512,8 @@
             ((`GRAPH graph . rest)
              (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
 	       (values
-		(if (nulll? (cdr rw)) '()
+		(if (or (nulll? (cdr rw)) 
+                        (fail? rw)) '() ; hacky!
                     `((GRAPH ,(substitution-or-value graph new-bindings)
                              ,@(cdr rw))))
                 new-bindings))))))
@@ -1532,9 +1534,11 @@
 	  (let-values (((rw new-bindings) (new-substitutions block bindings)))
 	    (match rw
 	      ((`VALUES vars . vals)
-	       (values
-		(list (simplify-values vars vals bindings))
-		new-bindings))))))
+               (let ((vals (simplify-values vars vals bindings)))
+                 (if (null? vals) (values '() new-bindings)
+                     (values
+                      (list vals)
+                      new-bindings))))))))
 
     ((FILTER) 
      . ,(lambda (block bindings) ;; what about new-bindings (new subs)?
