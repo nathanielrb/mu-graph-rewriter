@@ -288,14 +288,18 @@ WHERE {
    - [ ] GROUP_CONCAT
    - [ ] %percent
 * sandbox
+** TODO generalize Users
+** TODO refactor Generate Data > Sample App
 ** DONE save constraints and queries
    like Postman
 ** add checkbox for query-functional-properties?H
 ** TODO syncronous generate call (at least overall)
-** TODO mu-cl-resources version - pass headers on Update queries
+** DONE mu-cl-resources version - pass headers on Update queries
 ** DONE apply model
 ** DONE implement separate read/write constraints
 * temp graphs
 ** TODO handle FILTER NOT EXISTS
 * performance
 ** TODO correctly parameterize Docker template for Compiling
+* mu-cl-resources interoperability
+** TODO include Class in all queries
