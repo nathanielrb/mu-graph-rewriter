@@ -24,6 +24,8 @@
 
 (define *functional-properties* (make-parameter '()))
 
+(define *queried-properties* (make-parameter '()))
+
 (define *query-functional-properties?* (make-parameter #t))
 
 ;; Can be a string, an s-sparql expression, 
@@ -1061,7 +1063,7 @@
                                 ;;     (get-child-body 'WHERE rw)))))
                                 rw)))
                           (update-binding 'functional-property-substitutions subs new-bindings))))
-	      (with-rewrite ((rw (rewrite (cdr block) bindings select-query-rules)))
+	      (with-rewrite ((rw (rewrite (cdr block) bindings (select-query-rules))))
                             `((@Query ,@rw))))))
     ((@Update)
      . ,(lambda (block bindings)
@@ -1209,21 +1211,24 @@
                 ,@(map (lambda (graph) `(,label (NAMED ,graph)))
                        graphs)))))))
 
-(define select-query-rules
-  `(((GRAPH)
-     . ,(rw/lambda (block) 
-                   (cddr block)))
-    ((@Prologue @SubSelect WHERE FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
-    (,annotation? . ,rw/copy)
-    ((@Dataset) 
-     . ,(lambda (block bindings)
-          (let ((graphs (or (*graphs*) (get-all-graphs (*read-constraint*)))))
-            (values `((@Dataset ,@(make-dataset 'FROM graphs #f))) 
-                    (update-binding 'all-graphs graphs bindings)))))
-    (,select? . ,rw/copy)
-    ((LIMIT |GROUP BY| ORDER OFFSET) . ,rw/copy)
-    (,triple? . ,rw/copy)
-    (,list? . ,rw/list)))
+(define (select-query-rules)
+  (let ((graph (gensym '?graph)))
+    `(((GRAPH)
+       . ,(rw/lambda (block) 
+            (cddr block)))
+      ((WHERE) . ,rw/quads)
+      ((@SubSelect) . ,rw/subselect)
+      ((@Prologue FILTER BIND |ORDER| |ORDER BY| |LIMIT|) . ,rw/copy)
+      (,annotation? . ,rw/copy)
+      ((@Dataset) 
+       . ,(lambda (block bindings)
+            (let ((graphs (or (*graphs*) (get-all-graphs (*read-constraint*)))))
+              (values `((@Dataset ,@(make-dataset 'FROM graphs #f)))
+                      (update-binding 'all-graphs graphs bindings)))))
+      (,select? . ,rw/copy)
+      ((LIMIT |GROUP BY| ORDER OFFSET) . ,rw/copy)
+      (,triple? . ,rw/copy)
+      (,list? . ,rw/list))))
 
 (define triples-rules
   `((,triple? 
@@ -1928,18 +1933,24 @@
 
               (match (map replace-fprop triple)
                 ((s p o)
-                 (if (and (*query-functional-properties?*)
-                          (not (sparql-variable? s))
-                          (rdf-member p (*functional-properties*))
-                          (sparql-variable? o))
-                     (let ((o* (query-functional-property s p o)))
-                       (if o*
-                           (values `((*subs* ((,o . ,o*)))
-                                     (,s ,p ,o*)) 
-                                   (fold-binding `((,o ,o*)) 'functional-property-substitutions 
-                                                 merge-alists '() bindings))
-                           (values `((,s ,p ,o)) bindings)))
-                     (values `((,s ,p ,o)) bindings)))))))
+                 (cond ((and (*query-functional-properties?*)
+                             (not (sparql-variable? s))
+                             (rdf-member p (*functional-properties*))
+                             (sparql-variable? o))
+                        (let ((o* (query-functional-property s p o)))
+                          (if o*
+                              (values `((*subs* ((,o . ,o*)))
+                                        (,s ,p ,o*)) 
+                                      (fold-binding `((,o ,o*)) 'functional-property-substitutions 
+                                                    merge-alists '() bindings))
+                              (values `((,s ,p ,o)) bindings))))
+                       ((and (not (sparql-variable? s))
+                             (not (sparql-variable? o))
+                             (rdf-member p (*queried-properties*)))
+                        (if (check-queried-property s p o)
+                            (values `((,s ,p ,o)) bindings)
+                            (values '(#f) bindings)))
+                       (else (values `((,s ,p ,o)) bindings))))))))
                      
     (,list? . ,optimize-list)
     (,symbol? . ,rw/copy)))
@@ -1951,6 +1962,15 @@
 
 (define (sparql-variable-name var)
   (string->symbol (substring (symbol->string var) 1)))
+
+(define (query-property s p)
+  (hit-property-cache s p
+    (let ((results (sparql-select "SELECT ?o  WHERE { ~A ~A ?o }" s p)))
+      (if results (map (cut alist-ref 'o <>) results)
+          '()))))
+
+(define (check-queried-property s p o)
+  (member o (query-property s p)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Instantiation
@@ -2459,9 +2479,11 @@
       (log-message "~%==Query Time (~A)==~%~Ams~%" key (- (- t1 (cpu-time))))
       (values result uri response))))
 
+(define parse-query* (memoize parse-query))
+
 (define (parse key q)
   (let ((t1 (cpu-time))
-        (result (parse-query q)))
+        (result (parse-query* q)))
     (log-message "~%==Parse Time (~A)==~%~Ams~%" key (- (- t1 (cpu-time) )))
     result))
 
@@ -2536,6 +2558,7 @@
          (logkey (gensym 'query))
          (query (parse logkey query-string)))
 
+    (log-headers)
     (log-message "~%==Rewriting Query (~A)==~%~A~%" logkey query-string)
     (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
 
@@ -2561,7 +2584,8 @@
 
           (plet-if (not (update-query? query))
                    ((potential-graphs (handle-exceptions exn
-                                          (begin (log-message "~%Error getting potential graphs or annotations (~A): ~A~%" logkey exn) 
+                                          (begin (log-message "~%Error getting potential graphs or annotations (~A): ~A~%" 
+                                                              logkey exn) 
                                                  
                                                  #f)
                                         (cond ((*calculate-potentials?*)
@@ -2572,7 +2596,8 @@
                    ((result response)
                     (let-values (((result uri response)
                                   (proxy-query logkey
-                                               (add-prefixes rewritten-query-string)
+                                               ;;(add-prefixes rewritten-query-string)
+                                               rewritten-query-string
                                                (if (update-query? query)
                                                    (*sparql-update-endpoint*)
                                                    (*sparql-endpoint*)))))
@@ -2675,12 +2700,15 @@
          (query (parse "sandbox" query-string))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
+	 (qprops (map string->symbol
+		      (string-split (or ($$body 'qprops) "") ", ")))  
          (query-fprops? (equal? "true" ($$body 'query-fprops)))
          (unique-vars (map string->symbol
                               (string-split (or ($$body 'uvs) "") ", "))))
     (parameterize ((*write-constraint* write-constraint)
     		   (*read-constraint* read-constraint)
 		   (*functional-properties* fprops)
+                   (*queried-properties* qprops)
                    (*unique-variables* unique-vars)
                    (*query-functional-properties?* query-fprops?))
       (let-values (((rewritten-query bindings) (rewrite-constraints query)))
@@ -2704,6 +2732,8 @@
 	 (write-constraint-string ($$body 'writeconstraint))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
+	 (qprops (map string->symbol
+		      (string-split (or ($$body 'qprops) "") ", ")))
          (query-fprops? (equal? "true" ($$body 'query-fprops)))
          (unique-vars (map string->symbol
                               (string-split (or ($$body 'uvs) "") ", "))))
@@ -2724,6 +2754,7 @@
        (lambda () (parse-constraint read-constraint-string))))
 
     (set! *functional-properties* (make-parameter fprops))
+    (set! *queried-properties* (make-parameter qprops))
     (set! *unique-variables* (make-parameter unique-vars))
     (set! *query-functional-properties?* (make-parameter query-fprops?))
     `((success .  "true"))))
@@ -2818,7 +2849,7 @@
 (define (load-plugin name)
   (load (make-pathname (*plugin-dir*) name ".scm")))
 
-(define (save-plugin name read-constraint-string write-constraint-string fprops unique-vars query-fprops?)
+(define (save-plugin name read-constraint-string write-constraint-string fprops qprops unique-vars query-fprops?)
   (let* ((replace (lambda (str) 
                    (irregex-replace/all "^[ \n]+" (irregex-replace/all "[\"]" str "\\\"") "")))
          (read-constraint-string (replace read-constraint-string))
@@ -2831,6 +2862,7 @@
         (format #t "(*functional-properties* '~A)~%~%" fprops)
         (format #t "(*unique-variables* '~A)~%~%" unique-vars)
         (format #t "(*query-functional-properties?* ~A)~%~%" query-fprops?)
+        (format #t "(*queried-properties* '~A)~%~%" qprops)
         (format #t (conc "(define-constraint  ~%"
                          (if write-constraint-string
                              "  'read ~%"
@@ -2861,10 +2893,12 @@
            (write-constraint-string ($$body 'writeconstraint))
            (fprops (map string->symbol
                         (string-split (or ($$body 'fprops) "") ", ")))
+           (qprops (map string->symbol
+                        (string-split (or ($$body 'qprops) "") ", ")))
            (query-fprops? (equal? "true" ($$body 'query-fprops)))
            (unique-vars (map string->symbol
                              (string-split (or ($$body 'uvs) "") ", "))))
-      (save-plugin name read-constraint-string write-constraint-string fprops unique-vars query-fprops?)
+      (save-plugin name read-constraint-string write-constraint-string fprops qprops unique-vars query-fprops?)
       `((success . "true")))))
 
 (define-rest-call 'GET '("plugin")
@@ -2882,6 +2916,7 @@
       `((readConstraint . ,(write-sparql (call-if (*read-constraint*))))
         (writeConstraint . ,(write-sparql (call-if (*write-constraint*))))
         (functionalProperties . ,(list->vector (map ->string (*functional-properties*))))
+        (queriedProperties . ,(list->vector (map ->string (*queried-properties*))))
         (queryFunctionalProperties . ,(*query-functional-properties?*))
         (uniqueVariables . ,(list->vector (map ->string (*unique-variables*))))))))
 
