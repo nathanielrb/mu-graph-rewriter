@@ -120,6 +120,7 @@
 (define last-level-quads (make-parameter '()))
 
 (define (optimize-list block bindings)
+  (log-message "~%~%==FPROPS==~%~A~%~A~%~%" (fprops) (collect-fprops block))
   (let ((saved-llq (last-level-quads)) ; a bit... awkward
         (saved-tlq (this-level-quads))) 
   (parameterize ((fprops (collect-fprops block))
@@ -236,30 +237,17 @@
              (values `((GRAPH ,graph (OPTIONAL ,@rest))) bindings))
             (else
              (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
-               ;; (let-values (((subs quads) (partition subs? (join rw)))
-               ;;   (log-message "~%for ~A got:~% ~A~%~A~%" (car block) subs quads)
-               ;;   (cond ((fail? quads) (values (list #f) new-bindings))
-               ;;         ((nulll? quads) (values '() new-bindings))
-               ;;         (else
-               ;;          (values `(;; ,@(if (null? subs) '()
-               ;;                    ;;       `((*subs* ,(map second subs))))
-               ;;                    (,(car block) ,@quads))
-               ;;                new-bindings)))))))
-
-               (cond ((fail? rw) (values (list #f) new-bindings))
-                     ((nulll? rw) (values '() new-bindings))
-                     (else
-                      ;; (values `((,(car block) ,@(group-graph-statements (join (filter quads? rw)))))
-                      (values `((,(car block) ,@(delete-duplicates (join (filter quads? rw)))))
-                              new-bindings))))))))
+               (or (fail-or-null rw new-bindings)
+                   (values `((,(car block) ,@(delete-duplicates (join (filter quads? rw)))))
+                           new-bindings)))))))
     (,triple? 
      . ,(lambda (triple bindings)
           (if (member (cons (optimizations-graph) triple) (last-level-quads))
               (values '() bindings)
-              ;; (values (list (map replace-fprop triple)) bindings))))
-
               (match (map replace-fprop triple)
                 ((s p o)
+                 ;; (when (rdf-member p (*functional-properties*))
+                 ;;       (log-message "~%trip: ~A ~A ~A + ~A" s p o (fprops)))
                  (cond ((and (*query-functional-properties?*)
                              (not (sparql-variable? s))
                              (rdf-member p (*functional-properties*))
@@ -271,6 +259,10 @@
                                       (fold-binding `((,o ,o*)) 'functional-property-substitutions 
                                                     merge-alists '() bindings))
                               (values `((,s ,p ,o)) bindings))))
+                       ;; ((and (not (sparql-variable? s))
+                       ;;       (rdf-member p (*functional-properties*))
+                       ;;       (sparql-variable? o))
+                        
                        ((and (not (sparql-variable? s))
                              (not (sparql-variable? o))
                              (rdf-member p (*queried-properties*)))

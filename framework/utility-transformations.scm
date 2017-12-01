@@ -297,5 +297,5 @@
     ((FILTER VALUES) . ,rw/remove)
     (,list? 
      . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rw/list block)))
+          (let-values (((rw new-bindings) (rewrite block)))
             (values (delete-duplicates rw) new-bindings))))))

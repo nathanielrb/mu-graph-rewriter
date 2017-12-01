@@ -105,7 +105,7 @@
                                (print-call-chain (current-error-port))
                                (abort exn))
                         
-                        (time logkey (rewrite-constraints query))))))
+                        (time logkey (apply-constraints query))))))
       (let ((rewritten-query-string (write-sparql rewritten-query)))
         
         (log-message "~%==Rewritten Query (~A)==~%~A~%" logkey rewritten-query-string)
@@ -183,7 +183,7 @@
     (,list? . ,rw/list)))
 
 (define (test query #!optional (cleanup? #t))
-  (let ((rewritten-query (rewrite-query query (top-rules)))
+  (let ((rewritten-query (rewrite-query query (main-transformation-rules)))
         (intermediate-graph 
          (expand-namespace
           (symbol-append '|rewriter:| (gensym 'graph)))))
@@ -245,7 +245,7 @@
                    (*queried-properties* qprops)
                    (*unique-variables* unique-vars)
                    (*query-functional-properties?* query-fprops?))
-      (let-values (((rewritten-query bindings) (rewrite-constraints query)))
+      (let-values (((rewritten-query bindings) (apply-constraints query)))
         (let* ((annotations (get-annotations rewritten-query bindings))
                (qt-annotations (and annotations (query-time-annotations annotations)))
               (queried-annotations (and annotations (query-annotations annotations rewritten-query)))

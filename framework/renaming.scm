@@ -56,7 +56,6 @@
             (member (car substitution) vars))
           substitutions))
 
-
 (define constraint-where (make-parameter '()))
 
 (define matched-triple (make-parameter '()))

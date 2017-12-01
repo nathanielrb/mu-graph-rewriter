@@ -6,10 +6,10 @@
    (list constraint-where-block) 
    (map car (dependency-substitutions)))) ;; (get-binding 'dependency-substitutions bindings))))
 
-(define (get-dependencies query bound-vars)
+(define (get-dependencies* query bound-vars)
   (rewrite query '() (dependency-rules bound-vars)))
     
-;; (define get-dependencies (memoize get-dependencies*))
+(define get-dependencies (memoize get-dependencies*))
 
 (define (minimal-dependency-paths source? sink? dependencies)
   (let-values (((sources nodes) (partition (compose source? car) dependencies)))

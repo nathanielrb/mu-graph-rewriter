@@ -5,6 +5,7 @@
 *** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
 *** TODO abstract UNION-if->1 elements
 * basic logic
+** TODO manage conflicting namespaces
 ** TODO managing namespaces over multiple queries for rdf-equal?
 ** TODO if read=write, then only constrain triples once
    keep list in bindings: 'constrained-triples
@@ -148,6 +149,7 @@ WHERE {
     #+END_SRC
 
 * optimizations
+** TODO BUG: optimizing fprops in OPTIONAL/UNION
 ** DONE integrate queried functional-properties with Annotations & values
 ** DONE cache queried functional-properties
 ** TODO big minor problem: what if we're selecting ?type and ?type is optimized?

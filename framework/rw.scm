@@ -46,11 +46,15 @@
                   (project-bindings subselect-vars new-bindings)
                   bindings)))))))
 
+(define (fail-or-null rw new-bindings)
+  (cond ((nulll? rw) (values '() new-bindings))
+        ((fail? rw) (values '(#f) new-bindings))
+        (else #f)))
+
 (define (rw/list block bindings)
   (let-values (((rw new-bindings) (rewrite block bindings)))
-    (cond ((nulll? rw) (values '() new-bindings))
-          ((fail? rw) (values (list #f) new-bindings))
-          (else (values (list (filter pair? rw)) new-bindings)))))
+    (or (fail-or-null rw new-bindings)
+        (values (list (filter pair? rw)) new-bindings))))
 
 (define (rw/quads block bindings)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
@@ -226,6 +230,12 @@
 
 (define (constraint-prefixes)
   (get-constraint-prefixes (*read-constraint*) (*write-constraint*)))
+
+(define (constraint-and-query-prefixes query)
+  (delete-duplicates
+   (append (constraint-prefixes)
+           (query-prefixes query)
+           (*namespaces*))))
 
 (define (get-constraint-prologues* read write)
   (append-unique

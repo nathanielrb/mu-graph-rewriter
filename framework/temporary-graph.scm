@@ -44,4 +44,4 @@
                  (*use-temp?* #t))
                 (sparql-update
                  (write-sparql
-                  (rewrite-query (sync-temp-query) (top-rules))))))
+                  (rewrite-query (sync-temp-query) (main-transformation-rules))))))
