@@ -41,20 +41,27 @@
                       vars)))
        (let-values (((rw new-bindings) (rewrite rest inner-bindings)))
          ;; (values `((@SubSelect (,label ,@(filter sparql-variable? vars)) ,@rw)) 
-         (values `((@SubSelect (,label ,@vars) ,@rw)) 
+         (values `((@SubSelect (,label ,@vars) ,@rw))
                  (merge-bindings 
                   (project-bindings subselect-vars new-bindings)
                   bindings)))))))
 
-(define (fail-or-null rw new-bindings)
-  (cond ((nulll? rw) (values '() new-bindings))
-        ((fail? rw) (values '(#f) new-bindings))
-        (else #f)))
+;; (define (fail-or-null rw new-bindings)
+;;   (cond ((nulll? rw) (values '() new-bindings))
+;;         ((fail? rw) (values '(#f) new-bindings))
+;;         (else #f)))
+
+(define-syntax fail-or-null
+  (syntax-rules ()
+    ((_ rw new-bindings body)
+     (cond ((nulll? rw) (values '() new-bindings))
+           ((fail? rw) (values '(#f) new-bindings))
+           (else body)))))
 
 (define (rw/list block bindings)
   (let-values (((rw new-bindings) (rewrite block bindings)))
-    (or (fail-or-null rw new-bindings)
-        (values (list (filter pair? rw)) new-bindings))))
+    (fail-or-null rw new-bindings
+                  (values (list (filter pair? rw)) new-bindings))))
 
 (define (rw/quads block bindings)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))

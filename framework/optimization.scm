@@ -66,15 +66,18 @@
 (define (append-subs rw)
   (let-values (((subs quads) (partition subs? rw)))
     (let* ((top-subs (alist-ref 'subs (fprops)))
-          (new-subs (delete-duplicates (filter pair? (append top-subs (join (map second subs)))))))
+           (top-props (alist-ref 'props (fprops)))
+           (new-subs (delete-duplicates (filter pair? (append top-subs (join (map second subs))))))
+           (new-props (delete-duplicates (filter pair? (append top-props (join (map third subs)))))))
       (if (null? new-subs) quads
-          (cons `(*subs* ,new-subs)
-                (map (compose group-graph-statements reorder) quads)))))) ; abstract this!
+          (cons `(*subs* ,new-subs ,new-props)
+                (map clean quads)))))) ; abstract this!
 
 (define (collect-fprops block #!optional rec?)
   (let-values (((subs quads) (partition subs? block)))
     (let loop ((quads quads)
-               (props (alist-ref 'props (fprops)))
+               ;; (props (alist-ref 'props (fprops)))
+               (props (append (join (map third subs)) (alist-ref 'props (fprops))))
                (subs (append (join (map second subs)) (alist-ref 'subs (fprops)))))
     (cond ((null? quads) `((props . ,props) (subs . ,subs)))
           ((triple? (car quads))
@@ -120,7 +123,6 @@
 (define last-level-quads (make-parameter '()))
 
 (define (optimize-list block bindings)
-  (log-message "~%~%==FPROPS==~%~A~%~A~%~%" (fprops) (collect-fprops block))
   (let ((saved-llq (last-level-quads)) ; a bit... awkward
         (saved-tlq (this-level-quads))) 
   (parameterize ((fprops (collect-fprops block))
@@ -191,7 +193,8 @@
                 (let-values (((subs quads) (partition subs? rw)))
                   (if (nulll? quads) (values '() new-bindings)
                     (values `(,@(if (null? subs) '()
-                                    `((*subs* ,(delete-duplicates (join (map second subs))))))
+                                    `((*subs* ,(delete-duplicates (join (map second subs))) ; why all this?
+                                              ,(delete-duplicates (join (map third subs))))))
                               (GRAPH ,(second block) ,@quads))
                             new-bindings)))))))))
     ((UNION)
@@ -212,15 +215,17 @@
                                     (fold-binding (get-binding/default 'functional-property-substitutions b '())
                                                   'functional-property-substitutions merge-alists '() new-bindings))))))))
             (let* ((nss (map second (map car (filter pair? (map (cut filter subs? <>) rw)))))
+                   (nps (map third (map car (filter pair? (map (cut filter subs? <>) rw))))) ; duplicate!
                    (new-subs (if (null? nss) '() (apply lset-intersection equal? nss)))
+                   (new-props (if (null? nps) '() (apply lset-intersection equal? nps)))
                    (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))) ; * !!
-                   (new-subs-block (if (null? new-subs) '() `((*subs* ,new-subs)))))
+                   (new-subs-block (if (null? new-subs) '() `((*subs* ,new-subs ,new-props)))))
             (case (length new-blocks)
               ((0)  (values (list #f) bindings))
               ((1) (if (equal? new-blocks '(()))
                        (values '() new-bindings)
-                       (values (append new-subs-block (caar new-blocks)) new-bindings))) ; * caar?
-              (else (values (append new-subs-block `((UNION ,@(join new-blocks)))) new-bindings))))))  ) ; ? join
+                       (values (append new-subs-block (caar new-blocks)) new-bindings)))
+              (else (values (append new-subs-block `((UNION ,@(join new-blocks)))) new-bindings)))))))
     ((WHERE)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
@@ -237,9 +242,9 @@
              (values `((GRAPH ,graph (OPTIONAL ,@rest))) bindings))
             (else
              (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
-               (or (fail-or-null rw new-bindings)
-                   (values `((,(car block) ,@(delete-duplicates (join (filter quads? rw)))))
-                           new-bindings)))))))
+               (fail-or-null rw new-bindings
+                             (values `((,(car block) ,@(delete-duplicates (join (filter quads? rw)))))
+                                     new-bindings)))))))
     (,triple? 
      . ,(lambda (triple bindings)
           (if (member (cons (optimizations-graph) triple) (last-level-quads))
@@ -254,8 +259,9 @@
                              (sparql-variable? o))
                         (let ((o* (query-functional-property s p o)))
                           (if o*
-                              (values `((*subs* ((,o . ,o*)))
-                                        (,s ,p ,o*)) 
+                              (values `((*subs* ((,o . ,o*))
+                                                ((,s ,p) . ,o*))
+                                        (,s ,p ,o*))
                                       (fold-binding `((,o ,o*)) 'functional-property-substitutions 
                                                     merge-alists '() bindings))
                               (values `((,s ,p ,o)) bindings))))
