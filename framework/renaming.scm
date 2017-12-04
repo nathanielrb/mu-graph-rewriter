@@ -35,6 +35,7 @@
   (map (cut dependency-substitution <> bindings) (deps var bindings)))
 
 (define keys (memoize keys*))
+(define keys keys*)
 
 (define (renaming* var bindings)
   (let ((renamings
@@ -42,6 +43,7 @@
     (alist-ref var renamings)))
 
 (define renaming (memoize renaming*))
+(define renaming renaming*)
 
 (define (update-renaming var substitution bindings)
   (fold-binding* substitution
@@ -117,7 +119,8 @@
     (,list? . ,rw/remove)))
 
 (define unique-variable-substitutions
-  (memoize (lambda (uvs)
+  (memoize
+   (lambda (uvs)
              (map (lambda (var)
                     `(,var . ,(gensym var)))
                   uvs))))
