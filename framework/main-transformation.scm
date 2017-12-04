@@ -165,7 +165,9 @@
                 (values (list (filter pair? rw)) new-bindings)))))
     (,symbol? . ,rw/copy)))
 
-(define (apply-constraints query)
+(define (apply-constraints* query)
   (parameterize ((*constraint-prologues* (constraint-prologues))
                  (*namespaces* (constraint-and-query-prefixes query)))
     (rewrite-query query (main-transformation-rules))))
+
+(define apply-constraints (memoize apply-constraints*))
