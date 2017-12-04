@@ -8,7 +8,7 @@
        (equal? (car exp) '@Annotation)))
 
 (define (nulll? block)
-  (null? (remove annotation? block)))
+  (null? (remove store? (remove annotation? block))))
 
 (define (get-annotations query bindings)
   (let ((rw (delete-duplicates (rewrite-query query (get-annotations-rules))))
@@ -117,6 +117,18 @@
                        (alist-update-proc (car kv) 
                                           (lambda (current)
                                             (append-unique (or current '()) (cdr kv)))
+                                          accum))))))))
+;; abstract with above
+(define (intersect-alists #!rest alists)
+  (let loop ((alists (cdr alists)) (accum (car alists)))
+    (if (null? alists) accum
+        (let inner ((alist (car alists)) (accum accum))
+          (if (null? alist) (loop (cdr alists) accum)
+              (let ((kv (car alist)))
+                (inner (cdr alist)
+                       (alist-update-proc (car kv) 
+                                          (lambda (current)
+                                            (lset-intersection equal? (or current '()) (cdr kv)))
                                           accum))))))))
 
 (define (values? exp)
