@@ -30,11 +30,11 @@
 
 (load-file "framework/main-transformation.scm")
 
-(load-file "framework/renaming.scm")
+(load-file "framework/constraint-renaming.scm")
 
-(load-file "framework/renaming-dependencies.scm")
+(load-file "framework/constraint-renaming-dependencies.scm")
 
-(load-file "framework/constraints.scm")
+(load-file "framework/constraint.scm")
 
 (load-file "framework/instantiation.scm")
 
