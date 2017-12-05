@@ -8,6 +8,17 @@
 (define (sparql-variable-name var)
   (string->symbol (substring (symbol->string var) 1)))
 
+;; why is this really different?
+;; just in specifying the bindings-fold?
+(define (rewrite-fold block bindings proc bindings-fold)
+  (let loop ((block block)
+             (rw '())
+             (new-bindings '()))
+    (if (null? block) (values rw new-bindings)
+        (let-values (((r b) (proc (car block) bindings)))
+          (loop (cdr block)
+                (if (fail? r) rw (append rw r))
+                (bindings-fold b new-bindings))))))
 
 ;; what about expressions?
 (define (extract-subselect-vars vars)

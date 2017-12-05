@@ -57,6 +57,7 @@ WHERE {
 ** TODO careful about dependencies for FILTER VALUES and BIND
    current: VALUES and BIND(?) -> deps; FILTER does not
 ** TODO bug <iri>+
+** TODO can rewrite-fold be done just by parameterizing a fold-bindings procedure?
 ** DONE verify logic of protected variables
    is this right? or are dependencies 'wrong'...?
 
