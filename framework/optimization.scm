@@ -39,6 +39,7 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Optimizing duplicates 
+;; two ways -- should be harmonized
 (define level-quads (make-parameter '()))
 
 (define (rewritten? block) (equal? (car block) '*REWRITTEN*))
@@ -52,6 +53,22 @@
   (lset-difference equal?
                    (clean (filter pair? block))
                    (level-quads)))
+
+(define collect-level-quads-rules
+  `(((GRAPH)
+     . ,(lambda (block bindings)
+          (match block
+           ((`GRAPH graph . rest)
+            (values
+             (map (lambda (triple)
+                    (cons graph triple))
+                  (filter triple? rest)) ; not quite right; what about GRAPH ?g1 { GRAPH ?g2 { s p o } } ?
+             bindings)))))
+    ((VALUES BIND FILTER) . ,rw/copy)
+    (,list? . ,rw/remove)))
+
+(define (collect-level-quads block)
+  (rewrite block '() collect-level-quads-rules))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Up-Down Store
@@ -72,16 +89,6 @@
 (define (get-returned-store/default key block default)
   (or (alist-ref key (or (alist-ref '*store* block) '()))
       default))
-
-(define (append-subs rw)
-  (let-values (((subs quads) (partition store? rw)))
-    (let* ((top-subs (alist-ref 'subs (fprops)))
-           (top-props (alist-ref 'props (fprops)))
-           (new-subs (delete-duplicates (filter pair? (append top-subs (join (map second subs))))))
-           (new-props (delete-duplicates (filter pair? (append top-props (join (map third subs)))))))
-      (if (null? new-subs) quads
-          (cons `(*store* ,new-subs ,new-props)
-                (map clean quads)))))) ; abstract this!
 
 (define (append-stores rw #!optional (proc values))
   (let-values (((stores quads) (partition store? rw)))
@@ -109,9 +116,6 @@
   (hit-property-cache s p
     (let ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o)))
       (and results (alist-ref (sparql-variable-name o) results)))))
-
-(define (sparql-variable-name var)
-  (string->symbol (substring (symbol->string var) 1)))
 
 (define (query-property s p)
   (hit-property-cache s p
@@ -165,35 +169,21 @@
         (append collected-fprops (store)))))
 ;;        (store))))
 
-(define collect-level-quads-rules
-  `(((GRAPH)
-     . ,(lambda (block bindings)
-          (match block
-           ((`GRAPH graph . rest)
-            (values
-             (map (lambda (triple)
-                    (cons graph triple))
-                  (filter triple? rest)) ; not quite right; what about GRAPH ?g1 { GRAPH ?g2 { s p o } } ?
-             bindings)))))
-    ((VALUES BIND FILTER) . ,rw/copy)
-    (,list? . ,rw/remove)))
-
-(define (collect-level-quads block)
-  (rewrite block '() collect-level-quads-rules))
-
 (define this-level-quads (make-parameter '()))
 
 (define last-level-quads (make-parameter '()))
 
 (define (optimize-list block bindings)
   (let ((saved-llq (last-level-quads)) ; a bit... awkward
-        (saved-tlq (this-level-quads))) 
+        (saved-tlq (this-level-quads))
+        (key (gensym)))
   (parameterize ((store (collect-fprops block))
                  (last-level-quads (this-level-quads))
                  (this-level-quads (append (last-level-quads)  (collect-level-quads block))))
-
+                ;; (format #t "~%with fprops (~A): ~A~%" key (store))
      (if (store)
         (let-values (((rw new-bindings) (rw/list (filter quads? block) bindings)))
+;;          (format #t "ol 1 (~A): ~A ~%~%" key rw)
           (cond ((fail? rw) (values (list #f) new-bindings)) ; duplicate #f check... which one is correct?
                 ((or (equal? (map (cut filter quads? <>) rw)
                              (list (filter quads? block)))
@@ -203,6 +193,7 @@
                                      (this-level-quads saved-tlq)
                                      (last-level-quads saved-llq))
                         (let-values (((rw2 nb2) (rewrite rw new-bindings)))
+;;                          (format #t "ol 2 (~A): ~A ~%~%" key rw2)
                           (values (list (append-stores (join rw2) clean)) nb2))))))
         (values (list #f) bindings))) ) )
 
@@ -257,34 +248,17 @@
                                             new-bindings))))))))
     ((UNION)
      . ,(lambda (block bindings)
-          (let-values (((rw new-bindings)
-                        (let loop ((rw-bindings (map (lambda (block) ; do this with real let-values
-                                                       (let-values (((rw new-bindings) (optimize-list block bindings)))
-                                                         ;; (let-values (((store quads) (partition store? rw)))
-                                                         (list rw new-bindings)))
-                                                     (cdr block)))
-                                   (rw '())
-                                   (new-bindings '()))
-                          (if (null? rw-bindings) (values rw new-bindings)
-                              (match (car rw-bindings)
-                                ((r b)
-                                 (loop (cdr rw-bindings)
-                                       ;; (append (filter (compose not fail?) rw) (list r))
-                                       (append rw (if (fail? r) '() r))
-                                    (fold-binding (get-binding/default 'functional-property-substitutions b '())
-                                                  'functional-property-substitutions merge-alists '() new-bindings))))))))
-            (let ((stores (map cdr (filter pair? (map car (filter pair? (map (cut filter store? <>) rw))))))
-                  (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))))
-            (case (length new-blocks)
-              ((0)  (values (list #f) bindings))
-              ((1) (if (equal? new-blocks '(()))
-                       (values '() new-bindings)
-                       (values (cons `(*store* . ,(apply intersect-alists stores))
-                                     (car new-blocks))
-                               new-bindings)))
-              (else (values `((*store* . ,(apply intersect-alists stores))
-                              (UNION ,@new-blocks)) ; ,@(join new-blocks)))
-                            new-bindings)))))))
+          (let-values (((rw new-bindings) (rewrite-fold (cdr block) bindings optimize-list 
+                                                        (lambda (b bindings)
+                                                          (fold-binding (get-binding/default 'functional-property-substitutions b '())
+                                                                        'functional-property-substitutions merge-alists
+                                                                        '() bindings)))))
+            (fail-or-null rw new-bindings
+                          (intersect-stores rw new-bindings
+                                            (lambda (new-blocks)
+                                              (case (length new-blocks)
+                                                ((1) (car new-blocks))
+                                                ((2) `((UNION ,@new-blocks))))))))))
     (,quads-block? 
      . ,(lambda (block bindings)
           (match block
@@ -308,7 +282,8 @@
                         (let ((o* (query-functional-property s p o)))
                           (if o*
                               (values (update-store 'subs `((,o . ,o*))
-                                                    (update-store 'props `((,s ,p) . ,o*) `((,s ,p ,o))))
+                                                    (update-store 'props `((,s ,p) . ,o*) 
+                                                                  `((,s ,p ,o*))))
                                (fold-binding `((,o ,o*)) 'functional-property-substitutions 
                                              merge-alists '() bindings))
                               (values `((,s ,p ,o)) bindings))))
@@ -322,3 +297,27 @@
                      
     (,list? . ,optimize-list)
     (,symbol? . ,rw/copy)))
+
+
+(define (rewrite-fold block bindings proc bindings-fold)
+  (let loop ((block block)
+             (rw '())
+             (new-bindings '()))
+    (if (null? block) (values rw new-bindings)
+        (let-values (((r b) (proc (car block) bindings)))
+          (loop (cdr block)
+                (if (fail? r) rw (append rw r))
+                (bindings-fold b new-bindings))))))
+
+(define (intersect-stores rw bindings proc)
+  (let ((stores (map cdr (filter pair? (map car (filter pair? (map (cut filter store? <>) rw))))))
+        (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))))
+    (if (= (length new-blocks) 0)
+        (values (list #f) bindings)
+        (values (cons `(*store* . ,(apply intersect-alists stores))
+                      (proc new-blocks))
+                bindings))))
+
+
+
+

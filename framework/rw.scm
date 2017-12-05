@@ -5,6 +5,10 @@
 ;;     (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
 ;;       (values rw new-bindings))))
 
+(define (sparql-variable-name var)
+  (string->symbol (substring (symbol->string var) 1)))
+
+
 ;; what about expressions?
 (define (extract-subselect-vars vars)
   (filter values
