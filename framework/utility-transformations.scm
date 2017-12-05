@@ -1,4 +1,3 @@
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Expanding triples and quads
 ;; refactor this a bit, to use #!key for mapp and bindingsp
@@ -256,8 +255,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Get Vars
-
-
 (define (get-vars block)
   (delete-duplicates (rewrite block '() get-vars-rules)))
 

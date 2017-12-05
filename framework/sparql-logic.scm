@@ -57,7 +57,6 @@
     ((`|NOT IN| a b)  (constraint-not-member a b bindings))
     (else '?)))
 
-;; These are way too simple.
 (define (unify a b bindings)
   (if (or (sparql-variable? a) (sparql-variable? b))
       '?
@@ -71,7 +70,6 @@
 (define (constraint-member a bs bindings)
   (let ((possible? (lambda (x) (or (sparql-variable? x) (rdf-equal? a x)))))
     (cond ((sparql-variable? a) '?)
-	  ;; ((member a b) #t)
           ((not (null? (filter possible? bs))) #t)
 	  ((null? (filter sparql-variable? bs)) #f)
 	  (else '?))))
