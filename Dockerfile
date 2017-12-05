@@ -1,3 +1,3 @@
-FROM nathanielrb/mu-chicken-template
+FROM mu-chicken-template:compiled
 
 MAINTAINER "Nathaniel Rudavsky-Brody, <nathaniel.rudavsky@gmail.com>"

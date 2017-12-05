@@ -1,5 +1,6 @@
 * refactoring
 ** TODO harmonize clean/opt/optimize-duplicates
+** TODO renaming-dependencies: harmonize fold & fold-binding
 ** minor refactoring
 *** TODO use of axes/parameters
 *** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...

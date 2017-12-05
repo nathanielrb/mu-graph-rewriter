@@ -1,10 +1,9 @@
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Renaming dependencies
 (define (constraint-dependencies constraint-where-block bindings)
   (get-dependencies 
    (list constraint-where-block) 
-   (map car (dependency-substitutions)))) ;; (get-binding 'dependency-substitutions bindings))))
+   (map car (dependency-substitutions))))
 
 (define (get-dependencies* query bound-vars)
   (rewrite query '() (dependency-rules bound-vars)))
@@ -47,40 +46,41 @@
 
 (define constraint-graph (make-parameter #f))
 
+;; variables from FILTER, VALUES and BIND 
 (define restricted-variables (make-parameter '()))
 
-;; To do: better use of return values & bindings
-(define (dependency-rules bound-vars)
+(define (deps-updater vars)
+  (lambda (var deps) 
+    (alist-update
+     var (delete-duplicates
+          (append (delete var vars)
+                  (or (alist-ref var deps) '())))
+     deps)))
+
+(define (triple-dependency-vars triple matched-triple)
+  (let ((vars* (filter sparql-variable? triple)))
+    (if (and (equal? vars* matched-triple)
+             (null? (lset-intersection equal? (restricted-variables) vars*)))
+        vars*
+        (cons (constraint-graph) vars*))))
+
+(define (dependency-rules matched-triple)
   `((,triple? 
      . ,(lambda (triple bindings)
-         (let* ((dependencies (or (get-binding 'dependency-paths bindings) '()))
-                (bound? (lambda (var) (member var bound-vars)))
-                (vars* (filter sparql-variable? triple))
-                (vars (if (and (equal? vars* bound-vars) ; matched triple
-                              (null? (lset-intersection equal? (restricted-variables) vars*)))
-                          vars*
-                          (cons (constraint-graph) vars*))) ; this works, but doesn't seem quite right
-                (update-dependency-var  ; how does this work??
-                 (lambda (var deps) 
-                   (alist-update        ; do this with alist-update-proc ?
-                    var (delete-duplicates
-                         (append (delete var vars)
-                                 (or (alist-ref var deps) '())))
-                    deps))))
-           (let-values (((bound unbound) (partition bound? vars))) ; unused, it seems
-             (values
-              (list triple)
-              (update-binding
-               'dependency-paths
-               (fold update-dependency-var dependencies vars)
-               bindings))))))
+          (let ((vars (triple-dependency-vars triple matched-triple)))
+            (values (list triple)
+                    (update-binding 'dependency-paths
+                                    (fold (deps-updater vars) 
+                                          (or (get-binding 'dependency-paths bindings) '())
+                                          vars)
+                                    bindings)))))
     (,annotation? . ,rw/copy)
-    ((GRAPH) . ,(lambda (block bindings)
-                   (match block
-                     ((`GRAPH graph . rest)
-                      (parameterize ((constraint-graph graph))
-                        (rewrite rest 
-                                 (cons-binding graph 'constraint-graphs bindings)))))))
+    ((GRAPH) 
+     . ,(lambda (block bindings)
+          (match block
+            ((`GRAPH graph . rest)
+             (parameterize ((constraint-graph graph))
+               (rewrite rest (cons-binding graph 'constraint-graphs bindings)))))))
      ((UNION) . ,rw/union)
      ((OPTIONAL) . ,rw/quads)
      ((VALUES)
@@ -88,26 +88,14 @@
            (match block
              ((`VALUES vars . vals)
               (if (symbol? vars)
-                  ;; actually depends on other VALUES singletons (?)
                   (values '() bindings)
-                  ;; abstract this!
-                  (let* ((dependencies (or (get-binding 'dependency-paths bindings) '()))
-                         (bound? (lambda (var) (member var bound-vars)))
-                         (vars (filter sparql-variable? vars)))
-                    (let-values (((bound unbound) (partition bound? vars)))
-                      (values
-                       '()
-                       (update-binding
-                        'dependency-paths
-                        (fold (lambda (var deps) ; same function as above?
-                                (alist-update 
-                                 var (delete-duplicates
-                                      (append (delete var vars)
-                                              (or (alist-ref var deps) '())))
-                                 deps))
-                              dependencies
-                              vars)
-                        bindings)))))))))
+                  (values '()
+                          (update-binding
+                           'dependency-paths
+                           (fold (deps-updater vars)
+                                 (or (get-binding 'dependency-paths bindings) '())
+                                 (filter sparql-variable? vars))
+                           bindings)))))))
      ((BIND)
       . ,(lambda (block bindings)
 	   (match block
@@ -115,11 +103,11 @@
 	      (values '()
 		      (fold-binding var 'dependency-paths
 				    (lambda (var paths-list)
-				      (fold (lambda (other-var paths)
-					      (alist-update-proc other-var
-					      		 (lambda (path)
-					      		   (cons var (or path '())))
-					      		 paths))
+				      (fold (lambda (new-var paths)
+					      (alist-update-proc new-var
+                                                (lambda (path)
+                                                  (cons var (or path '())))
+                                                paths))
 					    paths-list
 					    (filter sparql-variable? (flatten exp))))
 				    '()
@@ -133,19 +121,20 @@
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
             (let* ((paths (get-binding 'dependency-paths new-bindings))
-                   (source? (lambda (var) (member var bound-vars)))
+                   (source? (lambda (var) (member var matched-triple)))
                    (sink? (lambda (x) (member x (get-binding/default 'constraint-graphs new-bindings '())))))
               (values
                (concat-dependency-paths (minimal-dependency-paths source? sink? paths))
                bindings)))))
-     ((FILTER) . ,rw/copy) ;; ??
+     ((FILTER) . ,rw/copy)
      (,list? 
       . ,(lambda (block bindings)
            (let ((vars (filter sparql-variable?
-                               (flatten (filter (lambda (exp)
-                                                  (and (pair? exp) 
-                                                        (member (car exp) '(FILTER BIND VALUES))))
-                                                      ;; (member (car exp) '(BIND VALUES)))) 
-                                                block)))))
+                               (flatten (filter (block-member '(FILTER BIND VALUES)) block)))))
              (parameterize ((restricted-variables (append vars (restricted-variables))))
                (rw/list block bindings)))))))
+
+(define (block-member heads)
+  (lambda (exp)
+    (and (pair? exp) 
+         (member (car exp) heads))))
