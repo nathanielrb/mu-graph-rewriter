@@ -22,8 +22,6 @@
 
 (load-file "framework/utility-transformations.scm")
 
-(load-file "framework/renaming.scm")
-
 (load-file "framework/temporary-graph.scm")
 
 (load-file "framework/optimization.scm")

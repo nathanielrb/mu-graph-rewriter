@@ -212,32 +212,43 @@
 
 (define insert? (make-parameter #f))
 
+(define update? (make-parameter #f))
+
 (define where? (make-parameter #f))
 
 (define *in-where?* (make-parameter #f))
 
-(define (in-where?)
-  ((parent-axis
-    (lambda (context) 
-      (let ((head (context-head context)))
-        (and head (equal? (car head) 'WHERE)))))
-   (*context*)))
+;; (define (in-where?)
+;;   ((parent-axis
+;;     (lambda (context) 
+;;       (let ((head (context-head context)))
+;;         (and head (equal? (car head) 'WHERE)))))
+;;    (*context*)))
 
-(define (get-context-graph)
-  (let ((ancestor ((parent-axis (lambda (context) (equal? (car (context-head context)) 'GRAPH)))
-                 (*context*))))
-    (and ancestor
-         (match (context-head ancestor)
-           ((`GRAPH graph . rest) graph)
-           (else #f)))))
+;; (define (get-context-graph)
+;;   (let ((ancestor ((parent-axis (lambda (context) (equal? (car (context-head context)) 'GRAPH)))
+;;                  (*context*))))
+;;     (and ancestor
+;;          (match (context-head ancestor)
+;;            ((`GRAPH graph . rest) graph)
+;;            (else #f)))))
 
-(define (update?)
-  ((parent-axis
-    (lambda (context) 
-      (let ((head (context-head context)))
-        (and head (equal? (car head) '@Update)))))
-   (*context*)))
+;; (define (update?)
+;;   ((parent-axis
+;;     (lambda (context) 
+;;       (let ((head (context-head context)))
+;;         (and head (equal? (car head) '@Update)))))
+;;    (*context*)))
 
+;; (define (all-select-variables)
+;;   (get-vars
+;;    (cdr
+;;     (context-head
+;;      ((next-sibling-axis
+;;        (lambda (context) 
+;;          (let ((head (context-head context)))
+;;            (and head (equal? (car head) 'WHERE)))))
+;;       (*context*))))))
 
 
 

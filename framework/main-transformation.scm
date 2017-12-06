@@ -94,15 +94,13 @@
                                     (update-binding 'functional-property-substitutions 
                                                     (apply merge-alists (filter pair? (list subs1 subs2 subs3  subs4)))
                                                     new-bindings)))))))))))
+
+
+(define query-where (make-parameter '()))
+
 (define (all-select-variables)
-  (get-vars
-   (cdr
-    (context-head
-     ((next-sibling-axis
-       (lambda (context) 
-         (let ((head (context-head context)))
-           (and head (equal? (car head) 'WHERE)))))
-      (*context*))))))
+  (get-vars 
+   (cdr (query-where))))
 
 (define (main-transformation-rules)
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
@@ -118,18 +116,20 @@
     ((@Query)
      . ,(lambda (block bindings)
 	  (if (rewrite-select?)
-	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-                (let-values (((new-where subs) (apply-optimizations (clean (get-child-body 'WHERE rw)))))
-                  (values `((@Query ,@(replace-child-body 'WHERE new-where rw)))
-                          (update-binding 'functional-property-substitutions subs new-bindings))))
+              (parameterize ((query-where (get-child-body 'WHERE (cdr block))))
+	       (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+                 (let-values (((new-where subs) (apply-optimizations (clean (get-child-body 'WHERE rw)))))
+                   (values `((@Query ,@(replace-child-body 'WHERE new-where rw)))
+                           (update-binding 'functional-property-substitutions subs new-bindings)))))
 	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings (select-query-rules))))
                 (values `((@Query ,@rw)) new-bindings)))))
     ((@Update)
      . ,(lambda (block bindings)
-          (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
-            (let-values (((rw new-bindings) (instantiated-update-query rw new-bindings)))
-              (values `((@Update ,@rw))
-                      new-bindings)))))
+	  (parameterize ((update? #t))
+            (let-values (((rw new-bindings) (rewrite (reverse (cdr block)) '())))
+              (let-values (((rw new-bindings) (instantiated-update-query rw new-bindings)))
+                (values `((@Update ,@rw))
+                        new-bindings))))))
     ((DELETE |DELETE WHERE| |DELETE DATA|)
      . ,(lambda (block bindings)
           (parameterize ((delete? #t)) (quads-block-rule block bindings))))

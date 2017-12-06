@@ -176,7 +176,7 @@
 
 (define rename-constraint-triple
   (lambda (triple bindings)
-    (let ((graph (get-context-graph)))
+    (let ((graph (context-graph))) ; (get-context-graph)))
       (let-values (((renamed-quad new-bindings) (new-substitutions (cons graph triple) bindings)))
         (values             
          (if (and (use-temp?) (update?) (where?))
@@ -207,6 +207,7 @@
 	       vars)))
 
 (define renaming-dependencies (make-parameter '()))
+(define context-graph (make-parameter '()))
 
 (define rename-constraint-rules
   `((,symbol? . ,rw/copy)
@@ -250,13 +251,14 @@
      . ,(lambda (block bindings)
           (match block
             ((`GRAPH graph . rest)
-             (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-	       (values
-		(if (or (nulll? (cdr rw)) 
-                        (fail? rw)) '() ; hacky!
-                    `((GRAPH ,(substitution-or-value graph new-bindings)
-                             ,@(cdr rw))))
-                new-bindings))))))
+             (parameterize ((context-graph graph))
+               (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
+                 (values
+                  (if (or (nulll? (cdr rw)) 
+                          (fail? rw)) '() ; hacky!
+                          `((GRAPH ,(substitution-or-value graph new-bindings)
+                                   ,@(cdr rw))))
+                  new-bindings)))))))
     (,triple? . ,rename-constraint-triple)
     ;; ((VALUES) ;; what about new-bindings (new subs)?
     ;;  . ,(lambda (block bindings)
