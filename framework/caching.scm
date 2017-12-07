@@ -1,26 +1,3 @@
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; memoization
-
-;; (define keys (memoize keys*))
-
-;;(define renaming (memoize renaming*))
-
-(define unique-variable-substitutions (memoize  unique-variable-substitutions))
-
-(define parse-query (memoize parse-query))
-
-(define rdf-equal? (memoize rdf-equal?)) ; needs to take namespaces as param as well
-
-(define get-constraint-prefixes (memoize get-constraint-prefixes))
-
-(define apply-constraints (memoize apply-constraints))
-
-(define parse-constraint* (memoize parse-constraint*))
-
-(define get-dependencies (memoize get-dependencies))
-
-
-
 (define (string->regex str)
   (string-translate* str '(("." . "\\.")
                            ("*" . "\\*")
@@ -87,3 +64,27 @@
                                        (irregex-match-substring match index))))
                              (irregex-match-names match))))
            (string-translate* form matches)))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; memoization
+
+;; (define keys (memoize keys*))
+
+;;(define renaming (memoize renaming*))
+
+(define unique-variable-substitutions (memoize  unique-variable-substitutions))
+
+(define parse-query (memoize parse-query))
+
+(define rdf-equal? (memoize rdf-equal?)) ; needs to take namespaces as param as well
+
+(define get-constraint-prefixes (memoize get-constraint-prefixes))
+
+(define apply-constraints (memoize apply-constraints))
+
+(define parse-constraint* (memoize parse-constraint*))
+
+(define get-dependencies (memoize get-dependencies))
+
+
+
