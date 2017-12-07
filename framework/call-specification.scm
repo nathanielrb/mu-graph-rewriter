@@ -51,11 +51,9 @@
         (log-message "~%==Query Time (~A)==~%~Ams~%" key (- (- t1 (current-milliseconds))))
         (values result uri response)))))
 
-(define parse-query* (memoize parse-query))
-
 (define (parse key q)
   (let-values (((ut1 st1) (cpu-time)))
-    (let ((result (parse-query* q)))
+    (let ((result (parse-query q)))
       (let-values (((ut2 st2) (cpu-time)))
         (log-message "~%==Parse Time (~A)==~%~Ams / ~Ams~%" 
                      key (- ut2 ut1) (- st2 st1))

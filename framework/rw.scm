@@ -159,7 +159,7 @@
 
 (define *constraint-prologues* (make-parameter '()))
 
-(define (rdf-equal?* a b)
+(define (rdf-equal? a b)
   ;; (let ((nss (append-unique (constraint-prefixes)
   ;;                           (query-namespaces)
   ;;                           (*namespaces*)))) ; memoize this
@@ -167,8 +167,6 @@
         (equal? (expand-namespace (a->rdf:type a) (*namespaces*))
                 (expand-namespace (a->rdf:type b) (*namespaces*)))
         (equal? a b)))
-
-(define rdf-equal? (memoize rdf-equal?*)) ; needs to take namespaces as param as well
 
 (define (rdf-member a bs)
   (let ((r (filter (cut rdf-equal? a <>) bs)))
@@ -254,12 +252,10 @@
 
 (define all-namespaces (make-parameter '()))
 
-(define (get-constraint-prefixes* read write)
+(define (get-constraint-prefixes read write)
   (append
    (query-prefixes (call-if read))
    (query-prefixes (call-if write))))
-
-(define get-constraint-prefixes (memoize get-constraint-prefixes*))
 
 (define (constraint-prefixes)
   (get-constraint-prefixes (*read-constraint*) (*write-constraint*)))

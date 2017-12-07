@@ -99,8 +99,7 @@
 (define query-where (make-parameter '()))
 
 (define (all-select-variables)
-  (get-vars 
-   (cdr (query-where))))
+  (get-vars (query-where)))
 
 (define (main-transformation-rules)
   `(((@QueryUnit @UpdateUnit) . ,rw/quads)
@@ -165,9 +164,9 @@
                 (values (list (filter pair? rw)) new-bindings)))))
     (,symbol? . ,rw/copy)))
 
-(define (apply-constraints* query)
+(define (apply-constraints query)
   (parameterize ((*constraint-prologues* (constraint-prologues))
                  (*namespaces* (constraint-and-query-prefixes query)))
     (rewrite-query query (main-transformation-rules))))
 
-(define apply-constraints (memoize apply-constraints*))
+

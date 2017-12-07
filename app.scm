@@ -38,6 +38,8 @@
 
 (load-file "framework/deltas.scm")
 
+(load-file "framework/caching.scm")
+
 (load-file "framework/call-specification.scm")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;

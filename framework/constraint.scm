@@ -2,7 +2,7 @@
 ;; Constraint Renaming
 (define *replace-session-id?* (make-parameter #t))
 
-(define (parse-constraint** constraint sid)
+(define (parse-constraint* constraint sid)
   (let ((constraint
          (if (pair? constraint)
              constraint
@@ -11,8 +11,6 @@
                   (irregex-replace/all "<SESSION>" constraint (sparql-escape-uri sid))
                   constraint)))))
     (car (recursive-expand-triples (list constraint) '() replace-a))))
-
-(define parse-constraint* (memoize parse-constraint**))
 
 (define (parse-constraint constraint)
   (parse-constraint* constraint (header 'mu-session-id)))

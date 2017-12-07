@@ -5,11 +5,9 @@
    (list constraint-where-block) 
    (map car (dependency-substitutions))))
 
-(define (get-dependencies* query bound-vars)
+(define (get-dependencies query bound-vars)
   (rewrite query '() (dependency-rules bound-vars)))
-    
-(define get-dependencies (memoize get-dependencies*))
-
+   
 (define (minimal-dependency-paths source? sink? dependencies)
   (let-values (((sources nodes) (partition (compose source? car) dependencies)))
     (let loop ((paths (join (map (match-lambda ((head . rest) (map (lambda (r) (list r head)) rest)))

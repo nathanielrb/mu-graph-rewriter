@@ -15,7 +15,7 @@
 	  (else exp))))
 
 (define (dependency-substitution var bindings)
-  (let ((substitutions (dependency-substitutions))) ;; (get-binding/default 'dependency-substitutions bindings '())))
+  (let ((substitutions (dependency-substitutions)))
     (a->rdf:type (alist-ref var substitutions))))
 
 (define (substitution-or-value var bindings)
@@ -24,26 +24,17 @@
       var))
 
 (define (deps var bindings)
-  (let ((dependencies (renaming-dependencies))) ;; (get-binding/default 'dependencies bindings '())))
+  (let ((dependencies (renaming-dependencies)))
     (filter (lambda (v) (member v (or (alist-ref var dependencies) '())))
-	    ;;(get-binding/default 'matched-triple bindings '()))))
 	    (matched-triple))))
 
-;; (define deps (memoize deps*))
-
-(define (keys* var bindings)
+(define (keys var bindings)
   (map (cut dependency-substitution <> bindings) (deps var bindings)))
 
-(define keys (memoize keys*))
-(define keys keys*)
-
-(define (renaming* var bindings)
+(define (renaming var bindings)
   (let ((renamings
          (get-binding/default* (keys var bindings) (deps var bindings) bindings '())))
     (alist-ref var renamings)))
-
-(define renaming (memoize renaming*))
-(define renaming renaming*)
 
 (define (update-renaming var substitution bindings)
   (fold-binding* substitution
@@ -119,11 +110,10 @@
     (,list? . ,rw/remove)))
 
 (define unique-variable-substitutions
-  (memoize
    (lambda (uvs)
              (map (lambda (var)
                     `(,var . ,(gensym var)))
-                  uvs))))
+                  uvs)))
 
 (define (make-initial-substitutions a b c s p o bindings)
   (let ((check (lambda (u v) (or (sparql-variable? u) (sparql-variable? v) (rdf-equal? u v)))))
@@ -176,7 +166,7 @@
 
 (define rename-constraint-triple
   (lambda (triple bindings)
-    (let ((graph (context-graph))) ; (get-context-graph)))
+    (let ((graph (context-graph)))
       (let-values (((renamed-quad new-bindings) (new-substitutions (cons graph triple) bindings)))
         (values             
          (if (and (use-temp?) (update?) (where?))
@@ -260,18 +250,7 @@
                                    ,@(cdr rw))))
                   new-bindings)))))))
     (,triple? . ,rename-constraint-triple)
-    ;; ((VALUES) ;; what about new-bindings (new subs)?
-    ;;  . ,(lambda (block bindings)
-    ;;       (match block
-    ;;         ((`VALUES vars . vals)
-    ;;          (let ((renamed-vars 
-    ;;                 (if (pair? vars)
-    ;;                     (map (cut current-substitution <> bindings) vars)
-    ;;                     (current-substitution vars bindings))))
-    ;; 	       (values
-    ;; 		(list (simplify-values (current-substitution-recursive vars bindings) vals bindings))
-    ;; 		bindings))))))
-    ((VALUES) ;; what about new-bindings (new subs)?
+    ((VALUES)
      . ,(lambda (block bindings)
 	  (let-values (((rw new-bindings) (new-substitutions block bindings)))
 	    (match rw
@@ -281,7 +260,6 @@
                      (values
                       (list vals)
                       new-bindings))))))))
-
     ((FILTER) 
      . ,(lambda (block bindings) ;; what about new-bindings (new subs)?
 	  (let-values (((rw new-bindings) (new-substitutions block bindings)))
