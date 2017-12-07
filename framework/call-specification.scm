@@ -79,6 +79,72 @@
            (log-message "~%==Rewrite Time (~A)==~%~Ams / ~Ams~%" key (- ut2 ut1) (- st2 st1))
            (values result bindings)))))))
 
+;; (define (rewrite-call)
+;;   (lambda (_)
+;;   (let* (($$query (request-vars source: 'query-string))
+;;          (body (read-request-body))
+;;          ($$body (let ((parsed-body (form-urldecode body)))
+;;                    (lambda (key)
+;;                      (and parsed-body (alist-ref key parsed-body)))))
+;;          (query-string (or ($$query 'query) ($$body 'query) body))
+;;          (logkey (gensym 'query))
+;;          (query (parse logkey query-string)))
+
+;;     (log-headers)
+;;     (log-message "~%==Rewriting Query (~A)==~%~A~%" logkey query-string)
+;;     (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
+
+;;     (let-values (((rewritten-query bindings)
+;;                   (parameterize (($query $$query) ($body $$body))
+;;                     (handle-exceptions exn 
+;;                         (begin (log-message "~%==Rewriting Error (~A)==~%" logkey) 
+;;                                (log-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn))
+;;                                (print-error-message exn (current-error-port))
+;;                                (print-call-chain (current-error-port))
+;;                                (abort exn))
+                        
+;;                         (time logkey (apply-constraints query))))))
+;;       (let ((rewritten-query-string (write-sparql rewritten-query)))
+        
+;;         (log-message "~%==Rewritten Query (~A)==~%~A~%" logkey rewritten-query-string)
+
+;;         (handle-exceptions exn 
+;;             (virtuoso-error exn)
+
+;;           ;; (when (and (update-query? rewritten-query) (*send-deltas?*))
+;;           ;;   (notify-deltas rewritten-query))
+
+;;           (plet-if (not (update-query? query))
+;;                    ((potential-graphs (handle-exceptions exn
+;;                                           (begin (log-message "~%Error getting potential graphs or annotations (~A): ~A~%" 
+;;                                                               logkey exn) 
+                                                 
+;;                                                  #f)
+;;                                         (cond ((*calculate-potentials?*)
+;;                                                (get-all-graphs rewritten-query))
+;;                                               ((*calculate-annotations?*)
+;;                                                (get-annotations rewritten-query bindings))
+;;                                               (else #f))))
+;;                    ((result response)
+;;                     (let-values (((result uri response)
+;;                                   (proxy-query logkey
+;;                                                ;;(add-prefixes rewritten-query-string)
+;;                                                rewritten-query-string
+;;                                                (if (update-query? query)
+;;                                                    (*sparql-update-endpoint*)
+;;                                                    (*sparql-endpoint*)))))
+;;                       (close-connection! uri)
+;;                       (list result response))))
+                   
+;;               (when (or (*calculate-potentials?*) (*calculate-annotations?*))
+;;                     (log-message "~%==Potentials (~A)==~%(Will be sent in headers)~%~A~%"  logkey potential-graphs))
+              
+;;               (let ((headers (headers->list (response-headers response))))
+;;                 (log-message "~%==Results (~A)==~%~A~%" 
+;;                              logkey (substring result 0 (min 1500 (string-length result))))
+;;                 (mu-headers headers)
+;;                 result))))))))
+
 (define (rewrite-call)
   (lambda (_)
   (let* (($$query (request-vars source: 'query-string))
@@ -88,63 +154,52 @@
                      (and parsed-body (alist-ref key parsed-body)))))
          (query-string (or ($$query 'query) ($$body 'query) body))
          (logkey (gensym 'query))
-         (query (parse logkey query-string)))
+         ;; (query (parse logkey query-string)))
+         )
 
     (log-headers)
     (log-message "~%==Rewriting Query (~A)==~%~A~%" logkey query-string)
-    (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
+    ;; (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
 
-    (let-values (((rewritten-query bindings)
-                  (parameterize (($query $$query) ($body $$body))
-                    (handle-exceptions exn 
-                        (begin (log-message "~%==Rewriting Error (~A)==~%" logkey) 
-                               (log-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn))
-                               (print-error-message exn (current-error-port))
-                               (print-call-chain (current-error-port))
-                               (abort exn))
+    (let ((rewritten-query-string
+           (parameterize (($query $$query) ($body $$body))
+                         (handle-exceptions exn 
+                                            (begin (log-message "~%==Rewriting Error (~A)==~%" logkey) 
+                                                   (log-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn))
+                                                   (print-error-message exn (current-error-port))
+                                                   (print-call-chain (current-error-port))
+                                                   (abort exn))
                         
-                        (time logkey (apply-constraints query))))))
-      (let ((rewritten-query-string (write-sparql rewritten-query)))
+                                            ;;(time logkey
+                                            (apply-constraints-with-form-cache query-string)))))
         
         (log-message "~%==Rewritten Query (~A)==~%~A~%" logkey rewritten-query-string)
 
         (handle-exceptions exn 
             (virtuoso-error exn)
 
-          (when (and (update-query? rewritten-query) (*send-deltas?*))
-            (notify-deltas rewritten-query))
+          ;; (when (and (update-query? rewritten-query) (*send-deltas?*))
+          ;;   (notify-deltas rewritten-query))
 
-          (plet-if (not (update-query? query))
-                   ((potential-graphs (handle-exceptions exn
-                                          (begin (log-message "~%Error getting potential graphs or annotations (~A): ~A~%" 
-                                                              logkey exn) 
-                                                 
-                                                 #f)
-                                        (cond ((*calculate-potentials?*)
-                                               (get-all-graphs rewritten-query))
-                                              ((*calculate-annotations?*)
-                                               (get-annotations rewritten-query bindings))
-                                              (else #f))))
-                   ((result response)
-                    (let-values (((result uri response)
-                                  (proxy-query logkey
-                                               ;;(add-prefixes rewritten-query-string)
-                                               rewritten-query-string
-                                               (if (update-query? query)
-                                                   (*sparql-update-endpoint*)
-                                                   (*sparql-endpoint*)))))
-                      (close-connection! uri)
-                      (list result response))))
+
+            (let-values (((result uri response)
+                          (proxy-query logkey
+                                       ;;(add-prefixes rewritten-query-string)
+                                       rewritten-query-string
+                                       ;;(if (update-query? query)
+                                           (*sparql-update-endpoint*)
+                                           ;;(*sparql-endpoint*)))))
+                                           )))
+              (close-connection! uri)
                    
-              (when (or (*calculate-potentials?*) (*calculate-annotations?*))
-                    (log-message "~%==Potentials (~A)==~%(Will be sent in headers)~%~A~%"  logkey potential-graphs))
+              ;; (when (or (*calculate-potentials?*) (*calculate-annotations?*))
+              ;;       (log-message "~%==Potentials (~A)==~%(Will be sent in headers)~%~A~%"  logkey potential-graphs))
               
               (let ((headers (headers->list (response-headers response))))
                 (log-message "~%==Results (~A)==~%~A~%" 
                              logkey (substring result 0 (min 1500 (string-length result))))
                 (mu-headers headers)
-                result))))))))
-
+                result)))))))
         
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
