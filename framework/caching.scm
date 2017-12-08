@@ -2,6 +2,11 @@
 
 (define *query-forms* (make-hash-table))
 
+(define (query-cache-table query)
+  (list (query-prefix query)
+        (call-if (*read-constraint*))
+        (call-if (*write-constraint*))))
+
 (define query-body-start-index
   (memoize
    (lambda (q)
@@ -10,127 +15,158 @@
 (define query-prefix
   (memoize
    (lambda (q)
-     (substring q 0 (query-body-start-index q)))))
+     (and (string? q) (substring q 0 (query-body-start-index q))))))
 
 (define query-body-end-index
   (memoize
    (lambda (q)
-     (irregex-match-start-index (irregex-search "OFFSET|LIMIT|GROUP BY" q)))))
+     (and (string? q) (irregex-match-start-index (irregex-search "OFFSET|LIMIT|GROUP BY" q))))))
 
-(define (query-form-lookup query)
-  (let ((forms (hash-table-ref/default *query-forms* (query-prefix query) '())))
-    (let loop ((forms forms))
-      (if (null? forms) #f
-          (let ((pattern (first (car forms)))
-                (form (second (car forms)))
-                (form-prefix (third (car forms))))
-            (let ((populated-form (populate-cached-query-form pattern form query)))
-              (if populated-form (conc form-prefix populated-form)
-                  (loop (cdr forms)))))))))
-
-(define (query-form-save! query rewritten-query)
-  (let ((prefix (query-prefix query)))
-    (let-values (((pattern bindings) (make-query-pattern query)))
-      (let ((form (make-query-form rewritten-query bindings))
-            (form-prefix (query-prefix rewritten-query)))
-        (hash-table-set! *query-forms* prefix
-                         (cons (list pattern form form-prefix)
-                               (hash-table-ref/default *query-forms* prefix '())))))))
-
-(define (apply-constraints-with-form-cache query)
-  (or (query-form-lookup query)
-      (let-values (((rewritten-query bindings) (apply-constraints (parse-query query))))
-        (let ((rewritten-query-string (write-sparql rewritten-query)))
-          ;; deltas
-          ;; annotations
-          ;; ...
-          (log-message "~%==Reworte==~%~A~%" rewritten-query-string)
-          (query-form-save! query rewritten-query-string)
-          rewritten-query-string ))))
-
-(define (populate-cached-query-form pattern form q)
-  (log-message "~%==FORM==~%~A~%" form)
-  (let* ((match (irregex-match pattern (substring q (query-body-start-index q)))))
-    (log-message "~%~%==Match==~%~%~A" match)
-    (and match
-         (let ((matches (map (lambda (name-pair)
-                               (let ((name (car name-pair))
-                                     (index (cdr name-pair)))
-                                 (cons (conc "<" (symbol->string name) ">")
-                                       (irregex-match-substring match index))))
-                             (irregex-match-names match))))
-           (log-message "~%~%==Matches==~%~%~A" matches)
-           (string-translate* form matches)))))
-
-(define (string->regex str)
+(define (regex-escape-string str)
   (string-translate* str '(("." . "\\.")
                            ("*" . "\\*")
                            ("?" . "\\?")
-)))
+                           )))
 
 (define uri-pat "<[^> ]+>")
 (define str-pat "\\\"[^\"]+\\\"")
+(define form-regex (format "(~A)|(~A)" uri-pat str-pat))
 
-(define (make-query-pattern q)
-  (let ((result (irregex-fold (format "(~A)|(~A)" uri-pat str-pat)  ; do <IRI> 123 "string" but not prefixed:IRI
-                               (lambda (from-index match seed)
-                                 (let ((substr (irregex-match-substring match))
-                                       (n (fourth seed))
-                                       (pattern (first seed))
-                                       (bindings (second seed)))
-                                   (let* ((key* (cdr-when (assoc substr bindings)))
-                                          (key (or key* (conc "uri" (number->string n)))))
-                                     (list (conc pattern
-                                                  (string->regex (substring q from-index (irregex-match-start-index match)))
-                                                  (if key*
-                                                      (conc "\\k<" key ">")
-                                                      (format "(?<~A>~A)" key 
-                                                              (cond ((irregex-match uri-pat substr) uri-pat)
-                                                                    ((irregex-match str-pat substr) str-pat)))))
+(define (make-query-pattern/form-fold-form pattern query from-index match substr key* key)
+  (conc pattern
+        (substring query from-index (irregex-match-start-index match))
+        (if (string=? key substr) substr
+            (conc "<" key ">"))))
 
-                                           (if key* bindings 
-                                               (alist-update substr key bindings))
-                                           (irregex-match-end-index match)
-                                           (+ n 1)))))
-                               '("" () #f 0)
-                               q
-                               #f
-                               (query-body-start-index q))))
-    (if (third result)
-        (values (conc
-               (first result)
-               (string->regex (substring q (third result))))
-                (second result)) ; bindings
-        (values q '()))))
+(define (make-query-pattern/form-fold-pattern pattern query from-index match substr key* key)
+  (conc pattern
+        (regex-escape-string (substring query from-index (irregex-match-start-index match)))
+        (if key*
+            (conc "\\k<" key ">")
+            (format "(?<~A>~A)" key 
+                    (cond ((irregex-match uri-pat substr) uri-pat)
+                          ((irregex-match str-pat substr) str-pat))))))
 
-(define (make-query-form q bindings)
-  (let ((result (irregex-fold (format "(~A)|(~A)" uri-pat str-pat)  ; do <IRI> 123 "string" but not prefixed:IRI
-                               (lambda (from-index match seed)
-                                 (let ((substr (irregex-match-substring match))
-                                       (n (fourth seed))
-                                       (form (first seed))
-                                       (bindings (second seed)))
-                                   (let* ((key* (cdr-when (assoc substr bindings)))
-                                          (key (or key* (conc "uri" (number->string n)))))
-                                     (list  (conc form
-                                                  (substring q from-index (irregex-match-start-index match))
-                                                  "<" key ">")
+(define (make-query-pattern/form-fold query form?)
+  (lambda (from-index form-match seed)
+    (match seed
+      ((pattern bindings end-index n)
+       (let* ((substr (irregex-match-substring form-match))
+              (key* (cdr-when (assoc substr bindings)))
+              (key (or key*
+                       (and (not form?) (conc "uri" (number->string n)))
+                       substr)))
+         (list (if form?
+                   (make-query-pattern/form-fold-form pattern query from-index form-match substr key* key)
+                   (make-query-pattern/form-fold-pattern pattern query from-index form-match substr key* key))
+               (if (or key* form?)
+                   bindings 
+                   (alist-update substr key bindings))
+               (irregex-match-end-index form-match)
+               (+ n 1)))))))
 
-                                           (if key* bindings 
-                                               (alist-update substr key bindings))
-                                           (irregex-match-end-index match)
-                                           (+ n 1)))))
+(define (make-query-pattern/form query #!optional form? (bindings '()))
+  (match (irregex-fold form-regex (make-query-pattern/form-fold query form?)
+                       `("" ,bindings #f 0) query #f
+                       (query-body-start-index query))
+    ((pattern bindings end-index _)
+     (if end-index
+         (values (conc pattern
+                       (if form? (substring query end-index)
+                           (regex-escape-string (substring query end-index))))
+                 bindings)
+          (values query '())))))
 
-                               `("" ,bindings #f 0)
-                               q
-                               #f
-                               (query-body-start-index q))))
-    (if (third result)
-        (conc
-         (first result)
-         (substring q (third result)))
-        q)))
-            
+(define (make-query-form query bindings)
+  (make-query-pattern/form query #t bindings))
+
+(define (make-query-pattern query)
+  (make-query-pattern/form query))
+
+(define (query-form-save! query-string rewritten-query annotations annotations-query-string deltas-query-string bindings update?)
+  (let-values (((pattern form-bindings) (make-query-pattern query-string)))
+    (let* ((prefix (query-prefix query-string))
+           (make-form (lambda (q) (and q (make-query-form q form-bindings))))
+           (form (make-form rewritten-query))
+           (form-prefix (query-prefix rewritten-query))
+           (annotations-form (make-form annotations-query-string))
+           (annotations-form-prefix (query-prefix annotations-query-string))
+           (deltas-form (make-form deltas-query-string))
+           (deltas-form-prefix (query-prefix deltas-query-string))
+           (table (query-cache-table query-string)))
+      (hash-table-set! *query-forms*
+                       table
+                       (cons (list pattern form form-prefix
+                                   annotations annotations-form annotations-form-prefix
+                                   deltas-form deltas-form-prefix
+                                   bindings update?)
+                             (hash-table-ref/default *query-forms* table '()))))))
+
+(define (populate-cached-query-form pattern form match query-string)
+  (let ((matches (map (lambda (name-pair)
+                        (let ((name (car name-pair))
+                              (index (cdr name-pair)))
+                                 (cons (conc "<" (symbol->string name) ">")
+                                       (irregex-match-substring match index))))
+                      (irregex-match-names match))))
+    (string-translate* form matches)))
+
+(define (query-form-lookup query-string)
+  (let ((forms (hash-table-ref/default *query-forms* 
+                                       (query-cache-table query-string)
+                                       '())))
+    (let loop ((forms forms))
+      (if (null? forms) (values #f #f)
+          (let ((pattern (first (car forms))))
+            (let ((form-match (irregex-match pattern (substring query-string (query-body-start-index query-string)))))
+              (if form-match (values form-match (car forms)) 
+                  (loop (cdr forms)))))))))
+
+(define (apply-constraints-with-form-cache logkey query-string)
+  (let-values (((form-match form-list) (query-form-lookup query-string)))
+    (if form-match
+        (match form-list
+          ((pattern form form-prefix 
+                    annotations annotations-form annotationbs-prefix
+                    deltas-form deltas-prefix bindings update?)
+           (log-message "~%Using cached form~%")
+          (values (conc form-prefix (populate-cached-query-form pattern form form-match query-string))
+                  annotations
+                  (and annotations-form 
+                       (conc annotations-prefix
+                             (populate-cached-query-form pattern annotations-form form-match query-string)))
+                  (and deltas-form 
+                       (conc deltas-prefix
+                             (populate-cached-query-form pattern deltas-form form-match query-string)))
+                  bindings
+                  update?)))
+        (let ((query (parse-query query-string)))
+          (let-values (((ut1 st1) (cpu-time)))
+            (let-values (((rewritten-query bindings) (apply-constraints query)))
+              (let-values (((ut2 st2) (cpu-time)))
+                (log-message "~%==Rewrite Time (~A)==~%~Ams / ~Ams~%" logkey (- ut2 ut1) (- st2 st1))
+                (let* ((update? (update-query? query))
+                       (annotations (and (*calculate-annotations?*) (get-annotations rewritten-query bindings)))
+                       (aquery (and annotations (annotations-query annotations query)))
+                       (queried-annotations (and aquery (query-annotations aquery)))
+                       (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
+                       (rewritten-query-string (write-sparql rewritten-query))
+                       (annotations-query-string (and aquery (write-sparql aquery)))
+                       (deltas-query-string (and deltas-query (write-sparql deltas-query))))
+                  (query-form-save! query-string 
+                                    rewritten-query-string
+                                    annotations
+                                    annotations-query-string
+                                    deltas-query-string
+                                    bindings update?)
+                  (values rewritten-query-string 
+                          annotations
+                          annotations-query-string
+                          deltas-query-string
+                          bindings
+                          update?
+                          )))))))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; memoization
 
@@ -148,9 +184,10 @@
 
 (define apply-constraints (memoize apply-constraints))
 
-(define parse-constraint* (memoize parse-constraint*))
+(define parse-constraint (memoize parse-constraint))
 
 (define get-dependencies (memoize get-dependencies))
 
+(define apply-constraints-with-form-cache (memoize apply-constraints-with-form-cache))
 
-
+(define replace-headers (memoize replace-headers))

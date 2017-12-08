@@ -133,7 +133,7 @@
 (define (values? exp)
   (and (pair? exp) (equal? (car exp) '*values*)))
 
-
+;; for sandbox only
 (define (query-time-annotations annotations)
   (map (lambda (a)
          (match a
@@ -143,33 +143,32 @@
        (remove values? annotations)))
 
 ;; filter through values with rdf-equal?
-(define (query-annotations annotations query)
+(define (annotations-query annotations query)
   (if (*calculate-annotations?*)
       (let-values (((pairs singles) (partition pair? annotations)))
         (let* ((pairs (remove values? pairs))
                (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
-          (if (or (null? pairs) (null? vars))
-              singles
-              (if (null? vars) singles
-                  (let ((annotations-query
-                         (rewrite-query 
-                          query 
-                          (query-annotations-rules vars))))
-                    (join
-                     (map (lambda (row)
-                            (filter pair?
-                                    (map (lambda (annotation binding)
-                                           (match binding
-                                                  ((var . val)
-                                                   (if (and (equal? (->string var)
-                                                                    (substring (->string (second annotation)) 1))
-                                                            (or (null? (cddr annotation))
-                                                                (member val (third annotation))))
-                                                       (list (first annotation) val)
-                                                       '()))))
-                                         pairs row)))
-                          (sparql-select (write-sparql annotations-query)))))))))
-      '()))
+          (if (or (null? pairs) (null? vars)) #f ; what about singles??
+              (rewrite-query 
+               query 
+               (query-annotations-rules vars)))))))
+
+(define (query-annotations aquery)
+  (and aquery
+       (join
+        (map (lambda (row)
+               (filter pair?
+                       (map (lambda (annotation binding)
+                              (match binding
+                                     ((var . val)
+                                      (if (and (equal? (->string var)
+                                                       (substring (->string (second annotation)) 1))
+                                               (or (null? (cddr annotation))
+                                                   (member val (third annotation))))
+                                          (list (first annotation) val)
+                                          '()))))
+                            pairs row)))
+             (sparql-select (write-sparql aquery))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 

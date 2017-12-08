@@ -161,17 +161,15 @@
     (log-message "~%==Rewriting Query (~A)==~%~A~%" logkey query-string)
     ;; (log-message "~%==Parsed As (~A)==~%~A~%" logkey (write-sparql query))
 
-    (let ((rewritten-query-string
-           (parameterize (($query $$query) ($body $$body))
+    (let-values (((rewritten-query-string annotations annotations-query-string deltas-query-string bindings update?)
+                  (parameterize (($query $$query) ($body $$body))
                          (handle-exceptions exn 
                                             (begin (log-message "~%==Rewriting Error (~A)==~%" logkey) 
                                                    (log-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn))
                                                    (print-error-message exn (current-error-port))
                                                    (print-call-chain (current-error-port))
                                                    (abort exn))
-                        
-                                            ;;(time logkey
-                                            (apply-constraints-with-form-cache query-string)))))
+                                            (apply-constraints-with-form-cache logkey query-string)))))
         
         (log-message "~%==Rewritten Query (~A)==~%~A~%" logkey rewritten-query-string)
 
@@ -301,8 +299,9 @@
       (let-values (((rewritten-query bindings) (apply-constraints query)))
         (let* ((annotations (get-annotations rewritten-query bindings))
                (qt-annotations (and annotations (query-time-annotations annotations)))
-              (queried-annotations (and annotations (query-annotations annotations rewritten-query)))
-              (functional-property-substitutions (get-binding/default 'functional-property-substitutions bindings '())))
+               (aquery (and annotations (annotations-query annotations rewritten-query)))
+               (queried-annotations (and aquery (query-annotations aquery)))
+               (functional-property-substitutions (get-binding/default 'functional-property-substitutions bindings '())))
         (log-message "~%===Annotations===~%~A~%" annotations)
         (log-message "~%===Queried Annotations===~%~A~%"
                      (format-queried-annotations queried-annotations))

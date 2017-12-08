@@ -1,19 +1,28 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Constraint Renaming
-(define *replace-session-id?* (make-parameter #t))
+ (define *replace-session-id?* (make-parameter #t))
 
-(define (parse-constraint* constraint sid)
+(define (replace-headers constraint-string headers-replacements)
+  (string-translate* constraint-string headers-replacements))
+
+(define (replace-session-id constraint-string)
+  (let ((sid (header 'mu-session-id)))
+    (if sid
+        (replace-headers constraint-string `(( "<SESSION>" . ,(sparql-escape-uri sid))))
+        constraint-string)))
+
+(define (parse-constraint constraint) ; sid)
   (let ((constraint
          (if (pair? constraint)
              constraint
-             (parse-query
-              (if (and (*replace-session-id?*) sid)
-                  (irregex-replace/all "<SESSION>" constraint (sparql-escape-uri sid))
-                  constraint)))))
+             (parse-query constraint))))
+              ;; (if (and (*replace-session-id?*) sid)
+              ;;     (irregex-replace/all "<SESSION>" constraint (sparql-escape-uri sid))
+              ;;     constraint)))))
     (car (recursive-expand-triples (list constraint) '() replace-a))))
 
-(define (parse-constraint constraint)
-  (parse-constraint* constraint (header 'mu-session-id)))
+;; (define (parse-constraint constraint)
+;;   (parse-constraint* constraint)) (header 'mu-session-id)))
 
 (define (define-constraint key constraint)
   (case key

@@ -116,6 +116,7 @@
 (define (apply-optimizations block)
   (if (nulll? block) (values '() '())
       (let-values (((rw new-bindings) (rewrite (list block) '() (optimization-rules))))
+        (log-message "~%~%opt: ~A~%" rw)
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
             (values (clean (map (cut filter quads? <>) rw))
