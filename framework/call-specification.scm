@@ -343,6 +343,8 @@
     (set! *queried-properties* (make-parameter qprops))
     (set! *unique-variables* (make-parameter unique-vars))
     (set! *query-functional-properties?* (make-parameter query-fprops?))
+    (set! apply-constraints-with-form-cache (rememoize apply-constraints-with-form-cache))
+    (set! apply-constraints (rememoize apply-constraints))
     `((success .  "true"))))
 
 (define (format-queried-annotations queried-annotations)

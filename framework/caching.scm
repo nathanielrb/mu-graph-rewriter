@@ -174,20 +174,37 @@
 
 ;;(define renaming (memoize renaming*))
 
-(define unique-variable-substitutions (memoize  unique-variable-substitutions))
+(define-syntax memoize-save
+  (syntax-rules ()
+    ((_ proc)
+     (begin
+       (print (quote proc))
+       (put! (quote proc) 'memoized proc)
+       (memoize proc)))))
 
-(define parse-query (memoize parse-query))
+(define-syntax rememoize
+  (syntax-rules ()
+    ((_ proc)
+     (memoize (get (quote proc) 'memoized)))))
 
-(define rdf-equal? (memoize rdf-equal?)) ; needs to take namespaces as param as well
 
-(define get-constraint-prefixes (memoize get-constraint-prefixes))
 
-(define apply-constraints (memoize apply-constraints))
+(define unique-variable-substitutions (memoize-save unique-variable-substitutions))
 
-(define parse-constraint (memoize parse-constraint))
+(define parse-query (memoize-save parse-query))
 
-(define get-dependencies (memoize get-dependencies))
+(define rdf-equal? (memoize-save rdf-equal?)) ; needs to take namespaces as param as well
 
-(define apply-constraints-with-form-cache (memoize apply-constraints-with-form-cache))
+(define get-constraint-prefixes (memoize-save get-constraint-prefixes))
 
-(define replace-headers (memoize replace-headers))
+(define parse-constraint (memoize-save parse-constraint))
+
+(define replace-headers (memoize-save replace-headers))
+
+(define get-dependencies (memoize-save get-dependencies))
+
+(define apply-constraints (memoize-save apply-constraints))
+
+(define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
+
+
