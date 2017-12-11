@@ -8,13 +8,16 @@
 
 (define (replace-headers constraint-string)
   (string-translate* constraint-string 
-                     (map (match-lambda ((template key type)
-                                         (let ((escape (case type
-                                                         ((uri) sparql-escape-uri)
-                                                         ((string) sparql-escape-ur)
-                                                         (else values))))
-                                           `(,template . ,(escape (header key))))))
-                          (headers-replacements))))
+                     (filter values
+                             (map (match-lambda ((template key type)
+                                                 (let ((escape (case type
+                                                                 ((uri) sparql-escape-uri)
+                                                                 ((string) sparql-escape-ur)
+                                                                 (else values)))
+                                                       (val (header key)))
+                                                   (and val
+                                                        `(,template . ,(escape (header key)))))))
+                                  (headers-replacements)))))
 
 (define (parse-constraint constraint) ; sid)
   (let ((constraint

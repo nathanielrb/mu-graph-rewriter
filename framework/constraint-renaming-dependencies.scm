@@ -3,7 +3,7 @@
 (define (constraint-dependencies constraint-where-block bindings)
   (get-dependencies 
    (list constraint-where-block) 
-   (map car (dependency-substitutions))))
+   (map car (take (dependency-substitutions) 3))))
 
 (define (get-dependencies query bound-vars)
   (rewrite query '() (dependency-rules bound-vars)))
