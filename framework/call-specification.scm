@@ -497,16 +497,17 @@
 
 (define-rest-call 'GET '("plugin")
   (lambda (_)
-    `((plugins . ,(list->vector
-                   (sort
-                    (map pathname-file (glob (make-pathname (*plugin-dir*) "*.scm")))
-                    string<=))))))
+      `((plugins . ,(list->vector
+                     (sort
+                      (map pathname-file (glob (make-pathname (*plugin-dir*) "*.scm")))
+                      string<=))))))
 
 (define-rest-call 'GET '("plugin" name)
   (rest-call (name)
     (load-plugin name)
     (parameterize ((*replace-session-id?* #f)
-                   (*write-annotations?* #t))
+                   (*write-annotations?* #t)
+                   (headers-replacements '()))
       `((readConstraint . ,(write-sparql (call-if (*read-constraint*))))
         (writeConstraint . ,(write-sparql (call-if (*write-constraint*))))
         (functionalProperties . ,(list->vector (map ->string (*functional-properties*))))
