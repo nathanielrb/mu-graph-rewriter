@@ -78,8 +78,10 @@
                     (let-values (((insert-constraints subs2) (opt (get-binding/default 'insert-constraints new-bindings '()))))
                       (let-values (((delete-constraints subs3) (opt (get-binding/default 'delete-constraints new-bindings '()))))
                         (let ((instantiated-constraints (instantiate insert-constraints insert)))
-                          (let-values (((new-where subs4) (opt (append instantiated-constraints delete-constraints where))))
-                          (let* ((uninstantiated-where (opt (append insert-constraints delete-constraints where)))
+                          ;;(let-values (((new-where subs4) (opt (append instantiated-constraints delete-constraints where))))
+                            ;;(let* ((uninstantiated-where (opt (append insert-constraints delete-constraints where)))
+                          (let-values (((new-where subs4) (opt (join (append instantiated-constraints delete-constraints where)))))
+                            (let* ((uninstantiated-where (opt (join (append insert-constraints delete-constraints where))))
                                  (new-delete (update-triples-to-quads delete uninstantiated-where))
                                  (new-insert (update-triples-to-quads insert uninstantiated-where)))
                             (values (replace-child-body-if 

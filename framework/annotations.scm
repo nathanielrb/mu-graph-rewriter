@@ -189,5 +189,6 @@
             (values `((@Dataset ,@rw)) bindings))))
     ((@Dataset @Prologue WHERE) . ,rw/copy)
     ((INSERT DELETE) . ,rw/remove)
+    ((LIMIT OFFSET |GROUP BY|) . ,rw/remove)
     (,select? . ,rw/remove)))
 

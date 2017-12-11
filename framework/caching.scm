@@ -127,7 +127,7 @@
     (if form-match
         (match form-list
           ((pattern form form-prefix 
-                    annotations annotations-form annotationbs-prefix
+                    annotations annotations-form annotations-prefix
                     deltas-form deltas-prefix bindings update?)
            (log-message "~%Using cached form~%")
           (values (conc form-prefix (populate-cached-query-form pattern form form-match query-string))

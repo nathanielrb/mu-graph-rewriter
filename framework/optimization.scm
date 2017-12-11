@@ -93,9 +93,10 @@
 (define (append-stores rw #!optional (proc values))
   (let-values (((stores quads) (partition store? rw)))
     (let ((merged-stores (apply merge-alists (append (map cdr stores) (list (store))))))
+(if (nulll? quads) '()
       (if (null? merged-stores) (list (proc quads))
           (cons `(*store* . ,merged-stores)
-                (proc quads))))))
+                (proc quads))))))  )
   
 (define (intersect-stores rw bindings proc)
   (let ((stores (map cdr (filter pair? (map car (filter pair? (map (cut filter store? <>) rw))))))
@@ -114,27 +115,33 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
+;;  (print "==Optimizing==\n" block "\n")
   (if (nulll? block) (values '() '())
       (let-values (((rw new-bindings) (rewrite (list block) '() (optimization-rules))))
-        (log-message "~%~%opt: ~A~%" rw)
+;        (let ((rw (join rw)))
+        ;; (log-message "~%~%opt:~%~A~%=>~%~A~%=>~%~A~%~%" 
+        ;;              block rw
+        ;;               (clean (map (cut filter quads? <>) (filter quads? rw))))
+        ;;               ;(filter quads? rw))
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
-            (values (clean (map (cut filter quads? <>) rw))
-                    (get-binding/default 'functional-property-substitutions new-bindings '()))))))
+             (values (clean (map (cut filter quads? <>) (filter quads? rw)))
+            ;;(values (clean (filter quads?  rw))
+                    (get-binding/default 'functional-property-substitutions new-bindings '()))))))  ;)
                      
 (define (query-functional-property s p o)
   (hit-property-cache s p
     (let ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o)))
       (and results (alist-ref (sparql-variable-name o) results)))))
 
-(define (query-property s p)
+(define (query-properties s p)
   (hit-property-cache s p
     (let ((results (sparql-select "SELECT ?o  WHERE { ~A ~A ?o }" s p)))
       (if results (map (cut alist-ref 'o <>) results)
           '()))))
 
 (define (check-queried-property s p o)
-  (member o (query-property s p)))
+  (member o (query-properties s p)))
 
 (define fprops (make-parameter '((props) (subs))))
 
@@ -186,14 +193,13 @@
   (let ((saved-llq (last-level-quads)) ; a bit... awkward
         (saved-tlq (this-level-quads))
         (key (gensym)))
-;;        (format #t "ol 0 (~A): ~A ~%~%" key block)
+    ;; (log-message "ol 0 (~A): ~A ~%~%" key block)
   (parameterize ((store (collect-fprops block))
                  (last-level-quads (this-level-quads))
                  (this-level-quads (append (last-level-quads)  (collect-level-quads block))))
-;;                (format #t "~%with fprops (~A): ~A~%" key (store))
      (if (store)
         (let-values (((rw new-bindings) (rw/list (filter quads? block) bindings)))
-  ;;        (format #t "ol 1 (~A): ~A ~%~%" key rw)
+          ;; (log-message "ol 1 (~A): ~A ~%~%" key rw)
           (cond ((fail? rw) (values (list #f) new-bindings)) ; duplicate #f check... which one is correct?
                 ((or (equal? (map (cut filter quads? <>) rw)
                              (list (filter quads? block)))
@@ -203,8 +209,8 @@
                                      (this-level-quads saved-tlq)
                                      (last-level-quads saved-llq))
                         (let-values (((rw2 nb2) (rewrite rw new-bindings)))
-;;                          (format #t "ol 2 (~A): ~A ~%~%" key rw2)
-                          (values (list (append-stores (join rw2) clean)) nb2))))))
+                          ;; (log-message "ol 2 (~A): ~A ~%~%" key rw2)
+                           (values (list (append-stores (join rw2) clean)) nb2))))))
         (values (list #f) bindings))) ) )
 
 (define optimizations-graph (make-parameter #f))
@@ -293,7 +299,7 @@
                         (let ((o* (query-functional-property s p o)))
                           (if o*
                               (values (update-store 'subs `((,o . ,o*))
-                                                    (update-store 'props `((,s ,p) . ,o*) 
+                                                    (update-store 'props `(((,s ,p) . ,o*) )
                                                                   `((,s ,p ,o*))))
                                (fold-binding `((,o ,o*)) 'functional-property-substitutions 
                                              merge-alists '() bindings))
