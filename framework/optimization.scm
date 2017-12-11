@@ -115,7 +115,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
-;;  (print "==Optimizing==\n" block "\n")
   (if (nulll? block) (values '() '())
       (let-values (((rw new-bindings) (rewrite (list block) '() (optimization-rules))))
 ;        (let ((rw (join rw)))
@@ -179,7 +178,8 @@
 (define (collect-fprops block #!optional rec?)
   (let ((collected-fprops  (collect-fprops* block rec?)))
     (and collected-fprops 
-        (append collected-fprops (store)))))
+         ;; (append collected-fprops (store)))))
+         (merge-alists collected-fprops (store)))))
 
 (define this-level-quads (make-parameter '()))
 
@@ -200,13 +200,15 @@
                 ((or (equal? (map (cut filter quads? <>) rw)
                              (list (filter quads? block)))
                      (equal? rw '(#f)))
-                 (values rw new-bindings))
-                (else (parameterize ((store (collect-fprops rw))
+                 (values rw new-bindings))               
+                (else (let ((rw (append-stores (join rw) values)))
+                        (parameterize ((store (collect-fprops rw))
                                      (this-level-quads saved-tlq)
                                      (last-level-quads saved-llq))
-                        (let-values (((rw2 nb2) (rewrite rw new-bindings)))
-                          ;; (log-message "ol 2 (~A): ~A ~%~%" key rw2)
-                           (values (list (append-stores (join rw2) clean)) nb2))))))
+                       (let-values (((rw2 nb2) (rewrite (list rw) new-bindings)))
+                         ;; (log-message "ol 2 (~A): ~A ~% . ~%~A~%~%" key rw2 (append-stores (join rw2) clean))
+                          (if (fail? rw2) (values '(#f) nb2)
+                              (values (list (append-stores (join rw2) clean)) nb2))))))) )
         (values (list #f) bindings))) ) )
 
 (define optimizations-graph (make-parameter #f))
@@ -271,7 +273,7 @@
                                             (lambda (new-blocks)
                                               (if (= (length new-blocks) 1)
                                                   (car new-blocks)
-                                                  `((UNION ,@new-blocks)))))))))
+                                                  `((UNION ,@new-blocks))))))))) 
     (,quads-block? 
      . ,(lambda (block bindings)
           (match block

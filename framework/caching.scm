@@ -1,5 +1,7 @@
 (use srfi-69)
 
+(define *cache-forms?* (make-parameter #t))
+
 (define *query-forms* (make-hash-table))
 
 (define (query-cache-table query)
@@ -112,15 +114,17 @@
     (string-translate* form matches)))
 
 (define (query-form-lookup query-string)
-  (let ((forms (hash-table-ref/default *query-forms* 
-                                       (query-cache-table query-string)
-                                       '())))
-    (let loop ((forms forms))
-      (if (null? forms) (values #f #f)
-          (let ((pattern (first (car forms))))
-            (let ((form-match (irregex-match pattern (substring query-string (query-body-start-index query-string)))))
-              (if form-match (values form-match (car forms)) 
-                  (loop (cdr forms)))))))))
+  (if (*cache-forms?*)
+      (let ((forms (hash-table-ref/default *query-forms* 
+                                           (query-cache-table query-string)
+                                           '())))
+        (let loop ((forms forms))
+          (if (null? forms) (values #f #f)
+              (let ((pattern (first (car forms))))
+                (let ((form-match (irregex-match pattern (substring query-string (query-body-start-index query-string)))))
+                  (if form-match (values form-match (car forms)) 
+                      (loop (cdr forms))))))))
+      (values #f #f)))
 
 (define (apply-constraints-with-form-cache logkey query-string)
   (let-values (((form-match form-list) (query-form-lookup query-string)))
@@ -147,26 +151,28 @@
                 (log-message "~%==Rewrite Time (~A)==~%~Ams / ~Ams~%" logkey (- ut2 ut1) (- st2 st1))
                 (let* ((update? (update-query? query))
                        (annotations (and (*calculate-annotations?*) (get-annotations rewritten-query bindings))))
-                  (let-values (((aquery annotations-pairs) (if annotations  (annotations-query annotations query)
+                  (let-values (((aquery annotations-pairs) (if annotations
+                                                               (annotations-query annotations query)
                                                                (values #f #f))))
-                    (let ((queried-annotations (and aquery (query-annotations aquery annotations-pairs)))
+                    (let* ((queried-annotations (and aquery (query-annotations aquery annotations-pairs)))
                           (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
                           (rewritten-query-string (write-sparql rewritten-query))
                           (annotations-query-string (and aquery (write-sparql aquery)))
                           (deltas-query-string (and deltas-query (write-sparql deltas-query))))
-                  (query-form-save! query-string 
-                                    rewritten-query-string
-                                    annotations
-                                    annotations-query-string
-                                    deltas-query-string
-                                    bindings update?)
-                  (values rewritten-query-string 
-                          annotations
-                          annotations-query-string
-                          deltas-query-string
-                          bindings
-                          update?
-                          )))))))))))
+                      (when (*cache-forms?*)
+                            (query-form-save! query-string 
+                                              rewritten-query-string
+                                              annotations
+                                              annotations-query-string
+                                              deltas-query-string
+                                              bindings update?))
+                      (values rewritten-query-string 
+                              annotations
+                              annotations-query-string
+                              deltas-query-string
+                              bindings
+                              update?
+                              )))))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; memoization

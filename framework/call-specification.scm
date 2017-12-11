@@ -300,17 +300,18 @@
         (let* ((annotations (get-annotations rewritten-query bindings))
                (qt-annotations (and annotations (query-time-annotations annotations))))
                ;; (aquery (and annotations (annotations-query annotations rewritten-query)))
-          (let-values (((aquery annotations-pairs) (if annotations  (annotations-query annotations query)
+          (let-values (((aquery annotations-pairs) (if annotations
+                                                       (annotations-query annotations query)
                                                        (values #f #f))))
             (let ((queried-annotations (and aquery (query-annotations aquery annotations-pairs)))
                   ;; (queried-annotations (and aquery (query-annotations aquery)))
                   (functional-property-substitutions (get-binding/default 'functional-property-substitutions bindings '())))
         (log-message "~%===Annotations===~%~A~%" annotations)
         (log-message "~%===Queried Annotations===~%~A~%"
-                     (format-queried-annotations queried-annotations))
+                     (and queried-annotations (format-queried-annotations queried-annotations)))
         `((rewrittenQuery . ,(format (write-sparql rewritten-query)))
           (annotations . ,(format-annotations qt-annotations))
-          (queriedAnnotations . ,(format-queried-annotations queried-annotations))))))))))
+          (queriedAnnotations . ,(and queried-annotations (format-queried-annotations queried-annotations)))))))))))
 
 (define (apply-call _)
   (let* ((body (read-request-body))
@@ -333,21 +334,23 @@
     (set!
       *write-constraint*
       (make-parameter
-       ;; (with-session-id write-constraint-string)))
-       (lambda () (parse-constraint write-constraint-string))))
+       (lambda () (parse-constraint 
+                   (replace-headers
+                    write-constraint-string)))))
 
     (set!
       *read-constraint*
       (make-parameter
-       ;; (with-session-id write-constraint-string)))
-       (lambda () (parse-constraint read-constraint-string))))
+       (lambda () (parse-constraint
+                   (replace-headers
+                    read-constraint-string)))))
 
     (set! *functional-properties* (make-parameter fprops))
     (set! *queried-properties* (make-parameter qprops))
     (set! *unique-variables* (make-parameter unique-vars))
     (set! *query-functional-properties?* (make-parameter query-fprops?))
     (set! apply-constraints-with-form-cache (rememoize apply-constraints-with-form-cache))
-    (set! apply-constraints (rememoize apply-constraints))
+    (set! *query-forms* (make-hash-table))
     `((success .  "true"))))
 
 (define (format-queried-annotations queried-annotations)

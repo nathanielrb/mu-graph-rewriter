@@ -148,7 +148,8 @@
       (let-values (((pairs singles) (partition pair? annotations)))
         (let* ((pairs (remove values? pairs))
                (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
-          (if (or (null? pairs) (null? vars)) #f ; what about singles??
+          (if (or (null? pairs) (null? vars))
+              (values #f #f) ; what about singles??
               (values (rewrite-query query (query-annotations-rules vars))
                       pairs))))))
 

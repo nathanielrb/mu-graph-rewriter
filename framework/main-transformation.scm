@@ -91,7 +91,7 @@
                                       (if (null? new-where)
                                           (replace-child-body 'WHERE '() (reverse rw))
                                           (replace-child-body 
-                                           'WHERE `((@SubSelect (SELECT *) (WHERE ,@new-where)))
+                                           'WHERE `((@SubSelect (SELECT *) (WHERE ,@(join new-where))))
                                            (reverse rw)))))
                                     (update-binding 'functional-property-substitutions 
                                                     (apply merge-alists (filter pair? (list subs1 subs2 subs3  subs4)))
@@ -120,7 +120,7 @@
               (parameterize ((query-where (get-child-body 'WHERE (cdr block))))
 	       (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
                  (let-values (((new-where subs) (apply-optimizations (clean (get-child-body 'WHERE rw)))))
-                   (values `((@Query ,@(replace-child-body 'WHERE new-where rw)))
+                   (values `((@Query ,@(replace-child-body 'WHERE (join new-where) rw)))
                            (update-binding 'functional-property-substitutions subs new-bindings)))))
 	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings (select-query-rules))))
                 (values `((@Query ,@rw)) new-bindings)))))
