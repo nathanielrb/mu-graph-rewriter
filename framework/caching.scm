@@ -147,14 +147,21 @@
         (let ((query (parse-query query-string)))
           (let-values (((ut1 st1) (cpu-time)))
             (let-values (((rewritten-query bindings) (apply-constraints query)))
+(log-message "~%rewrite to:~%~A~%" rewritten-query)
               (let-values (((ut2 st2) (cpu-time)))
                 (log-message "~%==Rewrite Time (~A)==~%~Ams / ~Ams~%" logkey (- ut2 ut1) (- st2 st1))
                 (let* ((update? (update-query? query))
-                       (annotations (and (*calculate-annotations?*) (get-annotations rewritten-query bindings))))
+                       (annotations (and (*calculate-annotations?*) 
+                                         (handle-exceptions exn #f
+                                                            (get-annotations rewritten-query bindings)))))
                   (let-values (((aquery annotations-pairs) (if annotations
-                                                               (annotations-query annotations query)
+                                                               (annotations-query annotations rewritten-query)
                                                                (values #f #f))))
-                    (let* ((queried-annotations (and aquery (query-annotations aquery annotations-pairs)))
+                    (let* ((queried-annotations (and aquery 
+                                                     (handle-exceptions exn 
+                                                                        (begin (log-message "~%==Error Getting Queried Annotations==~%~A~%~%" (write-sparql aquery))
+                                                                               #f)
+                                                                        (query-annotations aquery annotations-pairs))))
                           (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
                           (rewritten-query-string (write-sparql rewritten-query))
                           (annotations-query-string (and aquery (write-sparql aquery)))

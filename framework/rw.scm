@@ -68,10 +68,10 @@
 
 (define-syntax fail-or-null
   (syntax-rules ()
-    ((_ rw new-bindings body)
+    ((_ rw new-bindings body ...)
      (cond ((nulll? rw) (values '() new-bindings))
            ((fail? rw) (values '(#f) new-bindings))
-           (else body)))))
+           (else body ...)))))
 
 (define (rw/list block bindings)
   (let-values (((rw new-bindings) (rewrite block bindings)))

@@ -55,23 +55,15 @@
      . ,(lambda (block bindings)
           (match block
             ((`GRAPH graph triple)
-             ;; ;;(if (member triple triples)
-             ;;     (values `((*graph* . ,graph)) bindings)
              (let ((match-bindings (match-triple triple triples)))
                (cond ((not match-bindings) (values (list block) bindings))
                      ((null? match-bindings)  (values `((*graph* . ,graph)) bindings))
-                     ;; (else (values `((*graph* . ,graph))
-                     ;;               (fold-binding (map (cut expand-instantiation graph triple <>) match-bindings)
-                     ;;                             'instantiated-quads 
-                     ;;                             append '() ; (compose delete-duplicates 
-                     ;;                             bindings)))))))))
                      (else (values `((UNION (,block) ;; ????
-                                      ,(map (lambda (bindings) 
-                                              `(VALUES ,(map car bindings) 
-                                                       ,(map cdr bindings))) 
-                                            match-bindings)))
+                                            ,(map (lambda (bindings) 
+                                                    `(VALUES ,(map car bindings) 
+                                                             ,(map cdr bindings)))
+                                                  match-bindings)))
                              bindings))))))))
-    ;; ((OPTIONAL) . ,rw/quads)
     ((UNION)
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
