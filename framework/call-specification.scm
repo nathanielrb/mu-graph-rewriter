@@ -280,8 +280,8 @@
          (session-id (conc "\"" ($$body 'session-id) "\""))
          (read-constraint-string ($$body 'readconstraint))
 	 (write-constraint-string ($$body 'writeconstraint))
-	 (read-constraint (parse-constraint read-constraint-string))
-	 (write-constraint (parse-constraint write-constraint-string))
+	 (read-constraint (parse-constraint (replace-headers read-constraint-string)))
+	 (write-constraint (parse-constraint (replace-headers write-constraint-string)))
          (query (parse "sandbox" query-string))
 	 (fprops (map string->symbol
 		      (string-split (or ($$body 'fprops) "") ", ")))
@@ -454,22 +454,25 @@
         (format #t "(*unique-variables* '~A)~%~%" unique-vars)
         (format #t "(*query-functional-properties?* ~A)~%~%" query-fprops?)
         (format #t "(*queried-properties* '~A)~%~%" qprops)
+        (format #t "(headers-replacements '((\"<SESSION>\" mu-session-id uri)))~%~%")
+
         (format #t (conc "(define-constraint  ~%"
                          (if write-constraint-string
                              "  'read ~%"
                              "  'read/write ~%")
-                         "  (lambda ()"
-                         "    \"~%"
+                         "  (lambda () ~%"
+                         "    (replace-headers \"~%"
                          read-constraint-string
-                         "  \"))~%~%"))
+                         "\")))~%~%"))
         
         (when write-constraint-string
               (format #t (conc "(define-constraint  ~%"
                                "  'write ~%"
                                "  (lambda () "
+                               "    (replace-headers ~%"
                                "    \"~%"
                                write-constraint-string
-                               "  \"))~%~%")))
+                               "  \")))~%~%")))
         ))))
 
 (define-rest-call 'POST '("plugin" name)

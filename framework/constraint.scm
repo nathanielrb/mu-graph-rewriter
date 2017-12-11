@@ -2,14 +2,19 @@
 ;; Constraint Renaming
  (define *replace-session-id?* (make-parameter #t))
 
-(define (replace-headers constraint-string headers-replacements)
-  (string-translate* constraint-string headers-replacements))
+(define headers-replacements
+  (make-parameter
+   `(("<SESSION>" mu-session-id uri))))
 
-(define (replace-session-id constraint-string)
-  (let ((sid (header 'mu-session-id)))
-    (if sid
-        (replace-headers constraint-string `(( "<SESSION>" . ,(sparql-escape-uri sid))))
-        constraint-string)))
+(define (replace-headers constraint-string)
+  (string-translate* constraint-string 
+                     (map (match-lambda ((template key type)
+                                         (let ((escape (case type
+                                                         ((uri) sparql-escape-uri)
+                                                         ((string) sparql-escape-ur)
+                                                         (else values))))
+                                           `(,template . ,(escape (header key))))))
+                          (headers-replacements))))
 
 (define (parse-constraint constraint) ; sid)
   (let ((constraint
