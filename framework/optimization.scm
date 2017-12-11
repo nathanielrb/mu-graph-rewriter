@@ -116,13 +116,14 @@
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
 ;;  (print "==Optimizing==\n" block "\n")
+  (print "optimizing")
   (if (nulll? block) (values '() '())
       (let-values (((rw new-bindings) (rewrite (list block) '() (optimization-rules))))
 ;        (let ((rw (join rw)))
-        ;; (log-message "~%~%opt:~%~A~%=>~%~A~%=>~%~A~%~%" 
-        ;;              block rw
-        ;;               (clean (map (cut filter quads? <>) (filter quads? rw))))
-        ;;               ;(filter quads? rw))
+        (log-message "~%~%opt:~%~A~%=>~%~A~%=>~%~A~%~%" 
+                     block rw
+                      (clean (map (cut filter quads? <>) (filter quads? rw))))
+                      ;(filter quads? rw))
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
              (values (clean (map (cut filter quads? <>) (filter quads? rw)))
@@ -314,8 +315,6 @@
                      
     (,list? . ,optimize-list)
     (,symbol? . ,rw/copy)))
-
-
 
 
 

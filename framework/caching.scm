@@ -146,13 +146,14 @@
               (let-values (((ut2 st2) (cpu-time)))
                 (log-message "~%==Rewrite Time (~A)==~%~Ams / ~Ams~%" logkey (- ut2 ut1) (- st2 st1))
                 (let* ((update? (update-query? query))
-                       (annotations (and (*calculate-annotations?*) (get-annotations rewritten-query bindings)))
-                       (aquery (and annotations (annotations-query annotations query)))
-                       (queried-annotations (and aquery (query-annotations aquery)))
-                       (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
-                       (rewritten-query-string (write-sparql rewritten-query))
-                       (annotations-query-string (and aquery (write-sparql aquery)))
-                       (deltas-query-string (and deltas-query (write-sparql deltas-query))))
+                       (annotations (and (*calculate-annotations?*) (get-annotations rewritten-query bindings))))
+                  (let-values (((aquery annotations-pairs) (if annotations  (annotations-query annotations query)
+                                                               (values #f #f))))
+                    (let ((queried-annotations (and aquery (query-annotations aquery annotations-pairs)))
+                          (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
+                          (rewritten-query-string (write-sparql rewritten-query))
+                          (annotations-query-string (and aquery (write-sparql aquery)))
+                          (deltas-query-string (and deltas-query (write-sparql deltas-query))))
                   (query-form-save! query-string 
                                     rewritten-query-string
                                     annotations
@@ -165,7 +166,7 @@
                           deltas-query-string
                           bindings
                           update?
-                          )))))))))
+                          )))))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; memoization
@@ -187,7 +188,11 @@
     ((_ proc)
      (memoize (get (quote proc) 'memoized)))))
 
-
+(define-syntax unmemoized
+  (syntax-rules ()
+    ((_ proc)
+     (or (get (quote proc) 'memoized)
+         proc))))
 
 (define unique-variable-substitutions (memoize-save unique-variable-substitutions))
 
@@ -203,7 +208,7 @@
 
 (define get-dependencies (memoize-save get-dependencies))
 
-(define apply-constraints (memoize-save apply-constraints))
+;; (define apply-constraints (memoize-save apply-constraints))
 
 (define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
 

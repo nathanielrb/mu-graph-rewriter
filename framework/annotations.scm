@@ -149,11 +149,10 @@
         (let* ((pairs (remove values? pairs))
                (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
           (if (or (null? pairs) (null? vars)) #f ; what about singles??
-              (rewrite-query 
-               query 
-               (query-annotations-rules vars)))))))
+              (values (rewrite-query query (query-annotations-rules vars))
+                      pairs))))))
 
-(define (query-annotations aquery)
+(define (query-annotations aquery annotations-pairs)
   (and aquery
        (join
         (map (lambda (row)
@@ -167,7 +166,7 @@
                                                    (member val (third annotation))))
                                           (list (first annotation) val)
                                           '()))))
-                            pairs row)))
+                            annotations-pairs row)))
              (sparql-select (write-sparql aquery))))))
 
 (define (query-annotations-rules vars)
