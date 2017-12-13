@@ -52,7 +52,7 @@
 
 (define (preserve-graphs?)
   (or (header 'preserve-graph-statements)
-      (($query) 'preserve-graph-statements)
+      ;; (($query) 'preserve-graph-statements)
       (not (*rewrite-graph-statements?*))))
 
 (define *rewrite-select-queries?* 
@@ -62,7 +62,7 @@
 
 (define (rewrite-select?)
   (or (equal? "true" (header 'rewrite-select-queries))
-      (equal? "true" (($query) 'rewrite-select-queries))
+      ;; (equal? "true" (($query) 'rewrite-select-queries))
       (*rewrite-select-queries?*)))
 
 (define *send-deltas?* 

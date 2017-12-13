@@ -151,7 +151,8 @@
           (if (or (null? pairs) (null? vars))
               (values #f #f) ; what about singles??
               (values (rewrite-query query (query-annotations-rules vars))
-                      pairs))))))
+                      pairs))))
+      (values #f #f)))
 
 (define (query-annotations aquery annotations-pairs)
   (and aquery

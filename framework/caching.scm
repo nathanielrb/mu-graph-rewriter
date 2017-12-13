@@ -1,5 +1,34 @@
 (use srfi-69)
 
+(define-syntax timed-let
+  (syntax-rules ()
+    ((_ label (let-exp (vars/vals ...) body ...))
+     (let-values (((ut1 st1) (cpu-time)))
+       (let ((t1 (current-milliseconds)))
+         (let-exp (vars/vals ...)
+           (let-values (((ut2 st2) (cpu-time)))
+             (let ((t2 (current-milliseconds)))
+               (debug-message "~%[~A] ~A Time: ~Ams / ~Ams / ~Ams~%" (logkey) label (- ut2 ut1) (- st2 st1) (- t2 t1))
+               body ...))))))))
+
+(define-syntax timed
+  (syntax-rules ()
+    ((_ label body ...)
+     (let-values (((ut1 st1) (cpu-time)))
+       (let ((t1 (current-milliseconds)))
+         (let ((result body ...))
+           (let-values (((ut2 st2) (cpu-time)))
+             (let ((t2 (current-milliseconds)))
+               (debug-message "~%[~A] ~A Time: ~Ams / ~Ams / ~Ams~%" (logkey) label (- ut2 ut1) (- st2 st1) (- t2 t1))
+               result))))))))
+
+
+(define *debug?* (make-parameter #t))
+
+(define (debug-message str #!rest args)
+  (when (*debug?*)
+    (apply format (current-error-port) str args)))
+
 (define *cache-forms?* (make-parameter #t))
 
 (define *query-forms* (make-hash-table))
@@ -12,7 +41,7 @@
 (define query-body-start-index
   (memoize
    (lambda (q)
-     (irregex-match-start-index (irregex-search "SELECT|DELETE|INSERT" q)))))
+     (irregex-match-start-index (irregex-search (irregex "SELECT|DELETE|INSERT" 'i) q)))))
 
 (define query-prefix
   (memoize
@@ -22,7 +51,7 @@
 (define query-body-end-index
   (memoize
    (lambda (q)
-     (and (string? q) (irregex-match-start-index (irregex-search "OFFSET|LIMIT|GROUP BY" q))))))
+     (and (string? q) (irregex-match-start-index (irregex-search (irregex "OFFSET|LIMIT|GROUP BY" 'i) q))))))
 
 (define (regex-escape-string str)
   (string-translate* str '(("." . "\\.")
@@ -126,30 +155,39 @@
                       (loop (cdr forms))))))))
       (values #f #f)))
 
-(define (apply-constraints-with-form-cache logkey query-string)
-  (let-values (((form-match form-list) (query-form-lookup query-string)))
-    (if form-match
-        (match form-list
-          ((pattern form form-prefix 
-                    annotations annotations-form annotations-prefix
-                    deltas-form deltas-prefix bindings update?)
-           (log-message "~%Using cached form~%")
-          (values (conc form-prefix (populate-cached-query-form pattern form form-match query-string))
-                  annotations
-                  (and annotations-form 
-                       (conc annotations-prefix
-                             (populate-cached-query-form pattern annotations-form form-match query-string)))
-                  (and deltas-form 
-                       (conc deltas-prefix
-                             (populate-cached-query-form pattern deltas-form form-match query-string)))
-                  bindings
-                  update?)))
-        (let ((query (parse-query query-string)))
-          (let-values (((ut1 st1) (cpu-time)))
-            (let-values (((rewritten-query bindings) (apply-constraints query)))
-(log-message "~%rewrite to:~%~A~%" rewritten-query)
-              (let-values (((ut2 st2) (cpu-time)))
-                (log-message "~%==Rewrite Time (~A)==~%~Ams / ~Ams~%" logkey (- ut2 ut1) (- st2 st1))
+(define (apply-constraints-with-form-cache query-string)
+  (timed-let "Cache Lookup"
+    (let-values (((form-match form-list) (query-form-lookup query-string)))
+      (print "match: " form-match)
+      (if form-match
+          (timed-let "Populate Cache Form"
+            (let-values (((rewritten-query-string annotations annotations-query-string 
+                                                  deltas-query-string bindings update?)
+                          (match form-list
+                            ((pattern form form-prefix 
+                                      annotations annotations-form annotations-prefix
+                                      deltas-form deltas-prefix bindings update?)
+                             (debug-message "~%[~A] Using cached form~%" (logkey))
+                             (values (conc form-prefix (populate-cached-query-form pattern form form-match query-string))
+                                     annotations
+                                     (and annotations-form 
+                                          (conc annotations-prefix
+                                                (populate-cached-query-form pattern annotations-form form-match query-string)))
+                                     (and deltas-form 
+                                          (conc deltas-prefix
+                                                (populate-cached-query-form pattern deltas-form form-match query-string)))
+                                     bindings
+                                     update?)))))
+              (values rewritten-query-string 
+                      annotations
+                      annotations-query-string
+                      deltas-query-string
+                      bindings
+                      update?)))
+
+          (let ((query (parse-query query-string)))
+            (timed-let "Rewrite"
+              (let-values (((rewritten-query bindings) (apply-constraints query)))
                 (let* ((update? (update-query? query))
                        (annotations (and (*calculate-annotations?*) 
                                          (handle-exceptions exn #f
@@ -159,13 +197,13 @@
                                                                (values #f #f))))
                     (let* ((queried-annotations (and aquery 
                                                      (handle-exceptions exn 
-                                                                        (begin (log-message "~%==Error Getting Queried Annotations==~%~A~%~%" (write-sparql aquery))
+                                                                        (begin (log-message "~%==Error Getting Queried Annotations==~%~A~%~%" aquery)
                                                                                #f)
                                                                         (query-annotations aquery annotations-pairs))))
-                          (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
-                          (rewritten-query-string (write-sparql rewritten-query))
-                          (annotations-query-string (and aquery (write-sparql aquery)))
-                          (deltas-query-string (and deltas-query (write-sparql deltas-query))))
+                           (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
+                           (rewritten-query-string (write-sparql rewritten-query))
+                           (annotations-query-string (and aquery (write-sparql aquery)))
+                           (deltas-query-string (and deltas-query (write-sparql deltas-query))))
                       (when (*cache-forms?*)
                             (query-form-save! query-string 
                                               rewritten-query-string
@@ -201,7 +239,7 @@
     ((_ proc)
      (memoize (get (quote proc) 'memoized)))))
 
-(define-syntax unmemoized
+(define-syntax unmemoize
   (syntax-rules ()
     ((_ proc)
      (or (get (quote proc) 'memoized)
@@ -221,8 +259,7 @@
 
 (define get-dependencies (memoize-save get-dependencies))
 
-;; (define apply-constraints (memoize-save apply-constraints))
-
 (define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
+
 
 

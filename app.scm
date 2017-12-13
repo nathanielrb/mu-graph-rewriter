@@ -42,6 +42,8 @@
 
 (load-file "framework/call-specification.scm")
 
+(load-file "framework/sandbox.scm")
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load
 (log-message "~%==Query Rewriter Service==")

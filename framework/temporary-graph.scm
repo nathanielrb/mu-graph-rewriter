@@ -8,7 +8,7 @@
 
 ;; $query is broken; use header for now, and fix $query
 (define (use-temp?)
-  (cond ((or (header 'use-temp-graph) (($query) 'use-temp-graph))
+  (cond ((header 'use-temp-graph) ; (($query) 'use-temp-graph))
          => (lambda (h) (equal? h "true")))
         (else (*use-temp?*))))
 
