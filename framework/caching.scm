@@ -142,7 +142,7 @@
                       (irregex-match-names match))))
     (string-translate* form matches)))
 
-(define (query-form-lookup query-string)
+(define (query-form-lookup query-string read-constraint write-constraint)
   (if (*cache-forms?*)
       (let ((forms (hash-table-ref/default *query-forms* 
                                            (query-cache-table query-string)
@@ -155,10 +155,12 @@
                       (loop (cdr forms))))))))
       (values #f #f)))
 
-(define (apply-constraints-with-form-cache query-string)
+(define (apply-constraints-with-form-cache query-string
+                                           #!optional
+                                           (read-constraint (call-if (*read-constraint*)))
+                                           (write-constraint (call-if (*write-constraint*))))
   (timed-let "Cache Lookup"
-    (let-values (((form-match form-list) (query-form-lookup query-string)))
-      (print "match: " form-match)
+    (let-values (((form-match form-list) (query-form-lookup query-string read-constraint write-constraint)))
       (if form-match
           (timed-let "Populate Cache Form"
             (let-values (((rewritten-query-string annotations annotations-query-string 
@@ -260,6 +262,5 @@
 (define get-dependencies (memoize-save get-dependencies))
 
 (define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
-
 
 
