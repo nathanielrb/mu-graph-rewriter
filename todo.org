@@ -1,10 +1,3 @@
-* refactoring
-** TODO harmonize clean/opt/optimize-duplicates
-** TODO renaming-dependencies: harmonize fold & fold-binding
-** minor refactoring
-*** TODO use of axes/parameters
-*** TODO rewrite-quads-block vs. list vs. cdr vs. quads block...
-*** TODO abstract UNION-if->1 elements
 * basic logic
 ** TODO manage conflicting namespaces
 ** TODO managing namespaces over multiple queries for rdf-equal?
@@ -53,12 +46,88 @@ WHERE {
   (graphs:people) 
  }
 }
-** DONE bug getting SELECT * vars with UNION
+** DONE [bug] getting SELECT * vars with UNION
    SELECT * WHERE { { ?s ?p ?o } UNION { ?s ?q ?o} } 
 ** TODO careful about dependencies for FILTER VALUES and BIND
    current: VALUES and BIND(?) -> deps; FILTER does not
-** TODO bug <iri>+
+** TODO [bug] <iri>+
 ** TODO can rewrite-fold be done just by parameterizing a fold-bindings procedure?
+** TODO VALUES, FILTER and BIND dependencies are still a problem
+   still haven't quite nailed it
+
+   CONSTRUCT {
+     ?a ?b ?c 
+   }
+   WHERE {
+    {
+     filter( ?b = rdf:type )
+     GRAPH ?graph { ?a ?b ?c }
+     values ?graph { <types> }
+    } UNION {
+     filter( ?b != rdf:type )
+     GRAPH ?graph { ?a ?b ?c } 
+     values ?graph { <application> }
+    }
+   }
+** DONE FILTER dependencies
+   what should the dependencies of FILTER( ?b != mu:uuid ) be??
+ 
+** TODO dependencies: verify logic of graphs + non-bound vars
+   graph ?g { ?a ?b ?c . ?a ?other ?vars }
+   => ?g depends on ?a, ?other and ?vars but not ?b and ?c
+   because ?a ?b ?c is the "bound" triple
+
+** DONE dependencies: singleton VALUES statements for ?graph 
+   #+BEGIN_SRC
+    CONSTRUCT { ?s ?p ?o }
+    WHERE {
+      {
+        GRAPH ?graph { ?s ?p ?o }
+        VALUES ?graph { <G1> <G2> }
+        FILTER ( ?p != mu:uuid )
+      }
+      UNION
+      {
+        GRAPH ?graph { ?s ?p ?o }
+        VALUES ( ?graph ?p ) { <GRAPHS/UUID> mu:uuid }
+      }
+    }
+   #+END_SRC
+   
+   Here, ?graph is not exclusively determined, so updates are not well-defined, unless
+   a triple is meant to go into all graphs. But how to define SELECT queries such as:
+   
+   #+BEGIN_SRC
+    SELECT *
+    WHERE { ?a ?b ?c . ?d ?e ?f }
+   #+END_SRC
+   
+   Can ?a ?b ?c and ?d ?e ?f come from different graphs, i.e., ?graph depends on ?s, ?p and ?o?
+   The current assumptions mean that they must be in the same graph for the query to succeed.
+   
+** TODO dependencies: BIND in constraint query
+   
+   #+BEGIN_SRC
+    ?s ?p ?o
+    BIND(COUNT(?o) AS ?count)
+   #+END_SRC
+   
+   when ?o is substituted with a value:
+   
+   #+BEGIN_SRC
+    ?s ?p <property>
+    BIND(COUNT(<property>) AS ?count)
+   #+END_SRC
+   
+   One solution(?):
+   
+   #+BEGIN_SRC
+    ?s ?p <property>
+    BIND(COUNT(<property>) AS ?count)
+   #+END_SRC
+   
+** TODO dependencies: clean up and rename and document dependency functions for easier code maintenance
+   'cause it's a mess
 ** DONE verify logic of protected variables
    is this right? or are dependencies 'wrong'...?
 
@@ -95,16 +164,15 @@ WHERE {
 	
 ** DONE rethink logic of functional property optimization in OPTIONAL
 ** DONE Too many nested lists levels
-* instantiation
-** TODO careful with complicated statements wrt expand-graphs
+** TODO careful instantiating complicated statements wrt expand-graphs
     mixing graphs, OPTIONAL, annotations...
-** TODO implement a version of (instantiate ..) without VALUES (formerly UNION)
+** TODO implement a version of instantiation without VALUES (formerly UNION)
     ie for DELETE queries (exact triple not needed), and also for a delta-subscription
     service like Esteban wanted
 
     actually we don't do UNION at all now
     so this would just be: remove triple w/o VALUES
-** DONE get instantiation logic correct
+** TODO renaming-dependencies: harmonize fold & fold-binding** DONE get instantiation logic correct
    including find-triples-graphs, instantiated-values, etc.
 
 ** DONE is instantiation correct for DELETE+INSERT queries?
@@ -151,7 +219,7 @@ WHERE {
     #+END_SRC
 
 * optimizations
-** TODO BUG: optimizing fprops in OPTIONAL/UNION
+** TODO [BUG]: optimizing fprops in OPTIONAL/UNION
 ** DONE integrate queried functional-properties with Annotations & values
 ** DONE cache queried functional-properties
 ** TODO big minor problem: what if we're selecting ?type and ?type is optimized?
@@ -164,92 +232,16 @@ WHERE {
     though this begs the question of whether functional properties apply to triples
     or quads
 
-** DONE query functional-properties
-** DONE bug: functional properties incorrect for types in OPTIONALS and UNIONS
-* dependencies
-** TODO VALUES, FILTER and BIND dependencies are still a problem
-   still haven't quite nailed it
-
-   CONSTRUCT {
-     ?a ?b ?c 
-   }
-   WHERE {
-    {
-     filter( ?b = rdf:type )
-     GRAPH ?graph { ?a ?b ?c }
-     values ?graph { <types> }
-    } UNION {
-     filter( ?b != rdf:type )
-     GRAPH ?graph { ?a ?b ?c } 
-     values ?graph { <application> }
-    }
-   }
-** DONE FILTER dependencies
-   what should the dependencies of FILTER( ?b != mu:uuid ) be??
- 
-** TODO verify logic of graphs + non-bound vars
-   graph ?g { ?a ?b ?c . ?a ?other ?vars }
-   => ?g depends on ?a, ?other and ?vars but not ?b and ?c
-   because ?a ?b ?c is the "bound" triple
-
-** DONE singleton VALUES statements for ?graph 
-   #+BEGIN_SRC
-    CONSTRUCT { ?s ?p ?o }
-    WHERE {
-      {
-        GRAPH ?graph { ?s ?p ?o }
-        VALUES ?graph { <G1> <G2> }
-        FILTER ( ?p != mu:uuid )
-      }
-      UNION
-      {
-        GRAPH ?graph { ?s ?p ?o }
-        VALUES ( ?graph ?p ) { <GRAPHS/UUID> mu:uuid }
-      }
-    }
-   #+END_SRC
-   
-   Here, ?graph is not exclusively determined, so updates are not well-defined, unless
-   a triple is meant to go into all graphs. But how to define SELECT queries such as:
-   
-   #+BEGIN_SRC
-    SELECT *
-    WHERE { ?a ?b ?c . ?d ?e ?f }
-   #+END_SRC
-   
-   Can ?a ?b ?c and ?d ?e ?f come from different graphs, i.e., ?graph depends on ?s, ?p and ?o?
-   The current assumptions mean that they must be in the same graph for the query to succeed.
-   
-** TODO BIND in constraint query
-   
-   #+BEGIN_SRC
-    ?s ?p ?o
-    BIND(COUNT(?o) AS ?count)
-   #+END_SRC
-   
-   when ?o is substituted with a value:
-   
-   #+BEGIN_SRC
-    ?s ?p <property>
-    BIND(COUNT(<property>) AS ?count)
-   #+END_SRC
-   
-   One solution(?):
-   
-   #+BEGIN_SRC
-    ?s ?p <property>
-    BIND(COUNT(<property>) AS ?count)
-   #+END_SRC
-   
-** TODO clean up and rename and document dependency functions for easier code maintenance
-   'cause it's a mess
-* performance
+** TODO harmonize clean/opt/optimize-duplicates** DONE query functional-properties
+** DONE [bug]: functional properties incorrect for types in OPTIONALS and UNIONS
+* caching
+** TODO sometimes caching lookup is really slow -- gets stuck on something?
 * cache keys and annotations
 ** TODO get values from FILTER and BIND
-** DONE bug: VALUES + UNIONS gives wrong results for queried annotations
+** DONE [bug] VALUES + UNIONS gives wrong results for queried annotations
    same as below... need to *filter* queried results through rewrite-time values
 
-** DONE bug: VALUES + UNIONS gives wrong results at rewrite time
+** DONE [bug] VALUES + UNIONS gives wrong results at rewrite time
    CONSTRUCT {
      ?a ?b ?c
    }
@@ -270,7 +262,7 @@ WHERE {
    VALUES (?graph ?type) { (g:people foaf:Person) }
   }
  }
-** DONE bug: top-level annotation breaks optimizations
+** DONE [bug] top-level annotation breaks optimizations
     where { @access toplevel . GRAPH ?graph { @access inner. s p o ... } }
     
 ** DONE finish integrating
@@ -306,4 +298,5 @@ WHERE {
 * performance
 ** TODO correctly parameterize Docker template for Compiling
 * mu-cl-resources interoperability
+** TODO [bug] cached counts are tricky, with changing user/auth...
 ** TODO include Class in all queries

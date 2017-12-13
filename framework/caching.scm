@@ -38,10 +38,19 @@
         (call-if (*read-constraint*))
         (call-if (*write-constraint*))))
 
+;; this is risky and approximate (eg, 'delete' in PREFIX uri)
+;; (define query-body-start-index
+;;   (memoize
+;;    (lambda (q)
+;;      (irregex-match-start-index (irregex-search (irregex "SELECT|DELETE|INSERT" 'i) q)))))
+
 (define query-body-start-index
   (memoize
    (lambda (q)
-     (irregex-match-start-index (irregex-search (irregex "SELECT|DELETE|INSERT" 'i) q)))))
+     (irregex-match-end-index
+      (irregex-search
+       (irregex "[[:whitespace:]]*(?:(?:PREFIX|BASE) +[a-z]+: +<[^>]+>[[:whitespace:]]*)*" 's 'i)
+       q)))))
 
 (define query-prefix
   (memoize
@@ -54,9 +63,18 @@
      (and (string? q) (irregex-match-start-index (irregex-search (irregex "OFFSET|LIMIT|GROUP BY" 'i) q))))))
 
 (define (regex-escape-string str)
-  (string-translate* str '(("." . "\\.")
+  (string-translate* str '(("\\" . "\\\\")
+                           ("$" . "\\$")
+                           ("." . "\\.")
+                           ("|" . "\\|")
+                           ("+" . "\\|")
+                           ("(" . "\\(")
+                           (")" . "\\)")
+                           ("[" . "\\[")
+                           ("{" . "\\{")
                            ("*" . "\\*")
                            ("?" . "\\?")
+                           ("^" . "\\^")
                            )))
 
 (define uri-pat "<[^> ]+>")
@@ -150,7 +168,8 @@
         (let loop ((forms forms))
           (if (null? forms) (values #f #f)
               (let ((pattern (first (car forms))))
-                (let ((form-match (irregex-match pattern (substring query-string (query-body-start-index query-string)))))
+                (let* ((subst (substring query-string (query-body-start-index query-string)))
+                       (form-match (irregex-match pattern subst)))
                   (if form-match (values form-match (car forms)) 
                       (loop (cdr forms))))))))
       (values #f #f)))
@@ -199,7 +218,7 @@
                                                                (values #f #f))))
                     (let* ((queried-annotations (and aquery 
                                                      (handle-exceptions exn 
-                                                                        (begin (log-message "~%==Error Getting Queried Annotations==~%~A~%~%" aquery)
+                                                                        (begin (log-message "~%[~A]  ==Error Getting Queried Annotations==~%~A~%~%" (logkey) aquery)
                                                                                #f)
                                                                         (query-annotations aquery annotations-pairs))))
                            (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
@@ -223,7 +242,6 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; memoization
-
 ;; (define keys (memoize keys*))
 
 ;;(define renaming (memoize renaming*))
@@ -261,6 +279,6 @@
 
 (define get-dependencies (memoize-save get-dependencies))
 
-(define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
+;; (define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
 
 
