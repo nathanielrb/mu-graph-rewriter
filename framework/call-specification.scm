@@ -53,7 +53,7 @@
                      key (- ut2 ut1) (- st2 st1))
         result))))
 
-(define (log-headers) (debug-message "~%==Received Headers==~%~A~%" (*request-headers*)))
+(define (log-headers) (debug-message "~%[~A]  ==Received Headers==~%~A~%" (logkey) (*request-headers*)))
 
 (define (call-if C) (if (procedure? C) (C) C))
 
@@ -66,13 +66,13 @@
                                       (and url-decoded-body (alist-ref 'query url-decoded-body)))
                                     body)))))
         (log-headers)
-        (log-message "~%==Rewriting Query (~A)==~%~A~%" (logkey) query-string)
+        (log-message "~%[~A]  ==Rewriting Query==~%~A~%" (logkey) query-string)
 
         (let-values (((rewritten-query-string annotations annotations-query-string deltas-query-string bindings update?)
                       (handle-exceptions exn (rewriting-error exn)
                         (apply-constraints-with-form-cache query-string))))
         
-        (log-message "~%==Rewritten Query (~A)==~%~A~%" (logkey) rewritten-query-string)
+        (log-message "~%[~A]  ==Rewritten Query==~%~A~%" (logkey) rewritten-query-string)
 
         (handle-exceptions exn 
             (virtuoso-error exn)

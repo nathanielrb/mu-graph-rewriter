@@ -61,11 +61,6 @@
                   (project-bindings subselect-vars new-bindings)
                   bindings)))))))
 
-;; (define (fail-or-null rw new-bindings)
-;;   (cond ((nulll? rw) (values '() new-bindings))
-;;         ((fail? rw) (values '(#f) new-bindings))
-;;         (else #f)))
-
 (define-syntax fail-or-null
   (syntax-rules ()
     ((_ rw new-bindings body ...)
@@ -279,3 +274,10 @@
   ;; (let ((nss (append-unique (constraint-prefixes)
   ;;                           (query-namespaces)
   ;;                           (*namespaces*)))) ; memoize this
+
+(define (error-condition message block)
+  (abort
+   (make-property-condition
+    'exn
+    'message (format (conc message ":~%~A") (write-sparql block)))))
+

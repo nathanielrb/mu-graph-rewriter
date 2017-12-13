@@ -51,14 +51,15 @@
                 (let* ((C* (if (procedure? C) (C) C)))
                   (match triple
                          ((a (`^ b) c)
-                          (rewrite (list C*) bindings (apply-constraint-rules c b a)))
+                          (rewrite (list C*) bindings (apply-constraint-rules (list c b a))))
                          ((a ((or `! `? `* `+) b) c)
-                          (let-values (((rw new-bindings)
-                                        (rewrite (list C*) bindings (apply-constraint-rules a b c))))
+                          (let-values (((rw new-bindings) (rewrite (list C*) 
+                                                                   bindings 
+                                                                   (apply-constraint-rules (list a b c)))))
                             (values (replace-triple rw  `(,a ,b ,c) triple)
                                     new-bindings)))
                          ((a b c)
-                          (rewrite (list C*) bindings (apply-constraint-rules a b c)))))))
+                          (rewrite (list C*) bindings (apply-constraint-rules triple)))))))
 
 (define (apply-read-constraint triple bindings)
   (apply-constraint triple bindings (*read-constraint*)))

@@ -1,5 +1,13 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Bindings, Substitutions and Renamings
+(define constraint-where (make-parameter '()))
+(define matched-triple (make-parameter '()))
+(define constraint-substitutions (make-parameter '()))
+(define dependency-substitutions (make-parameter '()))
+(define dependencies  (make-parameter '()))
+(define renaming-dependencies (make-parameter '()))
+(define context-graph (make-parameter '()))
+
 (define (current-substitution var bindings)
   (let ((substitutions (get-binding/default 'constraint-substitutions bindings '())))
     (a->rdf:type (alist-ref var substitutions))))
@@ -49,77 +57,21 @@
             (member (car substitution) vars))
           substitutions))
 
-(define constraint-where (make-parameter '()))
-
-(define matched-triple (make-parameter '()))
-(define constraint-substitutions (make-parameter '()))
-(define dependency-substitutions (make-parameter '()))
-(define dependencies  (make-parameter '()))
-
-(define (apply-constraint-rules a b c) ; triple)
-  ;; (match triple
-  ;;   ((a b c)
-  `((,symbol? . ,rw/copy)
-    ((@QueryUnit) 
-     . ,(lambda (block bindings)
-          (rewrite (cdr block) bindings)))
-    (,annotation? . ,rw/copy)
-    ((@Query)
-     . ,(lambda (block bindings)
-          (parameterize ((constraint-where (list (get-child 'WHERE (cdr block)))))
-                        (rewrite (cdr block) bindings))))
-    ((CONSTRUCT) 
-     . ,(lambda (block bindings)
-          (let-values (((triples _) 
-                        (parameterize ((flatten-graphs? #t))
-                                      (expand-triples (cdr block)))))
-            (let-values (((rw new-bindings) (rewrite triples bindings)))
-              (let* ((constraints (filter (compose not fail?) rw))
-                     (constraints (if (equal? (length constraints) 1) ; what's this?
-                                      (car constraints)
-                                      `((UNION ,@constraints))))) ; and this?
-                (let ((graphs (find-triple-graphs (list a b c) constraints))) ; is this still used?
-                  (if (where?)
-                      (values `((*REWRITTEN* ,@constraints)) 
-                              (update-triple-graphs graphs (list a b c) 
-                                                    new-bindings))
-                      (values
-                       `((*REWRITTEN* (,a ,b ,c)))
-                       (fold-binding constraints;; `((OPTIONAL ,@constraints ))
-                                     (if (insert?) 'insert-constraints 'delete-constraints)
-                                     append-unique '() 
-                                     (update-triple-graphs graphs (list a b c) 
-                                                           new-bindings))))))))))
-    ((@Dataset) . ,rw/copy)
-    (,triple? 
-     . ,(lambda (triple bindings)
-          (match triple
-                 ((s p o)
-                  (let ((initial-substitutions (make-initial-substitutions a b c s p o  bindings)))
-                    (if initial-substitutions
-                        (parameterize ((matched-triple (list s p o))
-                                       (dependency-substitutions initial-substitutions))
-                                      (let-values (((rw new-bindings)
-                                                    (rewrite (constraint-where)
-                                                             (update-binding 'constraint-substitutions initial-substitutions bindings)
-                                                             rename-constraint-rules)))
-                                        (let ((cleaned-bindings #f)) ; (clean-constraint-bindings bindings new-bindings)))
-                                          (values (list (get-child-body 'WHERE rw)) ; (get-child-body 'WHERE rw)
-                                                  new-bindings))))
-                        (values '() bindings)))))))
-    (,list? . ,rw/remove)))
-
 (define unique-variable-substitutions
    (lambda (uvs)
              (map (lambda (var)
                     `(,var . ,(gensym var)))
                   uvs)))
 
-(define (make-initial-substitutions a b c s p o bindings)
+(define (triple-match? triple-a triple-b)
   (let ((check (lambda (u v) (or (sparql-variable? u) (sparql-variable? v) (rdf-equal? u v)))))
-    (and (check a s) (check b p) (check c o)
-	 `((,s . ,a) (,p . ,b) (,o . ,c) 
-           ,@(unique-variable-substitutions (*unique-variables*))))))
+    (null? (remove values (map check triple-a triple-b)))))
+
+(define (make-initial-substitutions triple-a triple-b)
+  ;; `((,s . ,a) (,p . ,b) (,o . ,c) 
+  ;;   ,@(unique-variable-substitutions (*unique-variables*))))
+  (append (map cons triple-a triple-b)
+          (unique-variable-substitutions (*unique-variables*))))
 
 (define (update-renamings new-bindings)
   (let ((substitutions (get-binding 'constraint-substitutions new-bindings)))
@@ -128,7 +80,27 @@
 	  (delete-binding 'constraint-substitutions new-bindings)
 	  substitutions)))
 
-;; rewrite in CPS
+(define (project-substitution-bindings vars bindings)
+  (update-binding 
+   'constraint-substitutions 
+   (project-substitutions vars (get-binding 'constraint-substitutions bindings))
+   bindings))
+
+(define (merge-substitution-bindings vars old-bindings new-bindings)
+  (update-binding 'constraint-substitutions
+		  (append
+		   (project-substitutions
+		    vars (get-binding 'constraint-substitutions new-bindings))
+		   (get-binding 'constraint-substitutions old-bindings))
+		  new-bindings))
+
+(define (substituted-subselect-vars vars bindings)
+  (filter sparql-variable?
+	  (map (lambda (var)
+		 (if (equal? var '*) var
+		     (current-substitution var bindings)))
+	       vars)))
+
 (define (new-substitutions exp bindings)
   (let-values (((renamed-exp substitutions)
 		(let loop ((exp exp) (renamed-exp '()) (substitutions '()))
@@ -138,16 +110,16 @@
 			(cond ((pair? var)
 			       (let-values (((sub subs) (loop var '() substitutions)))
 				 (loop (cdr exp) 
-				       (append renamed-exp (list sub)) ;; CPS
+				       (append renamed-exp (list sub))
 				       subs)))
 			      ((not (sparql-variable? var))
 			       (loop (cdr exp) 
-				     (append renamed-exp (list var)) ;; CPS
+				     (append renamed-exp (list var))
 				     substitutions))
 			      ((current-substitution var bindings)
 			       => (lambda (v) 
 				    (loop (cdr exp) 
-					  (append renamed-exp (list v)) ;; CPS
+					  (append renamed-exp (list v))
 					  substitutions)))
 			      ((renaming var bindings)
 			       => (lambda (v)
@@ -164,6 +136,52 @@
 				    (get-binding 'constraint-substitutions bindings))
 			    bindings))))
 
+(define (apply-constraint-rules constrained-triple)
+  `(((@QueryUnit) 
+     . ,(lambda (block bindings)
+          (rewrite (cdr block) bindings)))
+    (,annotation? . ,rw/copy)
+    ((@Query)
+     . ,(lambda (block bindings)
+          (parameterize ((constraint-where (list (get-child 'WHERE (cdr block)))))
+                        (rewrite (cdr block) bindings))))
+    ((CONSTRUCT) 
+     . ,(lambda (block bindings)
+          (let-values (((triples _) (parameterize ((flatten-graphs? #t)) (expand-triples (cdr block)))))
+            (if (= (length triples) 1)
+                (let-values (((rw new-bindings) (rewrite triples bindings)))
+                  (let* ((constraints (filter (compose not fail?) rw))
+                         (constraint (if (equal? (length constraints) 1)
+                                         (car constraints)
+                                         (error-condition "Invalid constraint rewriting (multiple constraints)" rw))))
+                    (if (where?)
+                        (values `((*REWRITTEN* ,@constraint)) 
+                                new-bindings)
+                        (values
+                         `((*REWRITTEN* ,constrained-triple))
+                         (fold-binding constraint
+                                       (if (insert?) 'insert-constraints 'delete-constraints)
+                                       append-unique '() 
+                                       new-bindings)))))
+                (error-condition "Invalid constraint: multiple triples in CONSTRUCT block" triples)))))
+    ((@Dataset) . ,rw/copy)
+    (,triple? 
+     . ,(lambda (triple bindings)
+          (if (triple-match? triple constrained-triple)
+              (let ((initial-substitutions (make-initial-substitutions triple constrained-triple)))
+                (parameterize ((matched-triple triple)
+                               (dependency-substitutions initial-substitutions))
+                              (let-values (((rw new-bindings)
+                                            (rewrite (constraint-where)
+                                                     (update-binding 'constraint-substitutions
+                                                                     initial-substitutions bindings)
+                                                     rename-constraint-rules)))
+                                (let ((cleaned-bindings #f))
+                                  (values (list (get-child-body 'WHERE rw))
+                                          new-bindings)))))
+              (values '() bindings))))
+    (,list? . ,rw/remove)))
+
 (define rename-constraint-triple
   (lambda (triple bindings)
     (let ((graph (context-graph)))
@@ -173,31 +191,6 @@
              `((UNION (,(cdr renamed-quad)) ((GRAPH ,(*temp-graph*) ,(cdr renamed-quad)))))
              (list (cdr renamed-quad)))
          new-bindings)))))
-
-(define (project-substitution-bindings vars bindings)
-  (update-binding 
-   'constraint-substitutions 
-   (project-substitutions vars (get-binding 'constraint-substitutions bindings))
-   bindings))
-
-(define (merge-substitution-bindings vars old-bindings new-bindings)
-  (update-binding 'constraint-substitutions
-		  (append
-		   (project-substitutions
-		    vars (get-binding 'constraint-substitutions new-bindings))
-		   (get-binding 'constraint-substitutions old-bindings))
-		  new-bindings))
-
-;; what about Expressions??
-(define (substituted-subselect-vars vars bindings)
-  (filter sparql-variable?
-	  (map (lambda (var)
-		 (if (equal? var '*) var
-		     (current-substitution var bindings)))
-	       vars)))
-
-(define renaming-dependencies (make-parameter '()))
-(define context-graph (make-parameter '()))
 
 (define rename-constraint-rules
   `((,symbol? . ,rw/copy)
@@ -215,10 +208,10 @@
 	    ((`@SubSelect (label . vars) . rest)
              (let ((subselect-vars (extract-subselect-vars vars)))
              (let-values (((rw new-bindings)
-			   (rewrite (get-child-body 'WHERE rest) (project-substitution-bindings subselect-vars bindings))))
+			   (rewrite (get-child-body 'WHERE rest)
+                                    (project-substitution-bindings subselect-vars bindings))))
                (let ((merged-bindings (merge-substitution-bindings subselect-vars bindings new-bindings)))
-               (if (nulll? rw)
-                   (values '() merged-bindings)
+                 (fail-or-null rw merged-bindings
                    (values `((@SubSelect 
 			      (,label ,@(substituted-subselect-vars vars merged-bindings))
 			      ,@(replace-child-body 'WHERE rw rest)))
@@ -242,13 +235,11 @@
           (match block
             ((`GRAPH graph . rest)
              (parameterize ((context-graph graph))
-               (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-                 (values
-                  (if (or (nulll? (cdr rw)) 
-                          (fail? rw)) '() ; hacky!
-                          `((GRAPH ,(substitution-or-value graph new-bindings)
-                                   ,@(cdr rw))))
-                  new-bindings)))))))
+               (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
+                 (fail-or-null rw new-bindings
+                   (values `((GRAPH ,(substitution-or-value graph new-bindings)
+                                    ,@rw))
+                           new-bindings))))))))
     (,triple? . ,rename-constraint-triple)
     ((VALUES)
      . ,(lambda (block bindings)
@@ -257,25 +248,20 @@
 	      ((`VALUES vars . vals)
                (let ((vals (simplify-values vars vals bindings)))
                  (if (null? vals) (values '() new-bindings)
-                     (values
-                      (list vals)
-                      new-bindings))))))))
+                     (values (list vals)
+                             new-bindings))))))))
     ((FILTER) 
-     . ,(lambda (block bindings) ;; what about new-bindings (new subs)?
+     . ,(lambda (block bindings)
 	  (let-values (((rw new-bindings) (new-substitutions block bindings)))
 	    (validate-filter rw new-bindings))))
     ((BIND) 
-     . ,(lambda (block bindings) ;; what about new-bindings (new subs)?
+     . ,(lambda (block bindings)
 	  (let-values (((rw new-bindings) (new-substitutions block bindings)))
 	    (match rw
 	      ((`BIND (`AS exp var))
 	       (if (sparql-variable? var)
 		   (values (list rw) new-bindings)
-		   (abort
-		    (make-property-condition
-		     'exn
-		     'message (format "Invalid constrained BIND form: '~A'" 
-				      (write-sparql rw))))))))))
+                   (error-condition "Invalid constrained BIND form" rw)))))))
     (,quads-block? . ,rw/quads)
     (,list? . ,rw/list)))
 
