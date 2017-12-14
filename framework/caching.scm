@@ -48,7 +48,7 @@
 (define *query-forms* (make-hash-table))
 
 (define (query-cache-table query)
-  (list (query-prefix query)
+  (list (query-prefix query) ; this is slow!
         (call-if (*read-constraint*))
         (call-if (*write-constraint*))))
 
@@ -93,7 +93,7 @@
 
 (define uri-pat "<[^> ]+>")
 (define str-pat "\\\"[^\"]+\\\"")
-(define form-regex (format "(~A)|(~A)" uri-pat str-pat))
+(define form-regex (irregex (format "(~A)|(~A)" uri-pat str-pat)))
 
 (define (make-query-pattern/form-fold-form pattern query from-index match substr key* key)
   (conc pattern
@@ -107,10 +107,10 @@
         (if key*
             (conc "\\k<" key ">")
             (format "(?<~A>~A)" key 
-                    (cond ((irregex-match uri-pat substr) uri-pat)
-                          ((irregex-match str-pat substr) str-pat))))))
+                    (cond ((irregex-match (irregex uri-pat) substr) uri-pat)
+                          ((irregex-match (irregex str-pat) substr) str-pat))))))
 
-(define (make-query-pattern/form-fold query form?)
+(define (make-query-pattern/form-fold query form?) ; this is also slow!
   (lambda (from-index form-match seed)
     (match seed
       ((pattern bindings end-index n)
@@ -138,7 +138,8 @@
                        (if form? (substring query end-index)
                            (regex-escape-string (substring query end-index))))
                  bindings)
-          (values query '())))))
+          (values (if form? query (regex-escape-string query))
+                  '())))))
 
 (define (make-query-form query bindings)
   (make-query-pattern/form query #t bindings))
@@ -155,15 +156,16 @@
            (annotations-form (make-form annotations-query-string))
            (annotations-form-prefix (query-prefix annotations-query-string))
            (deltas-form (make-form deltas-query-string))
-           (deltas-form-prefix (query-prefix deltas-query-string))
+           (deltas-form-prefix (query-prefix deltas-query-string))  
            (table (query-cache-table query-string)))
       (hash-table-set! *query-forms*
                        table
-                       (cons (list pattern form form-prefix
-                                   annotations annotations-form annotations-form-prefix
-                                   deltas-form deltas-form-prefix
-                                   bindings update?)
-                             (hash-table-ref/default *query-forms* table '()))))))
+                       (cons
+                        (list (irregex pattern) form form-prefix
+                              annotations annotations-form annotations-form-prefix
+                              deltas-form deltas-form-prefix
+                              bindings update?)
+                        (hash-table-ref/default *query-forms* table '()))))))
 
 (define (populate-cached-query-form pattern form match query-string)
   (let ((matches (map (lambda (name-pair)
@@ -176,17 +178,17 @@
 
 (define (query-form-lookup query-string read-constraint write-constraint)
   (if (*cache-forms?*)
-      (let ((forms (hash-table-ref/default *query-forms* 
-                                           (query-cache-table query-string)
-                                           '())))
+      (let ((forms (timed "table" (hash-table-ref/default *query-forms* 
+                                                          (query-cache-table query-string)
+                                                          '()))))
         (let loop ((forms forms))
           (if (null? forms) (values #f #f)
               (let ((pattern (first (car forms))))
-                (let* ((subst (timed-limit 4 "subst" query-string
+                (let* ((subst (timed "subst" 
                                            (substring query-string (query-body-start-index query-string))))
-                       (form-match (timed-limit 4 "match" (format "matching:~%~A~%with:~%~A" pattern subst)
-                                                (irregex-match pattern subst))))
-                  (if form-match (values form-match (car forms)) 
+                       (form-match (timed "match" (irregex-match pattern subst))))
+                  (if form-match
+                      (values form-match (car forms)) 
                       (loop (cdr forms))))))))
       (values #f #f)))
 
@@ -242,12 +244,13 @@
                            (annotations-query-string (and aquery (write-sparql aquery)))
                            (deltas-query-string (and deltas-query (write-sparql deltas-query))))
                       (when (*cache-forms?*)
-                            (query-form-save! query-string 
-                                              rewritten-query-string
-                                              annotations
-                                              annotations-query-string
-                                              deltas-query-string
-                                              bindings update?))
+                            (timed "Save Cache Form"
+                                   (query-form-save! query-string 
+                                                     rewritten-query-string
+                                                     annotations
+                                                     annotations-query-string
+                                                     deltas-query-string
+                                                     bindings update?)))
                       (values rewritten-query-string 
                               annotations
                               annotations-query-string
