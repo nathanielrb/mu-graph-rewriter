@@ -63,6 +63,17 @@
 
 (define-syntax fail-or-null
   (syntax-rules ()
+    ((_ rw new-bindings)
+     (fail-or-null rw new-bindings rw new-bindings))
+    ((_ rw new-bindings body)
+     (fail-or-null rw new-bindings body new-bindings))
+    ((_ rw new-bindings body bindings-exp)
+     (cond ((nulll? rw) (values '() new-bindings))
+           ((fail? rw) (values '(#f) new-bindings))
+           (else (values body bindings-exp))))))
+
+(define-syntax fail-or-null/low ; is there a way to integrate this with above?
+  (syntax-rules ()
     ((_ rw new-bindings body ...)
      (cond ((nulll? rw) (values '() new-bindings))
            ((fail? rw) (values '(#f) new-bindings))
@@ -71,13 +82,12 @@
 (define (rw/list block bindings)
   (let-values (((rw new-bindings) (rewrite block bindings)))
     (fail-or-null rw new-bindings
-                  (values (list (filter pair? rw)) new-bindings))))
+      (list (filter pair? rw)))))
 
 (define (rw/quads block bindings)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-    (cond ((nulll? rw) (values '() new-bindings))
-          ((fail? rw) (values (list #f) new-bindings))
-	  (else (values `((,(car block) ,@(filter pair? rw))) new-bindings)))))
+    (fail-or-null rw new-bindings
+      `((,(car block) ,@(filter pair? rw))))))
 
 ;; this is still a little incorrect (?) wrt failure and empty ()
 (define (rw/union block bindings)

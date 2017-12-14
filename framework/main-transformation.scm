@@ -12,15 +12,13 @@
       (let-values (((q2 b2) (rewrite q1 b1 triples-rules)))
         (let-values (((q3 b3) (parameterize ((level-quads (new-level-quads q2)))
                                 (rewrite q2 b2))))
-          (fail-or-null q3 b3
-                        (values (filter pair? q3) b3)))))))
+          (fail-or-null q3 b3 (filter pair? q3)))))))
 
 (define (quads-block-rule block bindings)
   (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
     (fail-or-null rw new-bindings
-                  (values `((,(rewrite-block-name (car block))
-                             ,@(optimize-duplicates rw)))
-                          new-bindings))))
+                  `((,(rewrite-block-name (car block))
+                     ,@(optimize-duplicates rw))))))
 
 (define triples-rules
   `((,triple? 
@@ -142,9 +140,8 @@
 	  (parameterize ((where? #t))
             (let-values (((rw new-bindings) (rewrite-quads-block (cdr block) bindings)))
               (fail-or-null rw new-bindings
-                  (values `((,(rewrite-block-name (car block)) 
-                             ,@(optimize-duplicates rw)))
-                          new-bindings))))))
+                `((,(rewrite-block-name (car block)) 
+                   ,@(optimize-duplicates rw))))))))
     (,select?
      . ,(lambda (block bindings)
           (if (equal? block '(SELECT *))
@@ -163,7 +160,7 @@
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite-quads-block block bindings)))
             (fail-or-null rw new-bindings
-                (values (list (filter pair? rw)) new-bindings)))))
+              (list (filter pair? rw))))))
     (,symbol? . ,rw/copy)))
 
 (define (apply-constraints query)

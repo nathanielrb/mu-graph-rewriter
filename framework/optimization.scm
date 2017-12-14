@@ -98,14 +98,13 @@
             (else (cons `(*store* . ,merged-stores)
                         (proc quads)))))))
   
-(define (intersect-stores rw bindings proc)
+(define (intersect-stores rw proc)
   (let ((stores (map cdr (filter pair? (map car (filter pair? (map (cut filter store? <>) rw))))))
         (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))))
     (if (= (length new-blocks) 0)
-        (values (list #f) bindings)
-        (values (cons `(*store* . ,(apply intersect-alists stores))
-                      (proc new-blocks))
-                bindings))))
+        (list #f)
+        (cons `(*store* . ,(apply intersect-alists stores))
+              (proc new-blocks)))))
 
 (define (update-store key val rw)
   (alist-update '*store* 
@@ -196,18 +195,18 @@
      (if (store)
         (let-values (((rw new-bindings) (rw/list (filter quads? block) bindings)))
           ;; (log-message "ol 1 (~A): ~A ~%~%" key rw)
-          (fail-or-null rw new-bindings
-                        (if (equal? (map (cut filter quads? <>) rw)
-                                    (list (filter quads? block)))
-                            (values rw new-bindings)
-                            (let ((rw (append-stores (join rw) values)))
-                              (parameterize ((store (collect-fprops rw))
-                                             (this-level-quads saved-tlq)
-                                             (last-level-quads saved-llq))
+          (fail-or-null/low rw new-bindings
+            (if (equal? (map (cut filter quads? <>) rw)
+                        (list (filter quads? block)))
+                (values rw new-bindings)
+                (let ((rw (append-stores (join rw) values)))
+                  (parameterize ((store (collect-fprops rw))
+                                 (this-level-quads saved-tlq)
+                                 (last-level-quads saved-llq))
                                 (let-values (((rw2 nb2) (rewrite (list rw) new-bindings)))
                                   (fail-or-null rw2 nb2
-                                                ;; (log-message "ol 2 (~A): ~A ~% . ~%~A~%~%" key rw2 (append-stores (join rw2) clean))
-                                                (values (list (append-stores (join rw2) clean)) nb2))))))))
+                                    ;; (log-message "ol 2 (~A): ~A ~% . ~%~A~%~%" key rw2 (append-stores (join rw2) clean))
+                                    (list (append-stores (join rw2) clean)))))))))
         (values (list #f) bindings))) ) )
 
 (define optimizations-graph (make-parameter #f))
@@ -268,11 +267,11 @@
                                                       'functional-property-substitutions merge-alists
                                                       '() bindings)))))
             (fail-or-null rw new-bindings
-                          (intersect-stores rw new-bindings
+                          (intersect-stores rw
                                             (lambda (new-blocks)
                                               (if (= (length new-blocks) 1)
                                                   (car new-blocks)
-                                                  `((UNION ,@new-blocks))))))))) 
+                                                  `((UNION ,@new-blocks)))))))))
     (,quads-block? 
      . ,(lambda (block bindings)
           (match block
@@ -281,8 +280,7 @@
             (else
              (let-values (((rw new-bindings) (optimize-list (cdr block) bindings)))
                (fail-or-null rw new-bindings
-                             (values `((,(car block) ,@(delete-duplicates (filter quads? (join rw)))))
-                                     new-bindings)))))))
+                             `((,(car block) ,@(delete-duplicates (filter quads? (join rw)))))))))))
     (,triple? 
      . ,(lambda (triple bindings)
           (if (member (cons (optimizations-graph) triple) (last-level-quads))

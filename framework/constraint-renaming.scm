@@ -63,13 +63,12 @@
                     `(,var . ,(gensym var)))
                   uvs)))
 
+;; could we (re-)use match-triple here?
 (define (triple-match? triple-a triple-b)
   (let ((check (lambda (u v) (or (sparql-variable? u) (sparql-variable? v) (rdf-equal? u v)))))
     (null? (remove values (map check triple-a triple-b)))))
 
 (define (make-initial-substitutions triple-a triple-b)
-  ;; `((,s . ,a) (,p . ,b) (,o . ,c) 
-  ;;   ,@(unique-variable-substitutions (*unique-variables*))))
   (append (map cons triple-a triple-b)
           (unique-variable-substitutions (*unique-variables*))))
 
@@ -212,10 +211,9 @@
                                     (project-substitution-bindings subselect-vars bindings))))
                (let ((merged-bindings (merge-substitution-bindings subselect-vars bindings new-bindings)))
                  (fail-or-null rw merged-bindings
-                   (values `((@SubSelect 
-			      (,label ,@(substituted-subselect-vars vars merged-bindings))
-			      ,@(replace-child-body 'WHERE rw rest)))
-                           merged-bindings)))))))))
+                   `((@SubSelect 
+                      (,label ,@(substituted-subselect-vars vars merged-bindings))
+                      ,@(replace-child-body 'WHERE rw rest)))))))))))
     ((WHERE)
      . ,(lambda (block bindings)
 	  (parameterize ((renaming-dependencies (constraint-dependencies block bindings)))
@@ -237,9 +235,8 @@
              (parameterize ((context-graph graph))
                (let-values (((rw new-bindings) (rewrite (cddr block) bindings)))
                  (fail-or-null rw new-bindings
-                   (values `((GRAPH ,(substitution-or-value graph new-bindings)
-                                    ,@rw))
-                           new-bindings))))))))
+                   `((GRAPH ,(substitution-or-value graph new-bindings)
+                                    ,@rw)))))))))
     (,triple? . ,rename-constraint-triple)
     ((VALUES)
      . ,(lambda (block bindings)
