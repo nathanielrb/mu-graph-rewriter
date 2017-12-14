@@ -22,6 +22,20 @@
                (debug-message "~%[~A] ~A Time: ~Ams / ~Ams / ~Ams~%" (logkey) label (- ut2 ut1) (- st2 st1) (- t2 t1))
                result))))))))
 
+(define-syntax timed-limit
+  (syntax-rules ()
+    ((_ limit label expression body ...)
+     (let-values (((ut1 st1) (cpu-time)))
+       (let ((t1 (current-milliseconds)))
+         (let ((result body ...))
+           (let-values (((ut2 st2) (cpu-time)))
+             (let ((t2 (current-milliseconds)))
+               (when (> (- ut2 ut1) limit)
+                     (debug-message "~%[~A] Exceeded time limit for ~A: ~Ams / ~Ams / ~Ams~%~A~%~%"
+                                    (logkey) label (- ut2 ut1) (- st2 st1) (- t2 t1)
+                                    expression))
+               result))))))))
+
 
 (define *debug?* (make-parameter #t))
 
@@ -168,8 +182,10 @@
         (let loop ((forms forms))
           (if (null? forms) (values #f #f)
               (let ((pattern (first (car forms))))
-                (let* ((subst (substring query-string (query-body-start-index query-string)))
-                       (form-match (irregex-match pattern subst)))
+                (let* ((subst (timed-limit 4 "subst" query-string
+                                           (substring query-string (query-body-start-index query-string))))
+                       (form-match (timed-limit 4 "match" (format "matching:~%~A~%with:~%~A" pattern subst)
+                                                (irregex-match pattern subst))))
                   (if form-match (values form-match (car forms)) 
                       (loop (cdr forms))))))))
       (values #f #f)))
@@ -188,7 +204,7 @@
                             ((pattern form form-prefix 
                                       annotations annotations-form annotations-prefix
                                       deltas-form deltas-prefix bindings update?)
-                             (debug-message "~%[~A] Using cached form~%" (logkey))
+                             (debug-message "~%[~A] Using cached form~%" (logkey)) ;; + logkey of cached form; otherwise log rw
                              (values (conc form-prefix (populate-cached-query-form pattern form form-match query-string))
                                      annotations
                                      (and annotations-form 
