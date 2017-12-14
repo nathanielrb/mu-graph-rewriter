@@ -7,42 +7,43 @@
 
 (require-extension sort-combinators)
 
-(define (load-file file)
-  (if (feature? 'docker)
-      (load (make-pathname "/app" file))
-      (load (make-pathname "./" file))))
+;; (define-syntax include-file
+;;   (syntax-rules ()
+;;     ((_ path) (include path))))
 
-(load-file "framework/settings.scm")
 
-(load-file "framework/rw.scm") ; factor up to s-sparql
 
-(load-file "framework/sparql-logic.scm")
+(include "framework/settings.scm")
 
-(load-file "framework/annotations.scm")  
+(include "framework/rw.scm") ; factor up to s-sparql
 
-(load-file "framework/utility-transformations.scm")
+(include "framework/sparql-logic.scm")
 
-(load-file "framework/temporary-graph.scm")
+(include "framework/annotations.scm")  
 
-(load-file "framework/optimization.scm")
+(include "framework/utility-transformations.scm")
 
-(load-file "framework/main-transformation.scm")
+(include "framework/temporary-graph.scm")
 
-(load-file "framework/constraint-renaming.scm")
+(include "framework/optimization.scm")
 
-(load-file "framework/constraint-renaming-dependencies.scm")
+(include "framework/main-transformation.scm")
 
-(load-file "framework/constraint.scm")
+(include "framework/constraint-renaming.scm")
 
-(load-file "framework/instantiation.scm")
+(include "framework/constraint-renaming-dependencies.scm")
 
-(load-file "framework/deltas.scm")
+(include "framework/constraint.scm")
 
-(load-file "framework/caching.scm")
+(include "framework/instantiation.scm")
 
-(load-file "framework/call-specification.scm")
+(include "framework/deltas.scm")
 
-(load-file "framework/sandbox.scm")
+(include "framework/caching.scm")
+
+(include "framework/call-specification.scm")
+
+(include "framework/sandbox.scm")
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Load
