@@ -125,11 +125,14 @@
     (set!
       *write-constraint*
       (make-parameter
-       write-constraint-string))
+       (parse-constraint
+        write-constraint-string)))
 
     (set!
       *read-constraint*
-      (make-parameter read-constraint-string))
+      (make-parameter 
+       (parse-constraint
+        read-constraint-string)))
 
     (set! *functional-properties* (make-parameter fprops))
     (set! *queried-properties* (make-parameter qprops))
@@ -198,7 +201,6 @@
 
 (define-rest-call 'DELETE '("clear")
   (lambda  (_)
-    (parameterize ((*replace-session-id?* #f))
       (let ((graphs 
              (delete-duplicates
               (append 
@@ -213,7 +215,7 @@
               (GRAPH ?g (?s ?p ?o)))
              (WHERE
               (GRAPH ?g (?s ?p ?o))
-              (VALUES ?g ,@graphs))))))))
+              (VALUES ?g ,@graphs)))))))
           
        ;; (conc "DELETE { "
        ;;       " GRAPH ?g { ?s ?p ?o } "
@@ -243,7 +245,7 @@
         (format #t "(*unique-variables* '~A)~%~%" unique-vars)
         (format #t "(*query-functional-properties?* ~A)~%~%" query-fprops?)
         (format #t "(*queried-properties* '~A)~%~%" qprops)
-        (format #t "(headers-replacements '((\"<SESSION>\" mu-session-id uri)))~%~%")
+        (format #t "(*headers-replacements* '((\"<SESSION>\" mu-session-id uri)))~%~%")
 
         (format #t (conc "(define-constraint  ~%"
                          (if write-constraint-string
@@ -289,9 +291,8 @@
 (define-rest-call 'GET '("plugin" name)
   (rest-call (name)
     (load-plugin name)
-    (parameterize ((*replace-session-id?* #f)
-                   (*write-annotations?* #t)
-                   (headers-replacements '()))
+    (parameterize ((*write-annotations?* #t)
+                   (*headers-replacements* '()))
       `((readConstraint . ,(write-sparql (call-if (*read-constraint*))))
         (writeConstraint . ,(write-sparql (call-if (*write-constraint*))))
         (functionalProperties . ,(list->vector (map ->string (*functional-properties*))))
