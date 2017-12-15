@@ -25,8 +25,6 @@
   (print-call-chain (current-error-port))
   (abort exn))
 
-
-
 (define (proxy-query key rewritten-query-string endpoint)
   (handle-exceptions exn
                      (virtuoso-error exn)
@@ -53,7 +51,8 @@
                      key (- ut2 ut1) (- st2 st1))
         result))))
 
-(define (log-headers) (debug-message "~%[~A]  ==Received Headers==~%~A~%" (logkey) (*request-headers*)))
+(define (log-headers)
+  (debug-message "~%[~A]  ==Received Headers==~%~A~%" (logkey) (*request-headers*)))
 
 (define (call-if C) (if (procedure? C) (C) C))
 
@@ -72,8 +71,6 @@
                       (handle-exceptions exn (rewriting-error exn)
                         (apply-constraints-with-form-cache query-string))))
         
-        (log-message "~%[~A]  ==Rewritten Query==~%~A~%" (logkey) rewritten-query-string)
-
         (handle-exceptions exn 
             (virtuoso-error exn)
 
