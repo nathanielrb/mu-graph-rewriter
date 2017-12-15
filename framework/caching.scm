@@ -1,5 +1,16 @@
-(use srfi-69 srfi-18)
+(use srfi-69 srfi-18 abnf lexgen)
 (require-extension mailbox)
+
+(define *debug?* (make-parameter #t))
+
+(define (debug-message str #!rest args)
+  (when (*debug?*)
+    (apply format (current-error-port) str args)))
+
+(define *cache-forms?* (make-parameter #t))
+
+(define *query-forms* (make-hash-table))
+
 
 (define-syntax timed-let
   (syntax-rules ()
@@ -37,87 +48,40 @@
                                     expression))
                result))))))))
 
-
-(define *debug?* (make-parameter #t))
-
-(define (debug-message str #!rest args)
-  (when (*debug?*)
-    (apply format (current-error-port) str args)))
-
-(define *cache-forms?* (make-parameter #t))
-
-(define *query-forms* (make-hash-table))
-
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; ONE
-;; this is risky and approximate (eg, 'delete' in PREFIX uri)
-(define table-regex (irregex "(?:SELECT|DELETE|INSERT|ASK)[[:whitespace:]]" 'i))
-
-(define query-body-start-index
-  (memoize
-   (lambda (q)
-     (irregex-match-start-index (irregex-search table-regex q)))))
-
-;; (define query-body-start-index
-;;   (memoize
-;;    (lambda (q)
-;;      (irregex-match-end-index
-;;       (irregex-search
-;;        (irregex "[[:whitespace:]]*(?:(?:PREFIX|BASE) +[a-z]+: +<[^>]+>[[:whitespace:]]*)*" 's 'i)
-;;        q)))))
-
-(define query-prefix
-  (memoize
-   (lambda (q)
-     (timed "prefix" (and (string? q) (substring q 0 (query-body-start-index q)))))))
-
-(define query-body-end-index
-  (memoize
-   (lambda (q)
-     (and (string? q) (irregex-match-start-index (irregex-search (irregex "OFFSET|LIMIT|GROUP BY" 'i) q))))))
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; TWO
-
-(use s-sparql abnf lexgen)
-
+;; Quick Splitting of Prologue/Body by Parsing
 (define ws*
   (repetition
    (alternatives char-list/wsp char-list/crlf char-list/lf char-list/cr)))
 
 (define PrefixDecl*
   (concatenation
-   ws*
-   (char-list/:s "PREFIX") ws*
-   PNAME_NS ws* IRIREF ws*))
+   ws* (char-list/:s "PREFIX") ws* PNAME_NS ws* IRIREF ws*))
 
 (define BaseDecl*
   (concatenation
    ws* (char-list/:s "BASE") ws* IRIREF ws*))
 
 (define Prologue*
-  (concatenation
-   ;; (drop-consumed 
-   ;;  (alternatives char-list/crlf char-list/lf char-list/cr))
   (repetition
-   (alternatives BaseDecl* PrefixDecl*))))
+   (alternatives BaseDecl* PrefixDecl*)))
 
 (define split-query-prefix
   (memoize
    (lambda (q)
-     (match-let (((prefix body) (map list->string (lex Prologue* error q))))
+     (match-let (((prefix body) 
+                  (map list->string
+                       (lex Prologue* error q))))
        (values prefix body)))))
 
-(define make-query-prefix 
+(define get-query-prefix 
   (memoize
    (lambda (q)
      (timed "prefix"
      (let-values (((prefix body) (split-query-prefix q)))
        prefix)))))
 
-(define make-query-body 
+(define get-query-body 
   (memoize
    (lambda (q)
      (let-values (((prefix body) (split-query-prefix q)))
@@ -157,67 +121,60 @@
         (regex-escape-string (substring query from-index (irregex-match-start-index match)))
         (if key*
             (conc "\\k<" key ">")
-            ;; (format "(?<~A>~A)" key 
-                    ;; (cond ((irregex-match uri-regex substr) uri-pat)
-                    ;;       ((irregex-match str-regex substr) str-pat))))))
             (conc "(?<" key ">"
                   (let ((c (substring substr 0 1)))
                     (cond ((equal? c "<") uri-pat)
                           ((equal? c "\"") str-pat)))
                   ")"))))                 
 
-(define (make-query-pattern/form-fold query-body form?) ; this is also slow!
+(define (make-query-pattern/form-fold query-body form?)
   (lambda (from-index form-match seed)
     (match seed
       ((pattern bindings end-index n)
        (let* ((substr (irregex-match-substring form-match))
               (key* (cdr-when (assoc substr bindings)))
               (key (or key*
-                       (and (not form?) (conc "uri" (number->string n)))
-                       substr)))
-         (list (if form?
-                   (make-query-pattern/form-fold-form pattern query-body from-index form-match substr key* key)
-                   (make-query-pattern/form-fold-pattern pattern query-body from-index form-match substr key* key))
+                       (if form? substr
+                           (conc "uri" (number->string n))))))
+         (list ((if form?
+                    make-query-pattern/form-fold-form
+                    make-query-pattern/form-fold-pattern)
+                pattern query-body from-index form-match substr key* key)
                (if (or key* form?)
                    bindings 
                    (alist-update substr key bindings))
                (irregex-match-end-index form-match)
                (+ n 1)))))))
 
-;; this should also normalize whitespace
-(define (make-query-pattern/form query-body #!optional form? (bindings '()))
-  (match (irregex-fold form-regex
-                       (make-query-pattern/form-fold query-body form?)
-                       `("" ,bindings #f 0) 
-                       query-body)
-                       ;;query #f
-                       ;;(query-body-start-index query))
-                      
-    ((pattern bindings end-index _)
-     (if end-index
-         (values (conc pattern
-                       (if form?
-                           (substring query-body end-index)
-                           (regex-escape-string (substring query-body end-index))))
-                 bindings)
+(define (make-query-pattern/form query #!optional form? (bindings '()))
+  (let ((query-body (get-query-body query)))
+    (match (irregex-fold form-regex
+                         (make-query-pattern/form-fold query-body form?)
+                         `("" ,bindings #f 0) 
+                         query-body)
+     ((pattern bindings end-index _)
+      (if end-index
+          (values (conc pattern
+                        (if form?
+                            (substring query-body end-index)
+                            (regex-escape-string (substring query-body end-index))))
+                  bindings)
           (values (if form? query-body (regex-escape-string query-body))
-                  '())))))
+                  '()))))))
 
-(define (make-query-form query-body bindings)
-  (make-query-pattern/form query-body #t bindings))
+(define (make-query-form query bindings)
+  (make-query-pattern/form query #t bindings))
 
 (define make-query-pattern
   (memoize 
-   (lambda (query-body)
-     (make-query-pattern/form query-body))))
+   (lambda (query)
+     (make-query-pattern/form query))))
 
 (define (query-cache-key query)
-  (list (make-query-prefix query) ; this is slow!
-        (make-query-pattern (make-query-body query))))
-        ;; (call-if (*read-constraint*))
-        ;; (call-if (*write-constraint*))))
-
-
+  (list (get-query-prefix query)
+        (make-query-pattern query)  
+        (call-if (*read-constraint*))
+        (call-if (*write-constraint*))))
 
 (define *cache-mailbox* (make-mailbox))
 
@@ -227,12 +184,9 @@
       (let loop ()
         (let ((thunk (mailbox-receive! *cache-mailbox*)))
           (handle-exceptions exn
-                             (begin   (debug-message "==ERROR==~%~A~%" exn)
-                                      (print-error-message exn (current-error-port))
-                                      (debug-message "~%~A~%" ((condition-property-accessor 'exn 'message) exn)))
-                                      
-                             (thunk)
-                             (debug-message "[~A] Saved cache form" (logkey))))
+                             (debug-message "[~A] Error saving cache forms%" (logkey))
+           (thunk)
+           (debug-message "[~A] Saved cache form" (logkey))))
         (loop) ) ) ))
 
 (thread-start! cache-save-daemon)
@@ -241,15 +195,15 @@
   (mailbox-send! *cache-mailbox* thunk))
 
 (define (query-form-save! query-string rewritten-query annotations annotations-query-string deltas-query-string bindings update? key)
-  (let-values (((pattern form-bindings) (make-query-pattern (make-query-body query-string))))
-    (let* ((prefix (make-query-prefix query-string))  
+  (let-values (((pattern form-bindings) (make-query-pattern query-string)))
+    (let* ((prefix (get-query-prefix query-string))  
            (make-form (lambda (q) (and q (timed "make-form" (make-query-form q form-bindings)))))
-           (form (make-form (make-query-body rewritten-query)))
-           (form-prefix (make-query-prefix rewritten-query))
-           (annotations-form (and annotations-query-string (make-form (make-query-body annotations-query-string))))
-           (annotations-form-prefix (and annotations-query-string (make-query-prefix annotations-query-string)))
-           (deltas-form (and deltas-query-string (make-form (make-query-body deltas-query-string))))
-           (deltas-form-prefix (and deltas-query-string (make-query-prefix deltas-query-string))))
+           (form (make-form rewritten-query))
+           (form-prefix (get-query-prefix rewritten-query))
+           (annotations-form (and annotations-query-string (make-form annotations-query-string)))
+           (annotations-form-prefix (and annotations-query-string (get-query-prefix annotations-query-string)))
+           (deltas-form (and deltas-query-string (make-form deltas-query-string)))
+           (deltas-form-prefix (and deltas-query-string (get-query-prefix deltas-query-string))))
 
       (hash-table-set! *query-forms*
                        (query-cache-key query-string)
@@ -270,12 +224,12 @@
 (define (query-form-lookup query-string)
   (if (*cache-forms?*)
       (let ((cached-form (timed "tableget" (hash-table-ref/default *query-forms* (query-cache-key query-string) #f))))
+        ;; (print "==looked and got==\n" (and cached-form (length cached-form)
+        ;;                                    (irregex-match (first cached-form) (get-query-body query-string))))
         (if cached-form
             (let ((pattern-regex (first cached-form)))
-              (values (timed "match" (irregex-match pattern-regex (make-query-body query-string)))
-                      ;;(substring query-string  (query-body-start-index query-string))))
-                                                                             
-                       cached-form))
+              (values (timed "match" (irregex-match pattern-regex (get-query-body query-string)))
+                      cached-form))
             (values #f #f)))
       (values #f #f)))
 
@@ -284,32 +238,27 @@
                                            (read-constraint (call-if (*read-constraint*)))
                                            (write-constraint (call-if (*write-constraint*))))
   (timed-let "Cache Lookup"
-    (let-values (((form-match form-list) (query-form-lookup query-string))) ; read-constraint write-constraint)))
+    (let-values (((form-match form-list) (query-form-lookup query-string)))
+      ;; (print "==looked up and got==\n" form-match "\n" form-list)
       (if form-match
-          (timed-let "Populate Cache Form"
-            (let-values (((rewritten-query-string annotations annotations-query-string 
-                                                  deltas-query-string bindings update?)
-                          (match form-list
-                            ((pattern form form-prefix 
-                                      annotations annotations-form annotations-prefix
-                                      deltas-form deltas-prefix bindings update? cached-logkey)
-                             (log-message "~%[~A] Using cached form of ~A~%" (logkey) cached-logkey) ;; + logkey of cached form; otherwise log rw
-                             (values (conc form-prefix (populate-cached-query-form pattern form form-match query-string))
-                                     annotations
-                                     (and annotations-form 
-                                          (conc annotations-prefix
-                                                (populate-cached-query-form pattern annotations-form form-match query-string)))
-                                     (and deltas-form 
-                                          (conc deltas-prefix
-                                                (populate-cached-query-form pattern deltas-form form-match query-string)))
-                                     bindings
-                                     update?)))))
-              (values rewritten-query-string 
-                      annotations
-                      annotations-query-string
-                      deltas-query-string
-                      bindings
-                      update?)))
+          (match form-list
+            ((pattern form form-prefix annotations annotations-form annotations-prefix
+                      deltas-form deltas-prefix bindings update? cached-logkey)
+             (log-message "~%[~A] Using cached form of ~A~%" (logkey) cached-logkey)
+             (values (replace-headers
+                      (conc form-prefix
+                            (populate-cached-query-form pattern form form-match query-string)))
+                     annotations
+                     (and annotations-form 
+                          (replace-headers
+                           (conc annotations-prefix
+                                 (populate-cached-query-form pattern annotations-form form-match query-string))))
+                     (and deltas-form 
+                          (replace-headers
+                           (conc deltas-prefix
+                                 (populate-cached-query-form pattern deltas-form form-match query-string))))
+                     bindings
+                     update?)))
 
           (let ((query (parse-query query-string)))
             (timed-let "Rewrite"
@@ -334,13 +283,15 @@
                       (log-message "~%[~A]  ==Rewritten Query==~%~A~%" (logkey) rewritten-query-string)
 
                       (when (*cache-forms?*)
-                            (let ((key (logkey)))
-                              (debug-message "[~A] Saving cache form" (logkey))
+                            (let ((key (logkey)) (rc (*write-constraint*)) (wc (*write-constraint*)))
+                              (debug-message "[~A] Saving cache form~%" (logkey))
                               (enqueue-cache-action!
                                (lambda ()
-                                 (parameterize ((logkey key))
+                                 (parameterize ((logkey key)
+                                                (*read-constraint* rc)
+                                                (*write-constraint* wc))
                                   (if (timed "relook-up" (query-form-lookup query-string))
-                                      (print "Already cached")
+                                      (begin (debug-message "Already cached~%") #f)
                                       (timed "Save Cache Form"
                                              (query-form-save! query-string 
                                                                rewritten-query-string
@@ -348,10 +299,10 @@
                                                                annotations-query-string
                                                                deltas-query-string
                                                                bindings update? key))))))))
-                      (values rewritten-query-string 
+                      (values (replace-headers rewritten-query-string)
                               annotations
-                              annotations-query-string
-                              deltas-query-string
+                              (and annotations-query-string (replace-headers annotations-query-string))
+                              (and deltas-query-string (replace-headers deltas-query-string))
                               bindings
                               update?
                               )))))))))))
