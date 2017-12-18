@@ -117,9 +117,10 @@
 	  (if (rewrite-select?)
               (parameterize ((query-where (get-child-body 'WHERE (cdr block))))
 	       (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-                 (let-values (((new-where subs) (apply-optimizations (clean (get-child-body 'WHERE rw)))))
+                 (let-values (((new-where subs) (apply-optimizations (clean (get-child-body 'WHERE rw))))) ; queried-properties
                    (values `((@Query ,@(replace-child-body 'WHERE (join new-where) rw)))
                            (update-binding 'functional-property-substitutions subs new-bindings)))))
+              ;;(update-binding 'queried-functional-properties queried-properties new-bindings))))))
 	      (let-values (((rw new-bindings) (rewrite (cdr block) bindings (select-query-rules))))
                 (values `((@Query ,@rw)) new-bindings)))))
     ((@Update)

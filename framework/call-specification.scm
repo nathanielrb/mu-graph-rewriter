@@ -40,14 +40,14 @@
                      `((query . , (format #f "~A" rewritten-query-string)))
                      read-string)))
         (let ((t2 (current-milliseconds)))
-          (debug-message "~%[~A] Query Time: ~Ams~%" key (- t2 t1))
+          (debug-message "~%[~A]  Query Time: ~Ams~%" key (- t2 t1))
           (values result uri response (- t2 t1)))))))
 
 (define (parse key q)
   (let-values (((ut1 st1) (cpu-time)))
     (let ((result (parse-query q)))
       (let-values (((ut2 st2) (cpu-time)))
-        (debug-message "~%[~A] Parse Time : ~Ams / ~Ams~%" 
+        (debug-message "~%[~A]  Parse Time : ~Ams / ~Ams~%" 
                      key (- ut2 ut1) (- st2 st1))
         result))))
 
@@ -71,11 +71,10 @@
                                               deltas-query-string bindings update?)
                       (handle-exceptions exn (rewriting-error exn)
                         (apply-constraints-with-form-cache query-string))))
-        
+
         (handle-exceptions exn 
             (virtuoso-error exn)
 
-            ;; when annotations (query-annotations aquery annotations-pairs)
           ;; (when (and update? (*send-deltas?*)) ...
 
             (let-values (((result uri response query-time)
@@ -85,10 +84,16 @@
                                            (*sparql-update-endpoint*)
                                            (*sparql-endpoint*)))))
                    
-              ;; (when (*calculate-annotations?*) ...
-              
+               (when (*calculate-annotations?*) 
+                     (log-message "~%[~A]  ==Annotations==~%~A~% " 
+                                  (logkey) annotations)
+
+                     (log-message "~%[~A]  ==Queried Annotations==~%~A~% " 
+                                  (logkey) (try-safely "Getting Queried Annotations" annotations-query-string
+                                                       (query-annotations annotations-query-string annotations-pairs))))
+
               (let ((headers (headers->list (response-headers response))))
-                (log-message "~%==Results (~A)==~%~A~%" 
+                (log-message "~%[~A]  ==Results==~%~A~%" 
                              (logkey) (substring result 0 (min 1500 (string-length result))))
                 (mu-headers headers)
                 result)))))))        )

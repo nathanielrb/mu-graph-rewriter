@@ -49,6 +49,15 @@
                                     expression))
                result))))))))
 
+(define-syntax try-safely
+  (syntax-rules ()
+    ((_ label exp body ...)
+     (handle-exceptions exn 
+                        (begin (log-message "~%[~A]  ==Error ~A==~%~A~%~%" 
+                                         (logkey) label exp)
+                               #f)
+       body ...))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Quick Splitting of Prologue/Body by Parsing
 (define ws*
@@ -173,6 +182,7 @@
 
 (define (query-cache-key query)
   (list (get-query-prefix query)
+        ;;  (get-binding 'queried-functional-properties bindings)) ...
         (make-query-pattern query)  
         (call-if (*read-constraint*))
         (call-if (*write-constraint*))))
@@ -231,7 +241,8 @@
 (define (enqueue-cache-action! thunk)
   (mailbox-send! *cache-mailbox* thunk))
 
-(define (make-cached-forms query-string rewritten-query annotations annotations-query-string annotations-pairs
+(define (make-cached-forms query-string rewritten-query
+                           annotations annotations-query-string annotations-pairs
                            deltas-query-string bindings update? key)
   (let-values (((pattern form-bindings) (make-query-pattern query-string)))
     (let* ((make-form (lambda (q) (and q (timed "Make Form" (make-query-form q form-bindings))))))
@@ -250,6 +261,8 @@
                           deltas-query-string bindings update? key)
       (hash-table-set! *query-forms*
                        (query-cache-key query-string)
+                       ;; (filter (lambda (pair) (not (sparql-variable? (cdr pair))))
+                       ;;         (get-binding 'functional-properties bindings)))
                        (make-cached-forms query-string rewritten-query 
                                           annotations annotations-query-string annotations-pairs
                                           deltas-query-string bindings update? key)))
@@ -275,15 +288,6 @@
                                                     annotations-query-string annotations-pairs
                                                     deltas-query-string
                                                     bindings update? key)))))))))
-
-(define-syntax try-safely
-  (syntax-rules ()
-    ((_ label exp body ...)
-     (handle-exceptions exn 
-                        (begin (log-message "~%[~A]  ==Error ~A==~%~A~%~%" 
-                                         (logkey) label exp)
-                               #f)
-       body ...))))
 
 (define (apply-constraints-with-form-cache query-string
                                            #!optional

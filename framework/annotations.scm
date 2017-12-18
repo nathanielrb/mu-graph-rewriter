@@ -119,7 +119,7 @@
                                           accum))))))))
 ;; abstract with above
 (define (intersect-alists #!rest alists)
-  (if (<= (length alists) 1) alists
+  (if (<= (length alists) 1) (car alists)
       (let loop ((alists (cdr alists)) (accum (car alists)))
         (if (null? alists) accum
             (let inner ((alist (car alists)) (accum accum))
@@ -170,7 +170,9 @@
                                           (list (first annotation) val)
                                           '()))))
                             annotations-pairs row)))
-             (sparql-select (write-sparql aquery))))))
+             (sparql-select (if (string? aquery)
+                                aquery
+                                (write-sparql aquery)))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 

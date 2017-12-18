@@ -116,13 +116,12 @@
 (define (apply-optimizations block)
   (if (nulll? block) (values '() '())
       (let-values (((rw new-bindings) (rewrite (list block) '() (optimization-rules))))
-;        (let ((rw (join rw)))
         (if (equal? rw '(#f))
             (error (format "Invalid query block (optimizations):~%~A" (write-sparql block)))
              (values (clean (map (cut filter quads? <>) (filter quads? rw)))
-            ;;(values (clean (filter quads?  rw))
-                    (get-binding/default 'functional-property-substitutions new-bindings '()))))))  ;)
-                     
+                    (get-binding/default 'functional-property-substitutions new-bindings '())  )))))
+;; (get-binding/default 'queried-functional-properties new-bindings '()))))))
+
 (define (query-functional-property s p o)
   (hit-property-cache s p
     (let ((results (sparql-select-unique "SELECT ~A  WHERE { ~A ~A ~A }" o s p o)))
@@ -204,8 +203,8 @@
                                  (this-level-quads saved-tlq)
                                  (last-level-quads saved-llq))
                                 (let-values (((rw2 nb2) (rewrite (list rw) new-bindings)))
+                                  ;; (log-message "ol 2 (~A): ~A ~% . ~%~A~%~%" key rw2 (append-stores (join rw2) clean))
                                   (fail-or-null rw2 nb2
-                                    ;; (log-message "ol 2 (~A): ~A ~% . ~%~A~%~%" key rw2 (append-stores (join rw2) clean))
                                     (list (append-stores (join rw2) clean)))))))))
         (values (list #f) bindings))) ) )
 
@@ -294,10 +293,13 @@
                         (let ((o* (query-functional-property s p o)))
                           (if o*
                               (values (update-store 'subs `((,o . ,o*))
-                                                    (update-store 'props `(((,s ,p) . ,o*) )
-                                                                  `((,s ,p ,o*))))
+                                       (update-store 'props `(((,s ,p) . ,o*))
+                                        `((,s ,p ,o*))))
                                       (fold-binding `((,o ,o*)) 'functional-property-substitutions 
                                                     merge-alists '() bindings))
+                                                    ;; (cons-binding `((,s ,p) . ,o*)
+                                                    ;;               'queried-functional-properties
+                                                    ;;               bindings)))
                               (values `((,s ,p ,o)) bindings))))
                        ((and (not (sparql-variable? s))
                              (not (sparql-variable? o))
