@@ -296,8 +296,8 @@
                               (values (update-store 'subs `((,o . ,o*))
                                                     (update-store 'props `(((,s ,p) . ,o*) )
                                                                   `((,s ,p ,o*))))
-                               (fold-binding `((,o ,o*)) 'functional-property-substitutions 
-                                             merge-alists '() bindings))
+                                      (fold-binding `((,o ,o*)) 'functional-property-substitutions 
+                                                    merge-alists '() bindings))
                               (values `((,s ,p ,o)) bindings))))
                        ((and (not (sparql-variable? s))
                              (not (sparql-variable? o))
