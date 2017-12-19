@@ -1,20 +1,18 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Annotations
-;; bug: annotation in top-level WHERE { @access x . .... }
-;; breaks optimizations
 (define (annotation? exp)
   (and (pair? exp)
        (equal? (car exp) '@Annotation)))
 
-(define (nulll? block)
-  (null? (remove store? (remove annotation? block))))
+(define (values? exp)
+  (and (pair? exp) (equal? (car exp) '*values*)))
 
 (define (get-annotations query bindings)
   (let ((rw (delete-duplicates (rewrite-query query (get-annotations-rules))))
         (functional-property-substitutions (get-binding/default 'functional-property-substitutions bindings '())))
-    (let-values (((vals annotations) (partition values? rw))) ; generalize this
+    (let-values (((vals annotations) (partition values? rw)))
       (if (null? functional-property-substitutions) annotations
-          (map (lambda (annotation) ; like update-annotation-values but keeps ?var as well
+          (map (lambda (annotation)
                  (match annotation
                         ((key var)
                          (let ((vals (alist-ref var functional-property-substitutions)))
@@ -24,7 +22,45 @@
                         (else annotation)))
                annotations)))))
 
-;; subselects/projection?
+(define (update-annotation-values annotation valss)
+  (match annotation
+    ((key var)
+     (let ((vals (alist-ref var valss)))
+       (if vals
+           `(,key ,var ,vals)
+           annotation)))
+    (else annotation)))
+
+(define (annotations-query annotations query)
+  (if (*calculate-annotations?*)
+      (let-values (((pairs singles) (partition pair? annotations)))
+        (let* ((pairs (remove values? pairs))
+               (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
+          (if (or (null? pairs) (null? vars))
+              (values #f #f)
+              (values (rewrite-query query (query-annotations-rules vars))
+                      pairs))))
+      (values #f #f)))
+
+(define (query-annotations aquery annotations-pairs)
+  (and aquery
+       (join
+        (map (lambda (row)
+               (filter pair?
+                       (map (lambda (annotation binding)
+                              (match binding
+                                ((var . val)
+                                 (if (and (equal? (->string var)
+                                                  (substring (->string (second annotation)) 1))
+                                          (or (null? (cddr annotation))
+                                              (member val (third annotation))))
+                                     (list (first annotation) val)
+                                     '()))))
+                            annotations-pairs row)))
+             (sparql-select (if (string? aquery)
+                                aquery
+                                (write-sparql aquery)))))))
+
 (define (get-annotations-rules)
   `(((@QueryUnit @UpdateUnit)
      . ,(lambda (block bindings)
@@ -33,7 +69,7 @@
     ((@Query @Update)
      . ,(lambda (block bindings)
           (rewrite (list (cdr block)) bindings)))
-    ((@Query @Update WHERE OPTIONAL)
+    ((WHERE OPTIONAL)
      . ,(lambda (block bindings)
           (rewrite (cdr block) bindings)))
     (,annotation? 
@@ -87,92 +123,13 @@
     (,list?
      . ,(lambda (block bindings)
           (let-values (((rw new-bindings) (rewrite block bindings)))
-            (let-values (((vals annotations) (partition values? rw))) ; generalize this
+            (let-values (((vals annotations) (partition values? rw)))
               (let ((merged-vals (apply merge-alists (map second vals))))
               (values (append (map (lambda (a)
                                      (update-annotation-values a merged-vals))
                                    annotations)
                               `((*values* ,merged-vals)))
                       new-bindings))))))))
-
-(define (update-annotation-values annotation valss)
-  (match annotation
-    ((key var)
-     (let ((vals (alist-ref var valss)))
-       (if vals
-           `(,key ,var ,vals)
-           annotation)))
-    (else annotation)))
-
-;; merges alists whose values must be lists
-;; e.g., '((a . (1 2 3))) '((a . (4)))
-(define (merge-alists #!rest alists)
-  (let loop ((alists alists) (accum '()))
-    (if (null? alists) accum
-        (let inner ((alist (car alists)) (accum accum))
-          (if (null? alist) (loop (cdr alists) accum)
-              (let ((kv (car alist)))
-                (inner (cdr alist)
-                       (alist-update-proc (car kv) 
-                                          (lambda (current)
-                                            (append-unique (or current '()) (cdr kv)))
-                                          accum))))))))
-;; abstract with above
-(define (intersect-alists #!rest alists)
-  (if (<= (length alists) 1) (car alists)
-      (let loop ((alists (cdr alists)) (accum (car alists)))
-        (if (null? alists) accum
-            (let inner ((alist (car alists)) (accum accum))
-              (if (null? alist) (loop (cdr alists) accum)
-                  (let ((kv (car alist)))
-                    (inner (cdr alist)
-                           (alist-update-proc (car kv) 
-                                              (lambda (current)
-                                                (lset-intersection equal? (or current '()) (cdr kv)))
-                                              accum)))))))))
-
-(define (values? exp)
-  (and (pair? exp) (equal? (car exp) '*values*)))
-
-;; for sandbox only
-(define (query-time-annotations annotations)
-  (map (lambda (a)
-         (match a
-                ((key var vals)
-                 `(,key ,(string->symbol (string-join (map symbol->string vals)))))
-                (else a)))
-       (remove values? annotations)))
-
-;; filter through values with rdf-equal?
-(define (annotations-query annotations query)
-  (if (*calculate-annotations?*)
-      (let-values (((pairs singles) (partition pair? annotations)))
-        (let* ((pairs (remove values? pairs))
-               (vars (filter sparql-variable?  (delete-duplicates (map second pairs)))))
-          (if (or (null? pairs) (null? vars))
-              (values #f #f) ; what about singles??
-              (values (rewrite-query query (query-annotations-rules vars))
-                      pairs))))
-      (values #f #f)))
-
-(define (query-annotations aquery annotations-pairs)
-  (and aquery
-       (join
-        (map (lambda (row)
-               (filter pair?
-                       (map (lambda (annotation binding)
-                              (match binding
-                                     ((var . val)
-                                      (if (and (equal? (->string var)
-                                                       (substring (->string (second annotation)) 1))
-                                               (or (null? (cddr annotation))
-                                                   (member val (third annotation))))
-                                          (list (first annotation) val)
-                                          '()))))
-                            annotations-pairs row)))
-             (sparql-select (if (string? aquery)
-                                aquery
-                                (write-sparql aquery)))))))
 
 (define (query-annotations-rules vars)
   `(((@UpdateUnit @QueryUnit) 

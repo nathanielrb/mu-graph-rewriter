@@ -71,47 +71,6 @@
   (rewrite block '() collect-level-quads-rules))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Up-Down Store
-(define store (make-parameter '()))
-
-(define (store? exp)
-  (and (pair? exp)
-       (equal? (car exp) '*store*)))
-
-(define quads? (compose not store?))
-
-(define (get-store key) (alist-ref key (store)))
-
-(define (get-store/default key default) (or (alist-ref key (store)) default))
-
-(define (get-returned-store key block) (alist-ref key (or (alist-ref '*store* block) '())))
-
-(define (get-returned-store/default key block default)
-  (or (alist-ref key (or (alist-ref '*store* block) '()))
-      default))
-
-(define (append-stores rw #!optional (proc values))
-  (let-values (((stores quads) (partition store? rw)))
-    (let ((merged-stores (apply merge-alists (append (map cdr stores) (list (store))))))
-      (cond ((nulll? quads) '())
-            ((null? merged-stores) (list (proc quads)))
-            (else (cons `(*store* . ,merged-stores)
-                        (proc quads)))))))
-  
-(define (intersect-stores rw proc)
-  (let ((stores (map cdr (filter pair? (map car (filter pair? (map (cut filter store? <>) rw))))))
-        (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))))
-    (if (= (length new-blocks) 0)
-        (list #f)
-        (cons `(*store* . ,(apply intersect-alists stores))
-              (proc new-blocks)))))
-
-(define (update-store key val rw)
-  (alist-update '*store* 
-                (alist-update key val  (or (alist-ref '*store* rw) '()))
-                rw))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Functional Properties (and other optimizations)
 (define (apply-optimizations block)
   (if (nulll? block) (values '() '())

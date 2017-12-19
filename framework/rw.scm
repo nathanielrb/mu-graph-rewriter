@@ -1,5 +1,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; for RW library, to be cleaned up and abstracted.
+;; For RW library
+
 ;; (define rw/value
 ;;   (lambda (block bindings)
 ;;     (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
@@ -8,8 +9,6 @@
 (define (sparql-variable-name var)
   (string->symbol (substring (symbol->string var) 1)))
 
-;; why is this really different?
-;; just in specifying the bindings-fold?
 (define (rewrite-fold block bindings proc bindings-fold)
   (let loop ((block block)
              (rw '())
@@ -20,7 +19,6 @@
                 (if (fail? r) rw (append rw r))
                 (bindings-fold b new-bindings))))))
 
-;; what about expressions?
 (define (extract-subselect-vars vars)
   (filter values
           (map (lambda (var)
@@ -30,7 +28,6 @@
                        (else #f))))
                vars)))
 
-;; duplicate?
 (define (subselect-bindings vars bindings)
   (let* ((subselect-vars (extract-subselect-vars vars))
          (inner-bindings (if (or (equal? subselect-vars '(*))
@@ -55,7 +52,6 @@
                       (get-vars rest)
                       vars)))
        (let-values (((rw new-bindings) (rewrite rest inner-bindings)))
-         ;; (values `((@SubSelect (,label ,@(filter sparql-variable? vars)) ,@rw)) 
          (values `((@SubSelect (,label ,@vars) ,@rw))
                  (merge-bindings 
                   (project-bindings subselect-vars new-bindings)
@@ -72,7 +68,7 @@
            ((fail? rw) (values '(#f) new-bindings))
            (else (values body bindings-exp))))))
 
-(define-syntax fail-or-null/low ; is there a way to integrate this with above?
+(define-syntax fail-or-null/low 
   (syntax-rules ()
     ((_ rw new-bindings body ...)
      (cond ((nulll? rw) (values '() new-bindings))
@@ -89,10 +85,9 @@
     (fail-or-null rw new-bindings
       `((,(car block) ,@(filter pair? rw))))))
 
-;; this is still a little incorrect (?) wrt failure and empty ()
 (define (rw/union block bindings)
   (let-values (((rw new-bindings) (rewrite (cdr block) bindings)))
-    (let ((new-blocks (filter values rw))) ; (compose not fail?)  ?
+    (let ((new-blocks (filter values rw)))
       (case (length new-blocks)
 	((0)  (values (list #f) new-bindings))
         ((1)  (values (car new-blocks) new-bindings))
@@ -125,7 +120,6 @@
 (define (append-child-body/after label new-statements block)
   (replace-child-body label (append (or (get-child-body label block) '()) new-statements) block))
 
-;; To do: rewrite as cps loop
 (define (insert-child-before head statement statements)
   (cond ((nulll? statements) '())
         ((equal? (caar statements) head)
@@ -133,7 +127,6 @@
         (else (cons (car statements)
                     (insert-child-before head statement (cdr statements))))))
 
-;; To do: rewrite as cps loop
 (define (insert-child-after head statement statements)
   (cond ((nulll? statements) '())
         ((equal? (caar statements) head)
@@ -142,7 +135,14 @@
         (else (cons (car statements)
                     (insert-child-after head statement (cdr statements))))))
 
-;; To do: harmonize these
+(define delete? (make-parameter #f))
+
+(define insert? (make-parameter #f))
+
+(define update? (make-parameter #f))
+
+(define where? (make-parameter #f))
+
 (define (insert-query? query)
   (or (get-child-body '|INSERT DATA| (cdr query))
       (get-child-body 'INSERT (cdr query))))
@@ -165,17 +165,14 @@
 (define *constraint-prologues* (make-parameter '()))
 
 (define (rdf-equal? a b)
-  ;; (let ((nss (append-unique (constraint-prefixes)
-  ;;                           (query-namespaces)
-  ;;                           (*namespaces*)))) ; memoize this
-    (if (and (symbol? a) (symbol? b))
-        (equal? (expand-namespace (a->rdf:type a) (*namespaces*))
-                (expand-namespace (a->rdf:type b) (*namespaces*)))
-        (equal? a b)))
+  (if (and (symbol? a) (symbol? b))
+      (equal? (expand-namespace (a->rdf:type a) (*namespaces*))
+              (expand-namespace (a->rdf:type b) (*namespaces*)))
+      (equal? a b)))
 
 (define (rdf-member a bs)
   (let ((r (filter (cut rdf-equal? a <>) bs)))
-    (if (null? r) #f r)))
+    (and (not (null? r)) r)))
 
 (define (literal-triple-equal? a b)
   (null? (filter not (map rdf-equal? a b))))
@@ -195,8 +192,6 @@
                       (lambda (rest)
                         (cont `(,(car alist) ,@rest))))))))
 
-
-;; rewrite in CPS
 (define (assoc-update-proc key proc alist)
   (cond ((null? alist) (list (cons key (proc #f))))
         ((equal? key (caar alist))
@@ -207,27 +202,49 @@
 
 (define append-unique (compose delete-duplicates append))
 
+;; merges alists whose values must be lists
+;; e.g., '((a . (1 2 3))) '((a . (4)))
+(define (merge-alists #!rest alists)
+  (let loop ((alists alists) (accum '()))
+    (if (null? alists) accum
+        (let inner ((alist (car alists)) (accum accum))
+          (if (null? alist) (loop (cdr alists) accum)
+              (let ((kv (car alist)))
+                (inner (cdr alist)
+                       (alist-update-proc (car kv) 
+                                          (lambda (current)
+                                            (append-unique (or current '()) (cdr kv)))
+                                          accum))))))))
+
+(define (intersect-alists #!rest alists)
+  (if (<= (length alists) 1) (car alists)
+      (let loop ((alists (cdr alists)) (accum (car alists)))
+        (if (null? alists) accum
+            (let inner ((alist (car alists)) (accum accum))
+              (if (null? alist) (loop (cdr alists) accum)
+                  (let ((kv (car alist)))
+                    (inner (cdr alist)
+                           (alist-update-proc (car kv) 
+                                              (lambda (current)
+                                                (lset-intersection equal? (or current '()) (cdr kv)))
+                                              accum)))))))))
+
+(define (error-condition message block)
+  (abort
+   (make-property-condition
+    'exn
+    'message (format (conc message ":~%~A") (write-sparql block)))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Axes
-;; but isn't this a bit inefficient and backwards?
-;; better just use dynamic parameters, I think.
-(define delete? (make-parameter #f))
-
-(define insert? (make-parameter #f))
-
-(define update? (make-parameter #f))
-
-(define where? (make-parameter #f))
-
-(define *in-where?* (make-parameter #f))
-
+;;
 ;; (define (in-where?)
 ;;   ((parent-axis
 ;;     (lambda (context) 
 ;;       (let ((head (context-head context)))
 ;;         (and head (equal? (car head) 'WHERE)))))
 ;;    (*context*)))
-
+;;
 ;; (define (get-context-graph)
 ;;   (let ((ancestor ((parent-axis (lambda (context) (equal? (car (context-head context)) 'GRAPH)))
 ;;                  (*context*))))
@@ -235,14 +252,14 @@
 ;;          (match (context-head ancestor)
 ;;            ((`GRAPH graph . rest) graph)
 ;;            (else #f)))))
-
+;;
 ;; (define (update?)
 ;;   ((parent-axis
 ;;     (lambda (context) 
 ;;       (let ((head (context-head context)))
 ;;         (and head (equal? (car head) '@Update)))))
 ;;    (*context*)))
-
+;;
 ;; (define (all-select-variables)
 ;;   (get-vars
 ;;    (cdr
@@ -254,7 +271,8 @@
 ;;       (*context*))))))
 
 
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Namespaces
 (define all-namespaces (make-parameter '()))
 
 (define (get-constraint-prefixes read write)
@@ -281,13 +299,47 @@
 (define (constraint-prologues)
   (get-constraint-prologues (*read-constraint*)  (*write-constraint*)))
 
-  ;; (let ((nss (append-unique (constraint-prefixes)
-  ;;                           (query-namespaces)
-  ;;                           (*namespaces*)))) ; memoize this
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Up-Down Store
+(define store (make-parameter '()))
 
-(define (error-condition message block)
-  (abort
-   (make-property-condition
-    'exn
-    'message (format (conc message ":~%~A") (write-sparql block)))))
+(define (store? exp)
+  (and (pair? exp)
+       (equal? (car exp) '*store*)))
+
+(define quads? (compose not store?))
+
+(define (get-store key) (alist-ref key (store)))
+
+(define (get-store/default key default) (or (alist-ref key (store)) default))
+
+(define (get-returned-store key block) (alist-ref key (or (alist-ref '*store* block) '())))
+
+(define (get-returned-store/default key block default)
+  (or (alist-ref key (or (alist-ref '*store* block) '()))
+      default))
+
+(define (append-stores rw #!optional (proc values))
+  (let-values (((stores quads) (partition store? rw)))
+    (let ((merged-stores (apply merge-alists (append (map cdr stores) (list (store))))))
+      (cond ((nulll? quads) '())
+            ((null? merged-stores) (list (proc quads)))
+            (else (cons `(*store* . ,merged-stores)
+                        (proc quads)))))))
+  
+(define (intersect-stores rw proc)
+  (let ((stores (map cdr (filter pair? (map car (filter pair? (map (cut filter store? <>) rw))))))
+        (new-blocks (filter (compose not fail?)  (map (cut filter quads? <>) rw))))
+    (if (= (length new-blocks) 0)
+        (list #f)
+        (cons `(*store* . ,(apply intersect-alists stores))
+              (proc new-blocks)))))
+
+(define (update-store key val rw)
+  (alist-update '*store* 
+                (alist-update key val  (or (alist-ref '*store* rw) '()))
+                rw))
+
+(define (nulll? block)
+  (null? (remove store? (remove annotation? block))))
 

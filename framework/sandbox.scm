@@ -62,6 +62,16 @@
 
 (define-rest-call 'POST '("test") test-call)
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Sandbox
+(define (query-time-annotations annotations)
+  (map (lambda (a)
+         (match a
+                ((key var vals)
+                 `(,key ,(string->symbol (string-join (map symbol->string vals)))))
+                (else a)))
+       (remove values? annotations)))
+
 (define (sandbox-call _)
   (let* ((body (read-request-body))
          ($$body (let ((parsed-body (form-urldecode body)))

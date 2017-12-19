@@ -241,6 +241,7 @@ WHERE {
 ** TODO cache forms + queried functional properties
 * cache keys and annotations
 ** TODO get values from FILTER and BIND
+** TODO in get-annotations, refactor *values* as *store* 
 ** DONE [bug] VALUES + UNIONS gives wrong results for queried annotations
    same as below... need to *filter* queried results through rewrite-time values
 
