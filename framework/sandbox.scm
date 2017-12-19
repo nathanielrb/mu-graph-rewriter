@@ -300,7 +300,7 @@
   (lambda (_)
       `((plugins . ,(list->vector
                      (sort
-                      (map pathname-file (glob (make-pathname (*plugin-dir*) "*.scm")))
+                      (map pathname-file (glob (make-pathname (*plugin-dir*) "[a-zA-Z0-9]*.scm")))
                       string<=))))))
 
 (define-rest-call 'GET '("plugin" name)
