@@ -208,17 +208,19 @@
 
 (define (populate-cached-forms query-string form-match cached-forms)
   (match cached-forms
-    ((pattern form form-prefix annotations annotations-form annotations-prefix annotations-pairs
+    ((pattern form form-prefix annotations annotations-forms annotations-prefixes annotations-pairs
               deltas-form deltas-prefix bindings update? cached-logkey)
      (log-message "~%[~A] Using cached form of ~A~%" (logkey) cached-logkey)
      (values (replace-headers
               (conc form-prefix
                     (populate-cached-form pattern form form-match query-string)))
              annotations
-             (and annotations-form 
-                  (replace-headers
-                   (conc annotations-prefix
-                         (populate-cached-form pattern annotations-form form-match query-string))))
+             (and annotations-forms
+                  (map (lambda (annotations-prefix annotations-form)
+                         (replace-headers
+                          (conc annotations-prefix
+                                (populate-cached-form pattern annotations-form form-match query-string))))
+                       annotations-prefixes annotations-forms))
              annotations-pairs
              (and deltas-form 
                   (replace-headers
@@ -232,7 +234,13 @@
     (lambda ()
       (let loop ()
         (let ((thunk (mailbox-receive! *cache-mailbox*)))
-          (handle-exceptions exn (debug-message "[~A] Error saving cache forms~%" (logkey))
+          (handle-exceptions exn (begin
+                                   (log-message "[~A] Error saving cache forms~%" (logkey))
+                                   (log-message "~A (~A)~%Arguments: ~A~%Call Chain: ~A~%"
+                                                ((condition-property-accessor 'exn 'message) exn)
+                                                ((condition-property-accessor 'exn 'location) exn)
+                                                ((condition-property-accessor 'exn 'arguments) exn)
+                                                ((condition-property-accessor 'exn 'call-chain) exn)))
            (thunk)))
         (loop)))))
 
@@ -242,33 +250,35 @@
   (mailbox-send! *cache-mailbox* thunk))
 
 (define (make-cached-forms query-string rewritten-query
-                           annotations annotations-query-string annotations-pairs
+                           annotations annotations-query-strings annotations-pairs
                            deltas-query-string bindings update? key)
+  (log-message "~%making A~%")
   (let-values (((pattern form-bindings) (make-query-pattern query-string)))
+  (log-message "~%making B~%")
     (let* ((make-form (lambda (q) (and q (timed "Make Form" (make-query-form q form-bindings))))))
       (list (irregex pattern)
             (make-form rewritten-query)
             (get-query-prefix rewritten-query)
             annotations
-            (and annotations-query-string (make-form annotations-query-string))
-            (and annotations-query-string (get-query-prefix annotations-query-string))
+            (and annotations-query-strings (map make-form annotations-query-strings))
+            (and annotations-query-strings (map get-query-prefix annotations-query-strings))
             annotations-pairs
             (and deltas-query-string (make-form deltas-query-string))
             (and deltas-query-string (get-query-prefix deltas-query-string))
             bindings update? key))))
 
-(define (query-form-save! query-string rewritten-query annotations annotations-query-string annotations-pairs
+(define (query-form-save! query-string rewritten-query annotations annotations-query-strings annotations-pairs
                           deltas-query-string bindings update? key)
       (hash-table-set! *query-forms*
                        (query-cache-key query-string)
                        ;; (filter (lambda (pair) (not (sparql-variable? (cdr pair))))
                        ;;         (get-binding 'functional-properties bindings)))
                        (make-cached-forms query-string rewritten-query 
-                                          annotations annotations-query-string annotations-pairs
+                                          annotations annotations-query-strings annotations-pairs
                                           deltas-query-string bindings update? key)))
 
 (define (enqueue-save-cache-form  query-string rewritten-query-string
-                                  annotations annotations-query-string annotations-pairs
+                                  annotations annotations-query-strings annotations-pairs
                                   deltas-query-string bindings update?)
   (let ((key (logkey)) (rc (*read-constraint*)) (wc (*write-constraint*)))
     (debug-message "[~A] Saving cache form~%" (logkey))
@@ -279,13 +289,13 @@
                       (*write-constraint* wc))
                      (let-values (((form-match _) (query-form-lookup query-string)))
                        (if form-match
-                           (begin (debug-message "[~A] Already cached~%")
+                           (begin (debug-message "[~A] Already cached~%" key)
                                   #f)
                            (timed "Cache Form"
                                   (query-form-save! query-string 
                                                     rewritten-query-string
                                                     annotations
-                                                    annotations-query-string annotations-pairs
+                                                    annotations-query-strings annotations-pairs
                                                     deltas-query-string
                                                     bindings update? key)))))))))
 
@@ -303,12 +313,12 @@
                        (annotations (and (*calculate-annotations?*) 
                                          (handle-exceptions exn #f
                                                             (get-annotations rewritten-query bindings)))))
-                  (let-values (((aquery annotations-pairs) (if annotations
-                                                               (annotations-query annotations rewritten-query)
+                  (let-values (((aqueries annotations-pairs) (if annotations
+                                                               (annotations-queries annotations rewritten-query)
                                                                (values #f #f))))
                     (let* (;;(queried-annotations (and aquery (try-safely "Getting Queried Annotations" aquery 
                            (rewritten-query-string (write-sparql rewritten-query))
-                           (annotations-query-string (and aquery (write-sparql aquery)))
+                           (annotations-query-strings (and aqueries (map write-sparql aqueries)))
                            (deltas-query (and (*send-deltas?*) (notify-deltas-query rewritten-query)))
                            (deltas-query-string (and deltas-query (write-sparql deltas-query))))
 
@@ -316,12 +326,12 @@
 
                       (when (*cache-forms?*)
                             (enqueue-save-cache-form query-string rewritten-query-string
-                                                     annotations annotations-query-string annotations-pairs
+                                                     annotations annotations-query-strings annotations-pairs
                                                      deltas-query-string bindings update?))
 
                       (values (replace-headers rewritten-query-string)
                               annotations
-                              (and annotations-query-string (replace-headers annotations-query-string))
+                              (and annotations-query-strings (map replace-headers annotations-query-strings))
                               annotations-pairs
                               (and deltas-query-string (replace-headers deltas-query-string))
                               bindings
@@ -338,7 +348,6 @@
   (syntax-rules ()
     ((_ proc)
      (begin
-       (print (quote proc))
        (put! (quote proc) 'memoized proc)
        (memoize proc)))))
 
@@ -368,5 +377,4 @@
 (define get-dependencies (memoize-save get-dependencies))
 
 (define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
-
 

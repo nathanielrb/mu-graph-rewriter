@@ -67,7 +67,7 @@
         (log-headers)
         (log-message "~%[~A]  ==Rewriting Query==~%~A~%" (logkey) query-string)
 
-        (let-values (((rewritten-query-string annotations annotations-query-string annotations-pairs
+        (let-values (((rewritten-query-string annotations annotations-query-strings annotations-pairs
                                               deltas-query-string bindings update?)
                       (handle-exceptions exn (rewriting-error exn)
                         (apply-constraints-with-form-cache query-string))))
@@ -89,8 +89,11 @@
                                   (logkey) annotations)
 
                      (log-message "~%[~A]  ==Queried Annotations==~%~A~% " 
-                                  (logkey) (try-safely "Getting Queried Annotations" annotations-query-string
-                                                       (query-annotations annotations-query-string annotations-pairs))))
+                                  (logkey) (try-safely "Getting Queried Annotations" annotations-query-strings
+                                                       (and annotations-query-strings
+                                                            (map (lambda (q)
+                                                                   (query-annotations q annotations-pairs))
+                                                                 annotations-query-strings)))))
 
               (let ((headers (headers->list (response-headers response))))
                 (log-message "~%[~A]  ==Results==~%~A~%" 

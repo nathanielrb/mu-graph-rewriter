@@ -30,6 +30,7 @@
               (values rw new-bindings)
 	      (values `((GRAPH ,(second block) ,@rw))
 		      (cons-binding (second block) 'named-graphs new-bindings))))))
+    (,annotation? . ,rw/copy)
     (,triple? . ,(expand-triple-rule mapp bindingsp))
     (,list? . ,rw/list)
     (,symbol? . ,rw/copy)))
