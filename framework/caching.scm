@@ -293,10 +293,14 @@
                                                     deltas-query-string
                                                     bindings update? key)))))))))
 
-(define (apply-constraints-with-form-cache query-string
-                                           #!optional
-                                           (read-constraint (call-if (*read-constraint*)))
-                                           (write-constraint (call-if (*write-constraint*))))
+(define (apply-constraints-with-form-cache query-string)
+ (apply-constraints-with-form-cache* query-string
+                                     (call-if (*read-constraint*))
+                                     (call-if (*write-constraint*))))
+
+(define (apply-constraints-with-form-cache* query-string
+                                           read-constraint
+                                           write-constraint)
    (let-values (((form-match cached-forms) (query-form-lookup query-string)))
      (if form-match
          (populate-cached-forms query-string form-match cached-forms)
@@ -370,5 +374,5 @@
 
 (define get-dependencies (memoize-save get-dependencies))
 
-(define apply-constraints-with-form-cache (memoize-save apply-constraints-with-form-cache))
+(define apply-constraints-with-form-cache* (memoize-save apply-constraints-with-form-cache*))
 

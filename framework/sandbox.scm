@@ -101,10 +101,15 @@
         (let* ((annotations (get-annotations rewritten-query bindings))
                (qt-annotations (and annotations (query-time-annotations annotations))))
                ;; (aquery (and annotations (annotations-query annotations rewritten-query)))
-          (let-values (((aquery annotations-pairs) (if annotations
-                                                       (annotations-query annotations rewritten-query)
+          (let-values (((aqueries annotations-pairs) (if annotations
+                                                       (annotations-queries annotations rewritten-query)
                                                        (values #f #f))))
-            (let ((queried-annotations (and aquery (query-annotations aquery annotations-pairs)))
+            (let* ((annotations-query-strings (and aqueries (map write-sparql aqueries)))
+                   (queried-annotations (and annotations-query-strings
+                                             (join (map (lambda (q)
+                                                          (query-annotations q annotations-pairs))
+                                                        annotations-query-strings))))
+                   ;;(queried-annotations (and aquery (query-annotations aquery annotations-pairs)))
                   ;; (queried-annotations (and aquery (query-annotations aquery)))
                   (functional-property-substitutions (get-binding/default 'functional-property-substitutions bindings '())))
         (log-message "~%===Annotations===~%~A~%" annotations)
@@ -131,7 +136,7 @@
 
     (log-message "~%Redefining read and write constraints~%")
 
-    ;; brute-force redefining constraints
+    ;; brute-force redefining
     (set!
       *write-constraint*
       (make-parameter
@@ -148,8 +153,8 @@
     (set! *queried-properties* (make-parameter qprops))
     (set! *unique-variables* (make-parameter unique-vars))
     (set! *query-functional-properties?* (make-parameter query-fprops?))
-    (set! apply-constraints-with-form-cache (rememoize apply-constraints-with-form-cache))
-    (set! *query-forms* (make-hash-table))
+    ;; (set! apply-constraints-with-form-cache* (rememoize apply-constraints-with-form-cache))
+    ;; (set! *query-forms* (make-hash-table))
     `((success .  "true"))))
 
 (define (format-queried-annotations queried-annotations)
