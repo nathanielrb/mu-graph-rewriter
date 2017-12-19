@@ -235,6 +235,23 @@
     'exn
     'message (format (conc message ":~%~A") (write-sparql block)))))
 
+(define (print-exception exn)
+  (log-message "\t[~A]  Error: (~A) ~A~%~%\tArguments: ~A~%~%\tCall History:~%~%~A\t<---~%"
+               (logkey)
+               ((condition-property-accessor 'exn 'location) exn)
+               ((condition-property-accessor 'exn 'message) exn)
+
+               ((condition-property-accessor 'exn 'arguments) exn)
+               (string-join
+                (map (lambda (link)
+                       (let ((a (first link))
+                             (b (format "~A" (second link))))
+                         (format "\t~A    ~A" 
+                                 a (substring b 0 (min 80 (string-length b))))))
+                     (map vector->list
+                          ((condition-property-accessor 'exn 'call-chain) exn)))
+                "\n")))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Axes
 ;;

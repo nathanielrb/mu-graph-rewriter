@@ -236,12 +236,8 @@
         (let ((thunk (mailbox-receive! *cache-mailbox*)))
           (handle-exceptions exn (begin
                                    (log-message "[~A] Error saving cache forms~%" (logkey))
-                                   (log-message "~A (~A)~%Arguments: ~A~%Call Chain: ~A~%"
-                                                ((condition-property-accessor 'exn 'message) exn)
-                                                ((condition-property-accessor 'exn 'location) exn)
-                                                ((condition-property-accessor 'exn 'arguments) exn)
-                                                ((condition-property-accessor 'exn 'call-chain) exn)))
-           (thunk)))
+                                   (print-exception exn))
+            (thunk)))
         (loop)))))
 
 (thread-start! cache-save-daemon)
