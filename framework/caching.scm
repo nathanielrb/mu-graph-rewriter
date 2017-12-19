@@ -252,9 +252,7 @@
 (define (make-cached-forms query-string rewritten-query
                            annotations annotations-query-strings annotations-pairs
                            deltas-query-string bindings update? key)
-  (log-message "~%making A~%")
   (let-values (((pattern form-bindings) (make-query-pattern query-string)))
-  (log-message "~%making B~%")
     (let* ((make-form (lambda (q) (and q (timed "Make Form" (make-query-form q form-bindings))))))
       (list (irregex pattern)
             (make-form rewritten-query)
