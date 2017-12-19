@@ -1,18 +1,12 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Expanding triples and quads
-;; refactor this a bit, to use #!key for mapp and bindingsp
-;; and mostly to NOT use a flatten-graphs? parameter, but separate functions & arg passing
 (define flatten-graphs? (make-parameter #f))
 
 (define (expand-triples block #!optional (bindings '()) mapp bindingsp)
   (rewrite block bindings (expand-triples-rules mapp bindingsp)))
 
-;; (define (expand-triples-flatten-graphs
-
 (define (recursive-expand-triples block #!optional (bindings '()) mapp bindingsp)
   (rewrite block bindings (recursive-expand-triples-rules mapp bindingsp)))
-
-;; (define (recursive-expand-triples-flatten-graphs 
 
 (define (expand-triple-rule #!optional mapp bindingsp)
   (let ((mapp (or mapp values))
@@ -166,7 +160,6 @@
 		  (if graphs
 		      (fold-binding graphs 'all-graphs append '() new-bindings)
 		      new-bindings))))))))
-    ;; ((CONSTRUCT SELECT INSERT DELETE |INSERT DATA|) . ,rw/remove)
     ((CONSTRUCT SELECT) . ,rw/remove)
     ((GRAPH) . ,(lambda (block bindings)
                   (match block
@@ -203,7 +196,6 @@
 (define (find-triple-graphs triple block)
   (delete-duplicates (rewrite block '() (find-triple-graphs-rules triple))))
 
-;; doesn't work for nested graphs
 (define (find-triple-graphs-rules triple)
   `(((GRAPH)
      . ,(lambda (block bindings)
