@@ -58,48 +58,48 @@
 
 (define (rewrite-call)
   (lambda (_)
-    (parameterize ((logkey (gensym 'query)))
-      (let ((query-string (or ((request-vars source: 'query-string) 'query)
-                              (let ((body (read-request-body)))
-                                (or (let ((url-decoded-body (form-urldecode body)))
-                                      (and url-decoded-body (alist-ref 'query url-decoded-body)))
-                                    body)))))
-        (log-headers)
-        (log-message "~%[~A]  ==Rewriting Query==~%~A~%" (logkey) query-string)
+    (timed "Total"
+      (parameterize ((logkey (gensym 'query)))
+        (let ((query-string (or ((request-vars source: 'query-string) 'query)
+                                (let ((body (read-request-body)))
+                                  (or (let ((url-decoded-body (form-urldecode body)))
+                                        (and url-decoded-body (alist-ref 'query url-decoded-body)))
+                                      body)))))
+          (log-headers)
+          (log-message "~%[~A]  ==Rewriting Query==~%~A~%" (logkey) query-string)
 
-        (let-values (((rewritten-query-string annotations annotations-query-strings annotations-pairs
-                                              deltas-query-string bindings update?)
-                      (handle-exceptions exn (rewriting-error exn)
-                        (apply-constraints-with-form-cache query-string))))
+          (let-values (((rewritten-query-string annotations annotations-query-strings annotations-pairs
+                                                deltas-query-string bindings update?)
+                        (handle-exceptions exn (rewriting-error exn)
+                                           (apply-constraints-with-form-cache query-string))))
 
-        (handle-exceptions exn 
-            (virtuoso-error exn)
+            (handle-exceptions exn (virtuoso-error exn)
 
-          ;; (when (and update? (*send-deltas?*)) ...
+              ;; (when (and update? (*send-deltas?*)) ...
 
-            (let-values (((result uri response query-time)
-                          (proxy-query (logkey)
-                                       rewritten-query-string
-                                       (if update?
-                                           (*sparql-update-endpoint*)
-                                           (*sparql-endpoint*)))))
-                   
-               (when (*calculate-annotations?*) 
-                     (log-message "~%[~A]  ==Annotations==~%~A~% " 
-                                  (logkey) annotations)
+              (let-values (((result uri response query-time)
+                            (proxy-query (logkey)
+                                         rewritten-query-string
+                                         (if update?
+                                             (*sparql-update-endpoint*)
+                                             (*sparql-endpoint*)))))
+                
+                (when (*calculate-annotations?*) 
+                      (log-message "~%[~A]  ==Annotations==~%~A~% " 
+                                   (logkey) annotations)
 
-                     (log-message "~%[~A]  ==Queried Annotations==~%~A~% " 
-                                  (logkey) (try-safely "Getting Queried Annotations" annotations-query-strings
-                                                       (and annotations-query-strings
-                                                            (map (lambda (q)
-                                                                   (query-annotations q annotations-pairs))
-                                                                 annotations-query-strings)))))
+                      (log-message "~%[~A]  ==Queried Annotations==~%~A~% " 
+                                   (logkey) (try-safely "Getting Queried Annotations" annotations-query-strings
+                                                        (and annotations-query-strings
+                                                             (map (lambda (q)
+                                                                    (query-annotations q annotations-pairs))
+                                                                  annotations-query-strings)))))
 
-              (let ((headers (headers->list (response-headers response))))
-                (log-message "~%[~A]  ==Results==~%~A~%" 
-                             (logkey) (substring result 0 (min 1500 (string-length result))))
-                (mu-headers headers)
-                result)))))))        )
+                (let ((headers (headers->list (response-headers response))))
+                  (log-message "~%[~A]  ==Results==~%~A~%" 
+                               (logkey) (substring result 0 (min 1500 (string-length result))))
+                  (mu-headers headers)
+                  result)))))))        ))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Call Specification

@@ -1,13 +1,9 @@
 (use srfi-69 srfi-18 abnf lexgen)
 (require-extension mailbox)
 
-(define *debug?* (make-parameter #t))
-
 (define (debug-message str #!rest args)
-  (when (*debug?*)
+  (when (*debug-logging?*)
     (apply format (current-error-port) str args)))
-
-(define *cache-forms?* (make-parameter #t))
 
 (define *query-forms* (make-hash-table))
 
@@ -87,9 +83,8 @@
 (define get-query-prefix 
   (memoize
    (lambda (q)
-     (timed "Prefix Split"
      (let-values (((prefix body) (split-query-prefix q)))
-       prefix)))))
+       prefix))))
 
 (define get-query-body 
   (memoize
@@ -249,7 +244,7 @@
                            annotations annotations-query-strings annotations-pairs
                            deltas-query-string bindings update? key)
   (let-values (((pattern form-bindings) (make-query-pattern query-string)))
-    (let* ((make-form (lambda (q) (and q (timed "Make Form" (make-query-form q form-bindings))))))
+    (let* ((make-form (lambda (q) (and q (make-query-form q form-bindings)))))
       (list (irregex pattern)
             (make-form rewritten-query)
             (get-query-prefix rewritten-query)
@@ -275,7 +270,7 @@
                                   annotations annotations-query-strings annotations-pairs
                                   deltas-query-string bindings update?)
   (let ((key (logkey)) (rc (*read-constraint*)) (wc (*write-constraint*)))
-    (debug-message "[~A] Saving cache form~%" (logkey))
+    (debug-message "[~A] Saving cache form...~%" (logkey))
     (enqueue-cache-action!
      (lambda ()
        (parameterize ((logkey key)
@@ -285,7 +280,7 @@
                        (if form-match
                            (begin (debug-message "[~A] Already cached~%" key)
                                   #f)
-                           (timed "Cache Form"
+                           (timed "Generate Cache Form"
                                   (query-form-save! query-string 
                                                     rewritten-query-string
                                                     annotations
@@ -301,6 +296,7 @@
 (define (apply-constraints-with-form-cache* query-string
                                            read-constraint
                                            write-constraint)
+  (timed-let "Lookup"
    (let-values (((form-match cached-forms) (query-form-lookup query-string)))
      (if form-match
          (populate-cached-forms query-string form-match cached-forms)
@@ -334,7 +330,7 @@
                               (and deltas-query-string (replace-headers deltas-query-string))
                               bindings
                               update?
-                              ))))))))))
+                              )))))))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; memoization
@@ -374,5 +370,5 @@
 
 (define get-dependencies (memoize-save get-dependencies))
 
-(define apply-constraints-with-form-cache* (memoize-save apply-constraints-with-form-cache*))
+;; (define apply-constraints-with-form-cache* (memoize-save apply-constraints-with-form-cache*))
 

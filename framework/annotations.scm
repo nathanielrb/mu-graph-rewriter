@@ -115,7 +115,7 @@
                            vals))))
                   `((*values*
                      ,(map (lambda (val)
-                             (,vars ,(expand-namespace val)))
+                             `(,vars ,(expand-namespace val)))
                            vals))))
               bindings)))))
     ((@Prologue @Dataset @Using CONSTRUCT SELECT FILTER BIND |GROUP BY| OFFSET LIMIT INSERT DELETE) 

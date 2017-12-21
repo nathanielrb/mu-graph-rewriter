@@ -67,7 +67,14 @@
   (config-param "SEND_DELTAS" #f))
 
 (define *calculate-annotations?* 
-  (config-param "CALCULATE_ANNOTATIONS" #t))
+  (config-param "CALCULATE_ANNOTATIONS" #f))
 
 (define *calculate-potentials?* 
   (config-param "CALCULATE_POTENTIAL_GRAPHS" #f))
+
+(define *debug-logging?* (config-param "DEBUG_LOGGING" #f))
+
+(define *debug?* (config-param "DEBUG" #f))
+
+(define *cache-forms?* (config-param "CACHE_QUERY_FORMS" #t))
+

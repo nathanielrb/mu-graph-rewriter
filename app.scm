@@ -17,9 +17,9 @@
 
 (include "framework/rw.scm") ; factor up to s-sparql
 
-(include "framework/sparql-logic.scm")
+ (include "framework/sparql-logic.scm")
 
-(include "framework/annotations.scm")  
+ (include "framework/annotations.scm")  
 
 (include "framework/utility-transformations.scm")
 
@@ -49,7 +49,8 @@
 ;; Load
 (log-message "~%==Query Rewriter Service==")
 
-(when (*plugin*) (load-plugin (*plugin*)))
+(when (*plugin*)
+      (load (make-pathname (*plugin-dir*) (*plugin*) ".scm")))
 
 (log-message "~%Proxying to SPARQL endpoint: ~A " (*sparql-endpoint*))
 (log-message "~%and SPARQL update endpoint: ~A " (*sparql-update-endpoint*))
